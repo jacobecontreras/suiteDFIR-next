@@ -272,15 +272,16 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 ## 7. Process model details
 
 - **Unix:**
-  - Spawn with `std::process::Command` plus `pre_exec(|| { libc::setsid(); Ok(()) })`, which gives a new session with pgid = pid. This is the only `unsafe` in the process module; comment why.
+  - Spawn with `std::process::Command` plus `pre_exec(|| { libc::setsid(); Ok(()) })`, which gives a new session with pgid = pid. This is the only `unsafe` code that runs between fork and exec; comment why. Every other `unsafe` in `process` is an FFI call (`killpg` and `kill`; on Windows the calls below plus `QueryInformationJobObject`, `OpenProcess` and `WaitForSingleObject`) or takes ownership of a handle such a call returned (`OwnedHandle::from_raw_handle`), each commented.
   - Cancel: `killpg(pgid, SIGTERM)`, wait up to the spawn's configured grace (10 s for LEAPP, 30 s for backups), then `killpg(pgid, SIGKILL)`.
   - `process` also offers a stdout/stderr chunk callback (used for acquisition progress and prompt parsing) in addition to writing the log files.
-  - Reap the leader with `wait`, then poll `killpg(pgid, 0)` until `ESRCH` (up to 2 s) before reporting the tree gone.
+  - Reap the leader with `wait`, then poll `killpg(pgid, 0)` until `ESRCH` (up to 2 s) before reporting the tree gone. On Linux, members that exited but were never reaped (zombies under an init that does not reap, as in CI containers) count as gone.
+  - If the leader exits while other members of its group still run (for example after a SIGKILL of the onefile parent), they are stopped the same way (SIGTERM, grace, SIGKILL), so nothing of the tree outlives `wait`.
 - **Windows:**
   - Build the process with `std::process::Command` and `creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW)`.
   - `CreateJobObjectW` + `SetInformationJobObject(JobObjectExtendedLimitInformation, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)`, then `AssignProcessToJobObject(job, child.as_raw_handle())`. If assignment fails, `TerminateProcess` and error.
   - Resume the single thread: `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`, `Thread32First/Next` where `th32OwnerProcessID == child.id()` → `OpenThread(THREAD_SUSPEND_RESUME)` → `ResumeThread`.
-  - Cancel = `TerminateJobObject`. There is no graceful signal on Windows.
+  - Cancel = `TerminateJobObject`. There is no graceful signal on Windows. When the leader exits, whatever is left in the job is terminated too.
   - `windows-sys` features: `Win32_Foundation`, `Win32_Security`, `Win32_System_JobObjects`, `Win32_System_Threading`, `Win32_System_Diagnostics_ToolHelp`.
   - Stable std has no main-thread handle or raw attribute API, which is why this sequence is prescribed.
 - **Paths passed to LEAPP:** absolute via `std::path::absolute`, recorded verbatim in argv (password excepted). **Never** pass `\\?\`-prefixed paths (do not `canonicalize` for argv on Windows): LEAPP adds the prefix itself and checks `path[1] == ':'`. `Command::current_dir` cannot take verbatim paths, so the run dir must stay < 248 chars.
@@ -296,7 +297,7 @@ App directories come from Tauri path APIs (identifier `com.suitedfir.desktop`):
 <app_data>/instance.lock
 <app_data>/leapp/<tool>/<version>/{install.json, modules.json, bin/<entry> | squashfs-root/…}
 <app_data>/profiles/<tool>/<name>.<ilprofile|alprofile>
-<app_cache>/tmp/<run_id>/            per-run TMPDIR, deleted after the run
+<app_cache>/tmp/<run_id|acq_id>/     per-job TMPDIR, deleted after the job (tmp/ must be a plain dir)
 <app_log>/suitedfir.log              app log, truncated at 5 MB, never contains secrets
 ```
 

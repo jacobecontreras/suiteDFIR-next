@@ -198,13 +198,13 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 - **CLI:** accepts LEAPP's flags; writes the LEAPP output layout.
 - **Process shape:**
   - The parent re-execs itself as `--fake-worker` and forwards SIGTERM (Unix).
-  - Writes its own and the worker's PIDs to `FAKE_LEAPP_PIDFILE` if set.
+  - Writes its own and the worker's PIDs to `FAKE_LEAPP_PIDFILE` if set (`parent <pid>` and `worker <pid>` lines, written atomically).
 - **Output behavior:**
   - The worker appends `Screen_Output.html` records at `FAKE_LEAPP_INTERVAL_MS` (default 100) for `FAKE_LEAPP_LINES` (default 50) lines.
   - stdout is fully buffered until exit.
   - Creates `$TMPDIR/_MEIfake<pid>` and removes it on graceful exit.
   - Writes `_lava_data.lava` at the end.
-- **Module list:** `--list-modules-json <tool>` prints a small module list (for the dev override).
+- **Module list:** `--list-modules-json <tool>` prints a small module list as a `ToolModules` JSON object with version `dev-override` (for the dev override).
 - **Scenarios** (`FAKE_LEAPP_SCENARIO`): `success`, `artifact_error`, `invalid_input`, `early_exit`, `argparse_error`, `crash`, `prompt` (opens `/dev/tty` if possible, then reads stdin; EOF → traceback, exit 1), `slow`, `ignore_term` (ignores SIGTERM). Expected outcomes are in CONTRACTS.md §7.4.
 
 **Process tests (all three OSes):**
