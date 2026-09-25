@@ -280,9 +280,7 @@ impl Pacing {
             prompt_wait: Duration::from_millis(
                 number("FAKE_IDEVICE_PROMPT_MS")?.unwrap_or(default_prompt),
             ),
-            data_used: number("FAKE_IDEVICE_DATA_USED")?
-                .unwrap_or(DEFAULT_DATA_USED)
-                .min(DATA_CAPACITY),
+            data_used: number("FAKE_IDEVICE_DATA_USED")?.unwrap_or(DEFAULT_DATA_USED),
         })
     }
 }
@@ -1032,17 +1030,17 @@ fn device_info(simple: bool) -> plist::Value {
     )
 }
 
+/// The data partition grows with `data_used` beyond the default capacity.
 fn disk_usage(data_used: u64) -> plist::Value {
     let number = |value: u64| plist::Value::Integer(value.into());
+    let capacity = DATA_CAPACITY.max(data_used);
+    let system = 8 * 1024 * 1024 * 1024;
     plist::Value::Dictionary(
         [
-            (
-                "TotalDiskCapacity",
-                number(DATA_CAPACITY + 8 * 1024 * 1024 * 1024),
-            ),
-            ("TotalSystemCapacity", number(8 * 1024 * 1024 * 1024)),
-            ("TotalDataCapacity", number(DATA_CAPACITY)),
-            ("TotalDataAvailable", number(DATA_CAPACITY - data_used)),
+            ("TotalDiskCapacity", number(capacity.saturating_add(system))),
+            ("TotalSystemCapacity", number(system)),
+            ("TotalDataCapacity", number(capacity)),
+            ("TotalDataAvailable", number(capacity - data_used)),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value))

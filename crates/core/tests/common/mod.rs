@@ -99,7 +99,7 @@ fn test_binary_stem() -> String {
 }
 
 /// An [`Idevice`] on bundled tools in `tools_dir`.
-fn idevice(
+pub fn idevice(
     tools_dir: &Path,
     manifest: IdeviceToolsManifest,
     cache: &Path,
