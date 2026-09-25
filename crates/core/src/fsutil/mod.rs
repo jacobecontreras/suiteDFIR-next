@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -98,6 +99,17 @@ pub fn io_error_code(err: &io::Error) -> ErrorCode {
     } else {
         ErrorCode::Io
     }
+}
+
+/// Runs `op` (a rename or removal), retrying it on Windows for up to `budget` while it fails with a
+/// transient sharing, lock or access error: an antivirus scanner or the search indexer holding a
+/// just-written or just-run file open. On Unix `op` runs once. (The atomic writes above use their
+/// own fixed window of about 2.75 s.)
+pub(crate) fn retry_transient(
+    budget: Duration,
+    op: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    sys::retry_transient_within(budget, op)
 }
 
 /// Makes a file read-only: clears the write bits on Unix (0644 becomes 0444, 0600 becomes 0400),
