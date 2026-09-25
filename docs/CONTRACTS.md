@@ -685,16 +685,19 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 
 **Recovery:** a `running` record becomes `interrupted` (`app_interrupted`), and `recovered_at` is set. Then:
 - if `enabled_by_examiner` and `restored_after` ≠ `restored`: add `encryption_left_enabled`;
-- if the enable command ran (it is in `commands`) and its outcome is unknown, add `encryption_state_unknown`. The outcome is unknown when `will_encrypt_after_enable` is null, or when the command exited 0 but `WillEncrypt` still read false. Without an enable command nothing was changed on the device, so a null `will_encrypt_after_enable` adds no warning;
+- if the enable command ran (it is in `commands`) and its outcome is unknown, add `encryption_state_unknown`. The outcome is unknown when `will_encrypt_after_enable` is null, or when `WillEncrypt` still read false but the command did not exit with an error code (it exited 0, or its `exit_code` is null). Without an enable command nothing was changed on the device, so a null `will_encrypt_after_enable` adds no warning;
 - pending hash and seal statuses become `interrupted`.
 
 **Later restore:** each `acq_restore_encryption` attempt writes its own record and marks it read-only. The fields are `schema_version`, `acq_id`, `at`, `argv` without the password, `exit_code`, `will_encrypt_after`, `restored` and `tools`. `acquisition.json` is not modified.
-- `exit_code` is `null` when the process was killed by a signal.
+- `exit_code` is `null` when the process was killed by a signal or its exit could not be observed.
 - `will_encrypt_after` is `null` when `WillEncrypt` was unreadable.
 - `tools` has the same shape as in `acquisition.json`.
 - **Attempt files:**
   - The first attempt writes `encryption-restore.json`; later ones write `encryption-restore-2.json`, `encryption-restore-3.json`, … (`encryption-restore-<n>.json`, `n` ≥ 2, no leading zeros).
   - Each attempt takes the number after the highest attempt name already present, so a gap is never refilled and an existing file, readable or not, is never overwritten or rewritten.
+  - Names are matched ignoring ASCII case: on a case-insensitive volume, `encryption-restore-2.JSON` is attempt 2.
+  - The name is chosen and checked before `encryption off` runs. It must be free and the folder writable; otherwise the attempt is refused and the device is not touched.
+  - The file is created with no-replace semantics. Once the command has started, its attempt file is always written; `exit_code` is null if its exit could not be observed.
 - **Retry rule:** a failed attempt (`restored: false`) does not block a retry. Once any attempt file of this acquisition records `restored: true`, further attempts are refused with `restore_not_applicable`.
 - **Reading:** attempt files that cannot be read, are invalid or name another `acq_id` count as not restored. Other files in the folder are ignored.
 

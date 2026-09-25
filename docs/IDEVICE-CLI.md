@@ -118,7 +118,7 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 **Other messages:**
 - **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (1949-1977), with up to 50 attempts (`LOCK_ATTEMPTS`):
   - If Finder or iTunes holds the lock, every attempt would block, and the loop ends with `ERROR: timeout while locking for sync` (1973).
-  - Any other AFC error prints `ERROR: could not lock file! error code: <n>` (1967) and closes the lock file, but the loop has no `break`. It keeps trying with the closed handle, so that line repeats until the attempts run out, and then the timeout message follows.
+  - Any other AFC error prints `ERROR: could not lock file! error code: <n>` (1967) with that error's code, then closes the lock file and sets its handle to 0. But the loop has no `break`: every further attempt passes handle 0, which `afc_file_lock` rejects with `AFC_E_INVALID_ARG` (`afc.c:968-969`). So the line repeats with `error code: 7` until the attempts run out, and then the timeout message follows.
   - These go to **stderr** (exact strings, either one → `sync_lock_failed`). The tool then skips the backup without a final message and exits with `result_code` -1 (255 on Unix).
 - **On-device cancel:** `User has cancelled the backup process on the device.` (115), followed later by `Backup Aborted.`.
 - **File errors:** `Received an error message from device: <msg>` (1153, preceded by an empty line) → counted as `device_file_errors`.
@@ -169,4 +169,4 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 7. `ideviceinfo -s` field subset on current iOS for an unpaired device.
 8. The sync-lock failure string, and the behavior when Finder/iTunes is open.
 9. The `com.apple.mobile.backup` domain on a device that never had backup encryption set: a dictionary without `WillEncrypt` (read as false), or nothing at all (read as unknown, which blocks enabling encryption).
-10. Whether `WillEncrypt` reads `true` right after `encryption on` reports success, or only after a delay. Upstream once waited for a backup-domain-changed notification after enabling (the code commented out at 2260-2266). suiteDFIR treats "reported success, but `WillEncrypt` reads false" as an unknown outcome: it warns `encryption_state_unknown` and attempts the restore.
+10. Whether `WillEncrypt` reads `true` right after `encryption on` reports success, or only after a delay. Upstream once waited for a backup-domain-changed notification after enabling (the code commented out at 2260-2266). suiteDFIR treats "`WillEncrypt` reads false, but the tool reported success or its exit code is unknown" as an unknown outcome: it warns `encryption_state_unknown` and attempts the restore.

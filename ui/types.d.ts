@@ -540,7 +540,9 @@ export type AcqRestoreEncryptionResult = { restored: boolean; will_encrypt_after
 export type OpenAcqFileRequest = { case_path: string; acq_id: string; which: AcqFile };
 /**
  * `backup_path` = the absolute path of `backup/<udid>` when succeeded; `warnings` = warning codes,
- * so the Case screen can offer "Turn backup encryption off".
+ * so the Case screen can offer "Turn backup encryption off". The warnings are derived: once a
+ * later-restore attempt records `restored: true`, `encryption_left_enabled` and
+ * `encryption_state_unknown` are left out (`acquisition.json` keeps them).
  */
 export type AcqSummary = {
   acq_id: string;
