@@ -28,13 +28,23 @@ pub(super) fn set_read_only(path: &Path) -> io::Result<()> {
 /// short, bounded time. (A read-only target is refused by the caller before this is reached, so an
 /// access error here is transient.) NTFS journals the rename itself, so there is no directory sync.
 pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
+    retry_transient(|| fs::rename(from, to), RENAME_RETRIES, RENAME_BACKOFF)
+}
+
+/// Runs `op`, and again up to `retries` times while it fails with a transient sharing or access
+/// error, pausing `backoff` × the attempt number before each retry. Other errors end it at once.
+fn retry_transient(
+    mut op: impl FnMut() -> io::Result<()>,
+    retries: u32,
+    backoff: Duration,
+) -> io::Result<()> {
     let mut attempt = 0;
     loop {
-        match fs::rename(from, to) {
+        match op() {
             Ok(()) => return Ok(()),
-            Err(e) if attempt < RENAME_RETRIES && is_transient_rename_error(&e) => {
+            Err(e) if attempt < retries && is_transient_rename_error(&e) => {
                 attempt += 1;
-                std::thread::sleep(RENAME_BACKOFF * attempt);
+                std::thread::sleep(backoff * attempt);
             }
             Err(e) => return Err(e),
         }
@@ -152,9 +162,58 @@ mod tests {
     #[test]
     fn rename_gives_up_on_other_errors_at_once() {
         let dir = tempfile::tempdir().unwrap();
-        let start = Instant::now();
         let err = rename_replace(&dir.path().join("missing"), &dir.path().join("x")).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
-        assert!(start.elapsed() < Duration::from_millis(40));
+        // Counted, not timed: a non-transient error is not retried.
+        let mut calls = 0;
+        let err = retry_transient(
+            || {
+                calls += 1;
+                Err(io::Error::from(io::ErrorKind::NotFound))
+            },
+            RENAME_RETRIES,
+            Duration::ZERO,
+        )
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn transient_errors_are_retried_a_bounded_number_of_times() {
+        for code in [
+            ERROR_ACCESS_DENIED,
+            ERROR_SHARING_VIOLATION,
+            ERROR_LOCK_VIOLATION,
+        ] {
+            let mut calls = 0;
+            let err = retry_transient(
+                || {
+                    calls += 1;
+                    Err(io::Error::from_raw_os_error(i32::try_from(code).unwrap()))
+                },
+                RENAME_RETRIES,
+                Duration::ZERO,
+            )
+            .unwrap_err();
+            assert!(is_transient_rename_error(&err), "{code}");
+            assert_eq!(calls, RENAME_RETRIES + 1, "{code}");
+        }
+        // It stops as soon as the operation succeeds.
+        let mut calls = 0;
+        retry_transient(
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(io::Error::from_raw_os_error(32))
+                } else {
+                    Ok(())
+                }
+            },
+            RENAME_RETRIES,
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!(calls, 3);
     }
 }

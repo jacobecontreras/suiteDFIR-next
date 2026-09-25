@@ -196,9 +196,9 @@ struct Listed {
 /// - symlinks are counted, never followed or listed.
 ///
 /// `dir` must be a real folder strictly inside the manifest's folder, and the manifest must not
-/// exist yet (it is written atomically). `progress(files_done, files_total)` comes at most every
-/// [`PROGRESS_INTERVAL`] and once at the end. When `cancel` is set, hashing stops and nothing is
-/// written. Any read error fails the seal.
+/// exist yet (it is written atomically). `progress(files_done, files_total)` comes once when the
+/// file count is known (`files_done` 0), then at most every [`PROGRESS_INTERVAL`], and once at the
+/// end. When `cancel` is set, hashing stops and nothing is written. Any read error fails the seal.
 pub fn seal_tree(
     dir: &Path,
     manifest_path: &Path,
@@ -253,7 +253,9 @@ pub fn seal_tree(
     };
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
 
+    // The total is known once the walk is done: report it before hashing starts.
     let files_total = files.len() as u64;
+    progress(0, Some(files_total));
     let mut throttle = Throttle::new();
     let mut manifest = Vec::new();
     for file in &files {
@@ -821,22 +823,30 @@ mod tests {
         assert_eq!(outcome.manifest_sha256, None);
         assert!(!tree.run.join("report.sha256").exists());
         assert_eq!(outcome.seal("report.sha256").status, SealStatus::Cancelled);
-        // Cancelled from the progress callback, after the walk.
+        // Cancelled after the walk: the first progress callback (the file count, before any
+        // hashing) sets it, so nothing is hashed and nothing is written.
         let cancel = AtomicBool::new(false);
-        let mut big = vec![0u8; 3 * BUFFER_SIZE];
-        big[0] = 1;
-        tree.file("big", &big);
+        let mut calls = Vec::new();
         let outcome = seal_tree(
             &tree.run.join("report"),
             &tree.run.join("report.sha256"),
             &cancel,
-            |_, _| cancel.store(true, Ordering::Relaxed),
+            |done, total| {
+                calls.push((done, total));
+                cancel.store(true, Ordering::Relaxed);
+            },
         )
         .unwrap();
-        // Small trees finish before the first throttled callback; either way nothing is left.
-        if outcome.cancelled {
-            assert!(!tree.run.join("report.sha256").exists());
-        }
+        assert_eq!(calls, [(0, Some(5))], "no progress after the cancel");
+        assert!(outcome.cancelled);
+        assert_eq!((outcome.file_count, outcome.total_bytes), (0, 0));
+        assert_eq!(outcome.manifest_sha256, None);
+        assert!(!tree.run.join("report.sha256").exists());
+        let names: Vec<_> = fs::read_dir(&tree.run)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["report"], "no temp file either");
     }
 
     #[test]
@@ -854,7 +864,10 @@ mod tests {
             |done, total| calls.push((done, total)),
         )
         .unwrap();
+        // The total first, then (throttled) progress, then completion.
+        assert_eq!(calls.first(), Some(&(0, Some(3))));
         assert_eq!(calls.last(), Some(&(3, Some(3))));
+        assert!(calls.windows(2).all(|w| w[0].0 <= w[1].0));
     }
 
     #[test]
