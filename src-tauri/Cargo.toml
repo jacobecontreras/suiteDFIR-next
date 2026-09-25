@@ -9,6 +9,19 @@ publish.workspace = true
 [build-dependencies]
 tauri-build = { version = "~2.6", default-features = false, features = ["config-json"] }
 
+# Every direct dependency is on the allowlist in DEVELOPMENT.md §4.2, with the specs listed there.
 [dependencies]
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+suitedfir-core = { path = "../crates/core" }
 tauri = { version = "~2.11", default-features = false, features = ["wry", "common-controls-v6", "x11", "dbus"] }
 tauri-plugin-dialog = "2"
+# Free functions only (open_path, reveal_item_in_dir); the plugin is never registered.
+tauri-plugin-opener = "2"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+# The mock runtime for the E2 replay test (tauri::test).
+tauri = { version = "~2.11", default-features = false, features = ["wry", "common-controls-v6", "x11", "dbus", "test"] }

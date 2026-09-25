@@ -145,7 +145,8 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
     - Runs: on yes, it cancels, waits up to 30 s for finalize, then exits.
     - Acquisitions: on yes, it cancels, then waits for the cancel semantics in §6b (encryption restore may wait for the device passcode). It shows "finishing safely…" with a "Quit anyway" option. Quitting anyway leaves the record to be marked `interrupted` (with encryption warnings) on the next open.
   - The single-instance lock is `<app_data>/instance.lock` via `std::fs::File::try_lock`. A second instance shows a native message and exits before touching any state.
-  - Startup: acquire the lock → temp sweep → app log.
+  - Startup: acquire the lock → temp sweep → app log → settings → the main window. The window is declared with `create: false` in `tauri.conf.json` and opened by the shell once the lock is held, so a second instance never shows one.
+  - The job slot is freed just before a job's `finished` event is sent, so the UI can start the next job as soon as it sees `finished`. A later encryption restore occupies the slot too, but `job_active` does not report it (the Case screen waits for the command's answer).
 
 ### 5.3 `ui/` and `ui-dev/`
 
