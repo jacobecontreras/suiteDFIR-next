@@ -61,7 +61,7 @@ Where a bundle is implemented in stages, internal ordering follows the task edge
 - **Workspace and repo files:**
   - Cargo workspace: `crates/core` (`suitedfir-core`), `src-tauri` (`suitedfir`), `xtask`.
   - `rust-toolchain.toml`, `deny.toml` (DEVELOPMENT §4.2), `.cargo/config.toml` (xtask alias).
-  - `.gitattributes` (`* text=auto eol=lf`, `*.png binary`), `.editorconfig`, `.gitignore`, `.node-version`.
+  - `.gitattributes` (`* text=auto eol=lf`; `*.png`, `*.ico`, `*.icns` binary), `.editorconfig`, `.gitignore`, `.node-version`.
   - `[profile.dev.package.sha2] opt-level = 3`.
 - **Tauri app:**
   - `tauri` 2.11.x, `tauri-build` 2.6.x; identifier `com.suitedfir.desktop`, product `suiteDFIR`, version `0.2.0`.
