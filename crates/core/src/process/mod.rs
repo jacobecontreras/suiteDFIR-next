@@ -205,8 +205,11 @@ impl Handle {
     }
 
     /// Like [`Handle::wait`], but returns `Ok(None)` if the tree is still running after `timeout`.
+    /// A timeout too long for the clock to represent means no timeout.
     pub fn wait_timeout(&self, timeout: Duration) -> io::Result<Option<ExitInfo>> {
-        let deadline = Instant::now() + timeout;
+        let Some(deadline) = Instant::now().checked_add(timeout) else {
+            return self.wait().map(Some);
+        };
         let mut state = self.shared.lock();
         loop {
             if let Some(result) = &state.result {
@@ -465,14 +468,41 @@ fn supervise(
     kill_grace: Duration,
     timeout: Option<Duration>,
 ) -> io::Result<ExitInfo> {
-    let Started { mut child, tree } = started;
-    let result = supervise_tree(&mut child, &tree, shared, readers, kill_grace, timeout);
-    if result.is_err() {
-        // Never leave a tree behind, whatever failed.
-        let _ = tree.kill();
-        let _ = child.wait();
-    }
+    let Started { child, tree } = started;
+    let mut guard = TreeGuard {
+        child,
+        tree,
+        armed: true,
+    };
+    let result = supervise_tree(
+        &mut guard.child,
+        &guard.tree,
+        shared,
+        readers,
+        kill_grace,
+        timeout,
+    );
+    // On success the tree is already gone; on an error the guard kills it when dropped.
+    guard.armed = result.is_err();
     result
+}
+
+/// Kills and reaps the tree when dropped armed: after a supervisor error, and also if the
+/// supervisor thread unwinds (a bug), so the tree never outlives its supervision. (On Windows
+/// the job's kill-on-close would stop it anyway; on Unix nothing else would.)
+struct TreeGuard {
+    child: Child,
+    tree: sys::Tree,
+    armed: bool,
+}
+
+impl Drop for TreeGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.tree.kill();
+            let _ = self.child.wait();
+        }
+    }
 }
 
 fn supervise_tree(
@@ -483,7 +513,8 @@ fn supervise_tree(
     kill_grace: Duration,
     timeout: Option<Duration>,
 ) -> io::Result<ExitInfo> {
-    let deadline = timeout.map(|timeout| Instant::now() + timeout);
+    // A timeout the clock cannot represent means no timeout.
+    let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
     // 1. Wait for the leader to exit, a cancel or the timeout.
     let mut exited: Option<(ExitStatus, Observed)> = None;
     let mut stop = None;
@@ -546,7 +577,8 @@ fn stop_tree(
     if !sys::GRACEFUL_TERMINATE {
         return Ok(false);
     }
-    let deadline = Instant::now() + kill_grace;
+    // A grace the clock cannot represent means no escalation: wait as long as it takes.
+    let deadline = Instant::now().checked_add(kill_grace);
     loop {
         if exited.is_none()
             && let Some(status) = child.try_wait()?
@@ -556,7 +588,7 @@ fn stop_tree(
         if exited.is_some() && !tree.is_alive() {
             return Ok(false);
         }
-        if Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             break;
         }
         thread::sleep(POLL_INTERVAL);
@@ -567,12 +599,12 @@ fn stop_tree(
 
 /// Polls `done` until it returns true or `timeout` elapses; returns its last answer.
 fn poll_until(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + timeout;
+    let deadline = Instant::now().checked_add(timeout);
     loop {
         if done() {
             return true;
         }
-        if Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return false;
         }
         thread::sleep(POLL_INTERVAL);
@@ -1020,6 +1052,35 @@ mod tests {
             .unwrap();
         assert!(status.success(), "mklink /J failed: {status}");
         assert_linked_root_refused(cache.path(), outside.path());
+    }
+
+    #[test]
+    fn a_panicking_supervisor_still_stops_the_tree() {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("ping");
+            command.args(["-n", "30", "127.0.0.1"]);
+            command
+        } else {
+            let mut command = Command::new("sleep");
+            command.arg("30");
+            command
+        };
+        command.stdout(Stdio::null());
+        sys::configure(&mut command);
+        let mut child = command.spawn().unwrap();
+        let tree = sys::Tree::attach(&mut child).unwrap();
+        let watch = ProcessWatch::open(child.id());
+        assert!(watch.is_alive());
+        let unwound = panic::catch_unwind(AssertUnwindSafe(move || {
+            let _guard = TreeGuard {
+                child,
+                tree,
+                armed: true,
+            };
+            panic!("simulated supervisor bug");
+        }));
+        assert!(unwound.is_err());
+        assert!(!watch.is_alive());
     }
 
     #[test]

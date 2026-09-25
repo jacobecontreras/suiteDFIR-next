@@ -284,6 +284,43 @@ fn timeout_stops_the_tree() {
     tree.assert_gone_by(Instant::now() + CANCEL_BOUND);
 }
 
+/// A timeout the clock cannot represent means no timeout (it used to overflow `Instant`).
+#[test]
+fn an_unrepresentable_timeout_means_none() {
+    let fixture = Fixture::new();
+    let mut spec = fixture.spec("slow", &[]);
+    spec.timeout = Some(Duration::MAX);
+    let handle = process::spawn(spec).unwrap();
+    let tree = fixture.wait_for_tree();
+    assert_eq!(
+        handle.wait_timeout(Duration::from_millis(200)).unwrap(),
+        None
+    );
+    let cancelled = Instant::now();
+    handle.cancel();
+    let exit = handle.wait().unwrap();
+    assert!(exit.cancel_requested);
+    assert!(!exit.timed_out);
+    tree.assert_gone_by(cancelled + CANCEL_BOUND);
+    assert_eq!(handle.wait_timeout(Duration::MAX).unwrap(), Some(exit));
+}
+
+/// A kill grace the clock cannot represent means no escalation (it used to overflow `Instant`).
+#[test]
+fn an_unrepresentable_kill_grace_means_no_escalation() {
+    let fixture = Fixture::new();
+    let mut spec = fixture.spec("slow", &[]);
+    spec.kill_grace = Duration::MAX;
+    let handle = process::spawn(spec).unwrap();
+    let tree = fixture.wait_for_tree();
+    let cancelled = Instant::now();
+    handle.cancel();
+    let exit = handle.wait().unwrap();
+    assert!(exit.cancel_requested);
+    assert!(!exit.escalated_to_kill);
+    tree.assert_gone_by(cancelled + CANCEL_BOUND);
+}
+
 #[test]
 fn prompt_exits_within_5_seconds() {
     let fixture = Fixture::new();
