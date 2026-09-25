@@ -599,6 +599,15 @@ fn copy_verified(
     dest: &Path,
     cancel: &AtomicBool,
 ) -> Result<(), InstallError> {
+    // Checked before opening: Windows refuses to open a directory ("access denied"), which would
+    // otherwise be reported as permission_denied instead of "not a regular file".
+    let kind = fs::metadata(src).map_err(InstallError::io(format!("reading {}", src.display())))?;
+    if !kind.is_file() {
+        return Err(InstallError::Io {
+            context: format!("importing {}", src.display()),
+            source: io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"),
+        });
+    }
     let mut file =
         File::open(src).map_err(InstallError::io(format!("opening {}", src.display())))?;
     let metadata = file
@@ -1825,10 +1834,12 @@ mod tests {
             assert_eq!(error.code(), ErrorCode::HashMismatch, "{error}");
             case.assert_nothing_left();
         }
+        // A directory is refused the same way on every OS.
         let error = Run::default()
             .install(pinned, Source::File(dir.path()))
             .unwrap_err();
         assert_eq!(error.code(), ErrorCode::Io, "{error}");
+        assert!(error.to_string().contains("not a regular file"), "{error}");
         case.assert_nothing_left();
     }
 
