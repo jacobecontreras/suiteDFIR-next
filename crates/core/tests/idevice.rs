@@ -6,8 +6,9 @@ mod common;
 
 use std::fs;
 use std::process::Command;
-use std::sync::{Arc, Barrier};
+use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use common::{FAKE, Lab, UDID};
 use suitedfir_core::contracts::{
@@ -300,27 +301,51 @@ fn verified_tools_record_their_hashes() {
 
 #[test]
 fn polling_is_single_flight() {
-    let lab = Arc::new(Lab::new("success"));
-    let barrier = Arc::new(Barrier::new(3));
-    let threads: Vec<_> = (0..3)
-        .map(|_| {
-            let lab = Arc::clone(&lab);
-            let barrier = Arc::clone(&barrier);
-            thread::spawn(move || {
-                barrier.wait();
-                lab.idevice.list_devices(None)
-            })
-        })
-        .collect();
-    let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
-    assert!(results.iter().all(|r| *r == results[0]));
-    // One poll ran for all three calls (they started together; a poll takes several commands).
+    // The fake holds `idevice_id -l` until the release file exists, so the first poll stays in
+    // flight while the other calls arrive.
+    let hold_dir = tempfile::tempdir().unwrap();
+    let release = hold_dir.path().join("release");
+    let lab = Arc::new(Lab::with_env(
+        "success",
+        &[("FAKE_IDEVICE_HOLD", release.to_str().unwrap())],
+    ));
+    let poll = |lab: &Arc<Lab>| {
+        let lab = Arc::clone(lab);
+        thread::spawn(move || lab.idevice.list_devices(None))
+    };
+    let wait_for = |what: &str, mut done: Box<dyn FnMut() -> bool>| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            thread::sleep(Duration::from_millis(10));
+        }
+    };
+    let leader = poll(&lab);
+    let probe = Arc::clone(&lab);
+    wait_for(
+        "the first poll to reach idevice_id",
+        Box::new(move || count(&probe.calls(), "idevice_id", "-l") == 1),
+    );
+    let followers = [poll(&lab), poll(&lab)];
+    let probe = Arc::clone(&lab);
+    wait_for(
+        "both calls to join the poll in flight",
+        Box::new(move || probe.idevice.polls_waiting() == 2),
+    );
+    fs::write(&release, "").unwrap();
+    let first = leader.join().unwrap();
+    for follower in followers {
+        assert_eq!(follower.join().unwrap(), first);
+    }
+    assert_eq!(first.devices.len(), 1);
+    // One poll ran for all three calls.
     assert_eq!(
         count(&lab.calls(), "idevice_id", "-l"),
         1,
         "{:?}",
         lab.calls()
     );
+    assert_eq!(lab.idevice.polls_waiting(), 0);
     // A later call polls again.
     lab.idevice.list_devices(None);
     assert_eq!(count(&lab.calls(), "idevice_id", "-l"), 2);

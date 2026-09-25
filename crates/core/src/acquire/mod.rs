@@ -1308,10 +1308,18 @@ pub fn restore_later(
             message,
         });
     }
+    log::info!(
+        "acquisition {acq_id}: later restore, running {}",
+        encryption_argv(&tools, udid, false).join(" ")
+    );
     let command = session.set_encryption(udid, false, &password, on_line)?;
     drop(password);
     let will_encrypt_after = session.will_encrypt(udid);
     let restored = will_encrypt_after == Some(false);
+    log::info!(
+        "acquisition {acq_id}: later restore exited with {:?}; WillEncrypt is {will_encrypt_after:?}",
+        command.exit.exit_code
+    );
     record::write_restore_record(
         &dir,
         &EncryptionRestoreRecord {

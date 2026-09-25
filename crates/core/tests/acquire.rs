@@ -1444,8 +1444,22 @@ fn the_password_never_leaks() {
             path.display()
         );
     }
-    // The app log.
+    // The app log: the job and the later restore logged their encryption commands (argv and
+    // exit), and none of it carries the password.
     let logged = LOGGED.get_or_init(Mutex::default).lock().unwrap().clone();
+    let ours: Vec<&String> = logged
+        .iter()
+        .filter(|line| line.contains(&outcome.record.acq_id))
+        .collect();
+    assert!(
+        ours.iter().any(|l| l.contains("encryption on")),
+        "the enable command was logged: {ours:?}"
+    );
+    assert!(
+        ours.iter().filter(|l| l.contains("encryption off")).count() >= 2,
+        "the restore and the later restore were logged: {ours:?}"
+    );
+    assert!(ours.iter().any(|l| l.contains("exited with")), "{ours:?}");
     for line in &logged {
         assert!(!needle.is_in(line), "log: {line}");
     }

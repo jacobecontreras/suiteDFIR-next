@@ -45,7 +45,8 @@
 //! `cancel_during_restore`) that an encryption change waits after its passcode prompt;
 //! `FAKE_IDEVICE_DATA_USED` (bytes, default 2 MiB) for the device's used data capacity. A slow
 //! backup (`slow`, `ignore_term`, `crash_after_enable`) writes its pid to `backup.pid` in the state
-//! dir and runs for up to 300 s.
+//! dir and runs for up to 300 s. With `FAKE_IDEVICE_HOLD=<path>`, `idevice_id -l` waits until that
+//! file exists (at most 15 s), so a test can keep a poll in flight.
 //!
 //! The only `unsafe` code is the libc signal handling in `signals` (Unix).
 
@@ -70,6 +71,8 @@ const SYSTEM_BUID: &str = "0C6F3A9E-2B7D-4C1E-8F5A-6D9B3E0A7C21";
 const OWNER_PASSWORD: &str = "fake-owner-backup-password";
 /// How long a slow backup runs unless it is stopped.
 const SLOW_RUN: Duration = Duration::from_secs(300);
+/// The longest `FAKE_IDEVICE_HOLD` wait (below the core's 20 s command timeout).
+const HOLD_LIMIT: Duration = Duration::from_secs(15);
 const DEFAULT_DATA_USED: u64 = 2 * 1024 * 1024;
 const DATA_CAPACITY: u64 = 64 * 1024 * 1024 * 1024;
 const STATE_FILE: &str = "state.json";
@@ -471,6 +474,13 @@ impl Fake {
         }
         if !parsed.has(&["-l", "--list"]) || !parsed.positional.is_empty() {
             return Err("suiteDFIR only runs `idevice_id -l`".to_owned());
+        }
+        // A test holds the device list until it creates this file (at most HOLD_LIMIT).
+        if let Some(hold) = env::var_os("FAKE_IDEVICE_HOLD") {
+            let until = Instant::now() + HOLD_LIMIT;
+            while !Path::new(&hold).exists() && Instant::now() < until {
+                thread::sleep(Duration::from_millis(10));
+            }
         }
         if self.scenario == Scenario::UsbmuxdMissing {
             eprintln!("ERROR: Unable to retrieve device list!");

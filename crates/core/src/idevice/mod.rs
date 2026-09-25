@@ -275,6 +275,14 @@ impl Idevice {
         lock(&self.paired_by_app).get(udid).copied()
     }
 
+    /// How many `devices_list` calls are waiting for the poll in flight (0 when none runs); for
+    /// diagnostics and the single-flight test.
+    pub fn polls_waiting(&self) -> u32 {
+        lock(&self.flight)
+            .as_ref()
+            .map_or(0, |flight| flight.waiters.load(Ordering::SeqCst))
+    }
+
     /// `devices_list` (ARCHITECTURE.md §6b step 1). Single-flight: a call made while another is
     /// running returns that call's result. It never pairs: `validate` runs only when `hostid`
     /// shows a host record, and `WillEncrypt` and disk usage are read only from paired devices.
@@ -466,11 +474,14 @@ fn query_device(
 struct Flight {
     result: Mutex<Option<DevicesResult>>,
     done: Condvar,
+    /// Calls waiting for this flight's result.
+    waiters: AtomicU32,
 }
 
 impl Flight {
     fn wait(&self) -> DevicesResult {
         let mut result = lock(&self.result);
+        self.waiters.fetch_add(1, Ordering::SeqCst);
         loop {
             if let Some(result) = result.as_ref() {
                 return result.clone();
