@@ -23,14 +23,16 @@ const COMPLETE: &str = "Complete";
 const ERROR: &str = "Error";
 const NO_FILES_FOUND: &str = "No files found";
 
-/// How the run got to analysis.
+/// How the run ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// Preparing the run failed (lifecycle step 2); `detail` is the cause.
     PrepareFailed { detail: String },
     /// LEAPP could not be started (step 4).
     SpawnFailed { detail: String },
-    /// LEAPP was started and its exit was observed (or it was cancelled first).
+    /// LEAPP was started and its exit was observed (or it was cancelled first). An observed exit
+    /// always comes with the analysis of `report/` (step 8), so the status never rests on the exit
+    /// code alone (ARCHITECTURE.md D8).
     Exited {
         /// `None` when the process was killed by a signal.
         exit_code: Option<i32>,
@@ -38,6 +40,8 @@ pub enum Outcome {
         signal: Option<i32>,
         /// A cancel was requested before the exit was observed.
         cancelled_before_exit: bool,
+        /// [`analyze_report`] of the run's `report/`.
+        report: ReportAnalysis,
     },
 }
 
@@ -175,8 +179,6 @@ impl AlwaysRun<'_> {
 #[derive(Clone, Copy, Debug)]
 pub struct StatusInput<'a> {
     pub outcome: &'a Outcome,
-    /// `None` when the output was not analyzed (checks 3–7 are then skipped).
-    pub analysis: Option<&'a ReportAnalysis>,
     pub always_run: AlwaysRun<'a>,
     /// See [`stderr_has_traceback`].
     pub stderr_traceback: bool,
@@ -195,7 +197,7 @@ pub struct Verdict {
     pub status: RunStatus,
     pub reasons: Vec<Reason>,
     pub warnings: Vec<Reason>,
-    /// `None` when the output was not analyzed.
+    /// `None` when LEAPP never ran (prepare or spawn failed), so there was no output to analyze.
     pub leapp_result: Option<LeappResult>,
 }
 
@@ -208,114 +210,122 @@ fn reason(code: &str, message: impl Into<String>) -> Reason {
 
 /// Applies CONTRACTS.md §7.3 exactly.
 pub fn evaluate(input: &StatusInput<'_>) -> Verdict {
-    let leapp_result = input.analysis.map(leapp_result);
-    let lava = match input.analysis.map(|a| &a.lava) {
-        Some(Lava::Parsed(data)) => Some(data),
-        _ => None,
-    };
-
-    // 1. Short-circuits: only this reason is recorded.
-    let short_circuit = match input.outcome {
-        Outcome::PrepareFailed { detail } => Some((
+    // 1. Short-circuits record only their reason; otherwise 2. and 3. evaluate every check.
+    let (status, reasons, analysis) = match input.outcome {
+        Outcome::PrepareFailed { detail } => (
             RunStatus::Failed,
-            reason(
+            vec![reason(
                 "prepare_failed",
                 format!("Preparing the run failed: {detail}"),
-            ),
-        )),
-        Outcome::SpawnFailed { detail } => Some((
+            )],
+            None,
+        ),
+        Outcome::SpawnFailed { detail } => (
             RunStatus::Failed,
-            reason(
+            vec![reason(
                 "spawn_failed",
                 format!("LEAPP could not be started: {detail}"),
-            ),
-        )),
+            )],
+            None,
+        ),
         Outcome::Exited {
             cancelled_before_exit: true,
+            report,
             ..
-        } => Some((
+        } => (
             RunStatus::Cancelled,
-            reason("cancelled_by_user", "The run was cancelled"),
-        )),
-        Outcome::Exited { .. } => None,
-    };
-
-    let (status, reasons) = match short_circuit {
-        Some((status, only)) => (status, vec![only]),
-        None => checks(input, lava),
+            vec![reason("cancelled_by_user", "The run was cancelled")],
+            Some(report),
+        ),
+        Outcome::Exited {
+            exit_code,
+            signal,
+            report,
+            ..
+        } => {
+            let (status, reasons) = checks(*exit_code, *signal, report, input.always_run);
+            (status, reasons, Some(report))
+        }
     };
     Verdict {
         status,
         reasons,
-        warnings: warnings(input, status, lava),
-        leapp_result,
+        warnings: warnings(input, status, analysis.and_then(parsed_lava)),
+        leapp_result: analysis.map(leapp_result),
     }
 }
 
-/// 2. and 3.: every check 3–8b, then the status.
-fn checks(input: &StatusInput<'_>, lava: Option<&LavaData>) -> (RunStatus, Vec<Reason>) {
+fn parsed_lava(analysis: &ReportAnalysis) -> Option<&LavaData> {
+    match &analysis.lava {
+        Lava::Parsed(data) => Some(data),
+        Lava::Missing | Lava::Unparsable(_) => None,
+    }
+}
+
+/// Steps 2 and 3: every check 3–8b, then the status. Checks 5 and 6 are skipped when the lava
+/// data was not parsed.
+fn checks(
+    exit_code: Option<i32>,
+    signal: Option<i32>,
+    analysis: &ReportAnalysis,
+    always_run: AlwaysRun<'_>,
+) -> (RunStatus, Vec<Reason>) {
+    let lava = parsed_lava(analysis);
     let mut reasons = Vec::new();
-    if let Some(analysis) = input.analysis {
-        if !analysis.dir_exists {
+    if !analysis.dir_exists {
+        reasons.push(reason(
+            "no_output_dir",
+            "LEAPP exited before creating output; see stdout",
+        ));
+    }
+    if analysis.dir_exists && lava.is_none() {
+        let detail = match &analysis.lava {
+            Lava::Unparsable(why) => format!("report/{LAVA_FILE} is unparsable: {why}"),
+            _ => format!("report/{LAVA_FILE} is missing"),
+        };
+        reasons.push(reason("lava_data_missing", detail));
+    }
+    if let Some(data) = lava {
+        let status = data.processing_status.as_deref();
+        if status != Some(COMPLETE) {
             reasons.push(reason(
-                "no_output_dir",
-                "LEAPP exited before creating output; see stdout",
+                "processing_incomplete",
+                format!(
+                    "LEAPP's processing status is {}, not Complete",
+                    status.map_or_else(|| "missing".to_owned(), |s| format!("{s:?}"))
+                ),
             ));
         }
-        if analysis.dir_exists && !matches!(analysis.lava, Lava::Parsed(_)) {
-            let detail = match &analysis.lava {
-                Lava::Unparsable(why) => format!("report/{LAVA_FILE} is unparsable: {why}"),
-                _ => format!("report/{LAVA_FILE} is missing"),
-            };
-            reasons.push(reason("lava_data_missing", detail));
-        }
-        if let Some(data) = lava {
-            let status = data.processing_status.as_deref();
-            if status != Some(COMPLETE) {
-                reasons.push(reason(
-                    "processing_incomplete",
-                    format!(
-                        "LEAPP's processing status is {}, not Complete",
-                        status.map_or_else(|| "missing".to_owned(), |s| format!("{s:?}"))
-                    ),
-                ));
-            }
-            if data.modules.iter().all(|m| input.always_run.contains(m)) {
-                reasons.push(reason(
-                    "no_modules_ran",
-                    "No modules ran besides the always-run ones (typical for invalid input or a \
-                     wrong backup password)",
-                ));
-            }
-        }
-        if analysis.dir_exists && !analysis.index_html_found {
+        if data.modules.iter().all(|m| always_run.contains(m)) {
             reasons.push(reason(
-                "index_html_missing",
-                format!("report/{INDEX_HTML} is missing"),
+                "no_modules_ran",
+                "No modules ran besides the always-run ones (typical for invalid input or a \
+                 wrong backup password)",
             ));
         }
     }
-    if let Outcome::Exited {
-        exit_code, signal, ..
-    } = input.outcome
-    {
-        if let Some(code) = exit_code.filter(|code| *code != 0) {
-            let note = if code == 2 {
-                " (LEAPP rejected its arguments)"
-            } else {
-                ""
-            };
-            reasons.push(reason(
-                "nonzero_exit",
-                format!("LEAPP exited with code {code}{note}"),
-            ));
-        }
-        if let Some(signal) = signal {
-            reasons.push(reason(
-                "killed_by_signal",
-                format!("LEAPP was killed by signal {signal}"),
-            ));
-        }
+    if analysis.dir_exists && !analysis.index_html_found {
+        reasons.push(reason(
+            "index_html_missing",
+            format!("report/{INDEX_HTML} is missing"),
+        ));
+    }
+    if let Some(code) = exit_code.filter(|code| *code != 0) {
+        let note = if code == 2 {
+            " (LEAPP rejected its arguments)"
+        } else {
+            ""
+        };
+        reasons.push(reason(
+            "nonzero_exit",
+            format!("LEAPP exited with code {code}{note}"),
+        ));
+    }
+    if let Some(signal) = signal {
+        reasons.push(reason(
+            "killed_by_signal",
+            format!("LEAPP was killed by signal {signal}"),
+        ));
     }
     if !reasons.is_empty() {
         return (RunStatus::Failed, reasons);
@@ -415,10 +425,7 @@ fn error_modules(lava: Option<&LavaData>) -> Vec<String> {
 
 /// `leapp_result` of the record.
 fn leapp_result(analysis: &ReportAnalysis) -> LeappResult {
-    let lava = match &analysis.lava {
-        Lava::Parsed(data) => Some(data),
-        _ => None,
-    };
+    let lava = parsed_lava(analysis);
     LeappResult {
         lava_data_found: !matches!(analysis.lava, Lava::Missing),
         processing_status: lava.and_then(|data| data.processing_status.clone()),
@@ -521,8 +528,25 @@ mod tests {
         }
     }
 
-    fn exited(code: i32) -> Outcome {
-        Outcome::Exited {
+    /// The process side of a test case. `Case` adds the report analysis to an exit, as the runner
+    /// does.
+    #[derive(Clone)]
+    enum Proc {
+        PrepareFailed {
+            detail: String,
+        },
+        SpawnFailed {
+            detail: String,
+        },
+        Exited {
+            exit_code: Option<i32>,
+            signal: Option<i32>,
+            cancelled_before_exit: bool,
+        },
+    }
+
+    fn exited(code: i32) -> Proc {
+        Proc::Exited {
             exit_code: Some(code),
             signal: None,
             cancelled_before_exit: false,
@@ -530,7 +554,7 @@ mod tests {
     }
 
     struct Case {
-        outcome: Outcome,
+        proc: Proc,
         analysis: Option<ReportAnalysis>,
         traceback: bool,
         input_hash: HashStatus,
@@ -540,9 +564,9 @@ mod tests {
     }
 
     impl Case {
-        fn new(outcome: Outcome, report: Option<&Report>) -> Self {
+        fn new(proc: Proc, report: Option<&Report>) -> Self {
             Self {
-                outcome,
+                proc,
                 analysis: report.map(Report::analysis),
                 traceback: false,
                 input_hash: HashStatus::NotApplicable,
@@ -552,10 +576,29 @@ mod tests {
             }
         }
 
+        fn outcome(&self) -> Outcome {
+            match self.proc.clone() {
+                Proc::PrepareFailed { detail } => Outcome::PrepareFailed { detail },
+                Proc::SpawnFailed { detail } => Outcome::SpawnFailed { detail },
+                Proc::Exited {
+                    exit_code,
+                    signal,
+                    cancelled_before_exit,
+                } => Outcome::Exited {
+                    exit_code,
+                    signal,
+                    cancelled_before_exit,
+                    report: self
+                        .analysis
+                        .clone()
+                        .expect("an observed exit always has a report analysis"),
+                },
+            }
+        }
+
         fn run(&self) -> Verdict {
             evaluate(&StatusInput {
-                outcome: &self.outcome,
-                analysis: self.analysis.as_ref(),
+                outcome: &self.outcome(),
                 always_run: AlwaysRun {
                     names: &self.always_run.0,
                     module_names: &self.always_run.1,
@@ -718,7 +761,7 @@ mod tests {
         for (exit_code, signal) in [(None, Some(15)), (None, Some(9)), (Some(1), None)] {
             let report = Report::empty();
             let verdict = Case::new(
-                Outcome::Exited {
+                Proc::Exited {
                     exit_code,
                     signal,
                     cancelled_before_exit: true,
@@ -738,13 +781,13 @@ mod tests {
         let report = Report::missing();
         for (outcome, code) in [
             (
-                Outcome::PrepareFailed {
+                Proc::PrepareFailed {
                     detail: "disk full".to_owned(),
                 },
                 "prepare_failed",
             ),
             (
-                Outcome::SpawnFailed {
+                Proc::SpawnFailed {
                     detail: "permission denied".to_owned(),
                 },
                 "spawn_failed",
@@ -757,7 +800,7 @@ mod tests {
             assert_verdict(&verdict, RunStatus::Failed, &[code], &[]);
         }
         let verdict = Case::new(
-            Outcome::PrepareFailed {
+            Proc::PrepareFailed {
                 detail: "disk full".to_owned(),
             },
             None,
@@ -769,7 +812,7 @@ mod tests {
         );
         // A cancel before exit wins over a nonzero exit and every failing check.
         let verdict = Case::new(
-            Outcome::Exited {
+            Proc::Exited {
                 exit_code: Some(2),
                 signal: None,
                 cancelled_before_exit: true,
@@ -895,7 +938,7 @@ mod tests {
         assert_eq!(verdict.reasons[0].message, "LEAPP exited with code 3");
         let verdict = Case::new(exited(-1), Some(&report)).run();
         assert_verdict(&verdict, RunStatus::Failed, &["nonzero_exit"], &[]);
-        let killed = Outcome::Exited {
+        let killed = Proc::Exited {
             exit_code: None,
             signal: Some(9),
             cancelled_before_exit: false,
@@ -906,18 +949,25 @@ mod tests {
     }
 
     #[test]
-    fn checks_without_analysis_use_the_exit_only() {
-        let verdict = Case::new(exited(0), None).run();
-        assert_verdict(&verdict, RunStatus::Succeeded, &[], &[]);
-        assert_eq!(verdict.leapp_result, None);
-        let verdict = Case::new(exited(1), None).run();
-        assert_verdict(&verdict, RunStatus::Failed, &["nonzero_exit"], &[]);
+    fn exit_zero_alone_never_succeeds() {
+        // D8: an observed exit always carries the report analysis, and exit 0 without a complete
+        // report is a failure.
+        for report in [
+            Report::missing(),
+            Report::empty(),
+            Report::empty().with_index(),
+            Report::empty().with_lava("Complete", &[]).with_index(),
+        ] {
+            let verdict = Case::new(exited(0), Some(&report)).run();
+            assert_eq!(verdict.status, RunStatus::Failed, "{verdict:#?}");
+            assert!(verdict.leapp_result.is_some(), "the result is recorded");
+        }
     }
 
     #[test]
     fn every_matching_check_is_recorded_in_order() {
         let report = Report::empty().with_lava("Aborted", &[]);
-        let killed = Outcome::Exited {
+        let killed = Proc::Exited {
             exit_code: Some(1),
             signal: Some(6),
             cancelled_before_exit: false,
@@ -1018,7 +1068,7 @@ mod tests {
             &["input_hash_cancelled"],
         );
         // A cancel before the exit: the run is cancelled, which already explains the hash.
-        case.outcome = Outcome::Exited {
+        case.proc = Proc::Exited {
             exit_code: None,
             signal: Some(15),
             cancelled_before_exit: true,
@@ -1035,7 +1085,7 @@ mod tests {
             HashStatus::NotRequested,
             HashStatus::NotApplicable,
         ] {
-            case.outcome = exited(0);
+            case.proc = exited(0);
             case.input_hash = status;
             assert_verdict(&case.run(), RunStatus::Succeeded, &[], &[]);
         }
@@ -1044,7 +1094,7 @@ mod tests {
     #[test]
     fn warnings_are_kept_on_short_circuits() {
         let mut case = Case::new(
-            Outcome::SpawnFailed {
+            Proc::SpawnFailed {
                 detail: "x".to_owned(),
             },
             None,
