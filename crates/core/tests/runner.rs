@@ -550,14 +550,27 @@ fn file_input(lab: &Lab, len: u64) -> PathBuf {
     path
 }
 
+/// A sparse input big enough that hashing it takes well over a second even on fast CPUs
+/// (SHA-256 runs at up to about 3 GB/s): 4 GiB where sparse files cost nothing, 2 GiB on Windows
+/// (NTFS allocates the extended size; that CPU hashes more slowly than the fastest Macs).
+const LONG_HASH_BYTES: u64 = if cfg!(windows) { 2 << 30 } else { 4 << 30 };
+
 #[test]
 fn the_input_is_hashed_concurrently_with_leapp() {
     let lab = Lab::new();
-    let input = file_input(&lab, 16 << 20);
+    let input = file_input(&lab, LONG_HASH_BYTES);
     let mut request = lab.request(ToolId::Ileapp, &input, InputType::Zip);
     request.hash_input = true;
+    // fake-leapp writes for about 3 s: 300 lines, 10 ms apart.
     let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
+        lab.context(
+            ToolId::Ileapp,
+            "success",
+            &[
+                ("FAKE_LEAPP_LINES", "300"),
+                ("FAKE_LEAPP_INTERVAL_MS", "10"),
+            ],
+        ),
         request,
         |_, _| {},
     );
@@ -568,10 +581,44 @@ fn the_input_is_hashed_concurrently_with_leapp() {
         hash.value.as_deref(),
         Some(hashing::sha256_file(&input).unwrap().as_str())
     );
-    // Hashing (step 3) starts before LEAPP is spawned (step 4) and runs beside it.
+    // Hashing (step 3) starts before LEAPP is spawned (step 4).
     let (started, spawned) = (hash.started_at.unwrap(), record.started_at.unwrap());
     assert!(started <= spawned, "{started} {spawned}");
     assert!(hash.completed_at.is_some());
+    // And it runs beside LEAPP: while LEAPP runs (before its stdio tails), each 250 ms poll emits
+    // the new log lines, then the hash progress that arrived since. Hash progress on both sides
+    // of a log batch means the hash advanced across polls while LEAPP was writing. (Hashing
+    // before the spawn would drain all its progress at the first poll; hashing after the exit
+    // would come after the stdio tails.)
+    let running: Vec<&RunEvent> = events
+        .iter()
+        .take_while(|e| !matches!(e, RunEvent::StdioTail { .. }))
+        .collect();
+    let first_progress = running
+        .iter()
+        .position(|e| matches!(e, RunEvent::HashProgress { .. }))
+        .expect("hash progress while LEAPP ran");
+    let log_after = first_progress
+        + running[first_progress..]
+            .iter()
+            .position(|e| matches!(e, RunEvent::Log { .. }))
+            .expect("LEAPP logged after the first hash progress");
+    let progress_while_running: Vec<(u64, u64)> = running[log_after..]
+        .iter()
+        .filter_map(|e| match e {
+            RunEvent::HashProgress {
+                bytes_done,
+                bytes_total,
+            } => Some((*bytes_done, *bytes_total)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        progress_while_running
+            .iter()
+            .any(|(done, total)| done < total),
+        "no hash progress between LEAPP's log batches: {progress_while_running:?}"
+    );
     let progress: Vec<(u64, u64)> = events
         .iter()
         .filter_map(|e| match e {
@@ -582,19 +629,19 @@ fn the_input_is_hashed_concurrently_with_leapp() {
             _ => None,
         })
         .collect();
-    assert_eq!(progress.last(), Some(&(16 << 20, 16 << 20)));
-    assert_eq!(record.input.size_bytes, Some(16 << 20));
+    assert_eq!(progress.last(), Some(&(LONG_HASH_BYTES, LONG_HASH_BYTES)));
+    assert_eq!(record.input.size_bytes, Some(LONG_HASH_BYTES));
 }
 
 #[test]
 fn a_cancel_after_the_exit_only_stops_hashing() {
     let lab = Lab::new();
-    // Big enough that hashing outlasts fake-leapp's few lines.
-    let input = file_input(&lab, 1 << 30);
+    // Hashing outlasts fake-leapp (one line) by far more than a second.
+    let input = file_input(&lab, LONG_HASH_BYTES);
     let mut request = lab.request(ToolId::Ileapp, &input, InputType::Zip);
     request.hash_input = true;
     let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[("FAKE_LEAPP_LINES", "3")]),
+        lab.context(ToolId::Ileapp, "success", &[("FAKE_LEAPP_LINES", "1")]),
         request,
         |event, control| {
             if matches!(
@@ -805,6 +852,31 @@ fn an_input_inside_the_cases_acquisitions_records_its_id() {
     );
 }
 
+/// Another known case whose `acquisitions/` cannot be read is skipped (logged) when the input's
+/// acquisition id is looked up: it never blocks a run. Unix only (a folder without permissions).
+#[cfg(unix)]
+#[test]
+fn an_unreadable_acquisitions_folder_of_another_case_does_not_block_runs() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut lab = Lab::new();
+    let mut fields = examples::case_fields();
+    fields.name = "Other case".to_owned();
+    let other = case::create(&lab.root.path().join("cases"), &fields).unwrap();
+    settings::touch_recent(&mut lab.settings, &other.path.to_string_lossy());
+    let locked = other.path.join("acquisitions");
+    fs::create_dir_all(&locked).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let (outcome, events) = run(
+        lab.context(ToolId::Ileapp, "success", &[]),
+        lab.fs_request(ToolId::Ileapp),
+        |_, _| {},
+    );
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    assert_eq!(record.input.acquisition_id, None);
+}
+
 #[test]
 fn the_backup_password_never_leaks() {
     let lab = Lab::new();
@@ -843,6 +915,73 @@ fn the_backup_password_never_leaks() {
             }
         }
     }
+}
+
+// ---- the final write ----
+
+/// The final `run.json` cannot be written (the run folder became unwritable just before it):
+/// `finished` says `failed` with `record_write_failed`, the record on disk stays `running`, and
+/// the next case open recovers it as `interrupted` (ARCHITECTURE.md §6 step 10). Unix only: a
+/// read-only folder does not stop file creation on Windows. (Written but not made read-only is
+/// covered by the unit tests of `run::record` and `runner`.)
+#[cfg(unix)]
+#[test]
+fn a_final_record_that_cannot_be_written_is_recovered_later() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let lab = Lab::new();
+    let run_folder = std::cell::RefCell::new(None::<PathBuf>);
+    let (outcome, events) = run(
+        lab.context(ToolId::Ileapp, "success", &[]),
+        lab.fs_request(ToolId::Ileapp),
+        |event, _| {
+            if matches!(
+                event,
+                RunEvent::Phase {
+                    phase: RunPhase::Finalizing
+                }
+            ) {
+                let dir = lab.run_dirs().pop().unwrap();
+                fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+                *run_folder.borrow_mut() = Some(dir);
+            }
+        },
+    );
+    let dir = run_folder.into_inner().expect("the Finalizing phase came");
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(outcome.write_error.is_some());
+    let finished = events.last().unwrap();
+    let RunEvent::Finished {
+        status,
+        reasons,
+        summary,
+        ..
+    } = finished
+    else {
+        panic!("the last event is {finished:?}");
+    };
+    assert_eq!(*status, RunStatus::Failed);
+    assert_eq!(codes(reasons), ["record_write_failed"]);
+    assert_eq!(summary.status, RunStatus::Failed);
+    // On disk the record is still the initial one, and the next case open recovers it.
+    assert_eq!(read_record(&dir).status, RunStatus::Running);
+    let recovered = suitedfir_core::run::record::recover_case(
+        &lab.case.path,
+        None,
+        suitedfir_core::contracts::Timestamp::now(),
+    )
+    .unwrap();
+    assert_eq!(recovered, [outcome.record.run_id.as_str()]);
+    let record = read_record(&dir);
+    assert_eq!(record.status, RunStatus::Interrupted);
+    assert_eq!(codes(&record.status_reasons), ["app_interrupted"]);
+    assert!(
+        fs::metadata(dir.join("run.json"))
+            .unwrap()
+            .permissions()
+            .readonly()
+    );
 }
 
 // ---- prepare and spawn failures ----

@@ -127,6 +127,15 @@ pub enum AcqError {
         #[source]
         source: io::Error,
     },
+    /// The final `acquisition.json` was written (complete, with its status) but could not be made
+    /// read-only, e.g. on a share that refuses permission changes. The record on disk is final:
+    /// recovery never touches it.
+    #[error("{path} was written but could not be made read-only: {source}")]
+    NotReadOnly {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
 }
 
 /// Why `acq_restore_encryption` is refused with `restore_not_applicable`.
@@ -179,7 +188,9 @@ impl AcqError {
             | Self::FolderMismatch { .. }
             | Self::Invalid { .. }
             | Self::NoFreeId { .. } => ErrorCode::Internal,
-            Self::Io { source, .. } => fsutil::io_error_code(source),
+            Self::Io { source, .. } | Self::NotReadOnly { source, .. } => {
+                fsutil::io_error_code(source)
+            }
         }
     }
 
@@ -223,6 +234,9 @@ impl AcqError {
                     .to_owned(),
             },
             Self::Io { .. } => "The acquisition folder could not be read or written.".to_owned(),
+            Self::NotReadOnly { .. } => {
+                "The acquisition record was written but could not be made read-only.".to_owned()
+            }
             _ => "The acquisition record could not be written.".to_owned(),
         }
     }
@@ -502,8 +516,47 @@ pub struct AcqOutcome {
     pub record: AcquisitionRecord,
     pub summary: AcqSummary,
     /// The final write failed: the record on disk stays `running` and is recovered on the next
-    /// open; `finished` reported `failed` with `record_write_failed`.
+    /// open; `finished` reported `failed` with `record_write_failed`. (A record that was written
+    /// but could not be made read-only is final: no error here, only a log line.)
     pub write_error: Option<String>,
+}
+
+/// What `finished` reports after the final write (ARCHITECTURE.md §6b step 11), and the write
+/// error for [`AcqOutcome::write_error`]: the record's status and reasons when it was written,
+/// also when it could not be made read-only ([`AcqError::NotReadOnly`]: the final record is on
+/// disk; logged); otherwise `failed` with `record_write_failed` (the record on disk stays
+/// `running` and becomes `interrupted` when the case is next opened).
+fn finished_verdict(
+    record: &AcquisitionRecord,
+    write: Result<(), AcqError>,
+) -> (AcqStatus, Vec<Reason>, Option<String>) {
+    match write {
+        Ok(()) => (record.status, record.status_reasons.clone(), None),
+        Err(e @ AcqError::NotReadOnly { .. }) => {
+            log::error!(
+                "acquisition {}: {e}; the record is final but writable",
+                record.acq_id
+            );
+            (record.status, record.status_reasons.clone(), None)
+        }
+        Err(e) => {
+            log::error!(
+                "the final record of acquisition {} could not be written: {e}",
+                record.acq_id
+            );
+            (
+                AcqStatus::Failed,
+                vec![Reason {
+                    code: "record_write_failed".to_owned(),
+                    message: format!(
+                        "The final acquisition.json could not be written ({e}); the \
+                         acquisition will show as interrupted when the case is next opened"
+                    ),
+                }],
+                Some(e.to_string()),
+            )
+        }
+    }
 }
 
 /// Emits events, batching log lines and throttling progress.
@@ -691,29 +744,12 @@ impl AcqJob {
                 self.acq_id
             );
         }
-        let write_error = record::finalize(&self.acq_dir, &mut record, Timestamp::now())
-            .err()
-            .map(|e| {
-                log::error!(
-                    "the final record of acquisition {} could not be written: {e}",
-                    self.acq_id
-                );
-                e.to_string()
-            });
+        let write = record::finalize(&self.acq_dir, &mut record, Timestamp::now());
         let summary = record::summary(&DiscoveredAcq {
             dir: self.acq_dir.clone(),
             record: record.clone(),
         });
-        let (status, reasons) = match &write_error {
-            None => (record.status, record.status_reasons.clone()),
-            Some(error) => (
-                AcqStatus::Failed,
-                vec![Reason {
-                    code: "record_write_failed".to_owned(),
-                    message: format!("The final acquisition.json could not be written: {error}"),
-                }],
-            ),
-        };
+        let (status, reasons, write_error) = finished_verdict(&record, write);
         let mut finished_summary = summary.clone();
         finished_summary.status = status;
         events.flush_lines();
@@ -1383,6 +1419,31 @@ fn later_restore_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finished_reports_the_record_or_record_write_failed() {
+        let record = crate::contracts::examples::acquisition_record();
+        assert_eq!(record.status, AcqStatus::Succeeded);
+        let written = finished_verdict(&record, Ok(()));
+        assert_eq!(
+            written,
+            (record.status, record.status_reasons.clone(), None)
+        );
+        // Written, but not made read-only: the final record is on disk, so its status stands.
+        let not_read_only = AcqError::NotReadOnly {
+            path: "acquisition.json".to_owned(),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        assert_eq!(finished_verdict(&record, Err(not_read_only)), written);
+        // Not written: the record on disk stays running (interrupted on the next open).
+        let failed = AcqError::io(Path::new("acquisition.json"), io::Error::other("disk full"));
+        let (status, reasons, error) = finished_verdict(&record, Err(failed));
+        assert_eq!(status, AcqStatus::Failed);
+        assert_eq!(reasons.len(), 1);
+        assert_eq!(reasons[0].code, "record_write_failed");
+        assert!(reasons[0].message.contains("interrupted"), "{reasons:?}");
+        assert_eq!(error.as_deref(), Some("acquisition.json: disk full"));
+    }
 
     #[test]
     fn preflight_levels() {

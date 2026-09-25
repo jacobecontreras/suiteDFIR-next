@@ -1071,6 +1071,56 @@ fn crash_after_enable_is_recovered() {
     assert!(sweep.failed.is_empty(), "{sweep:?}");
 }
 
+/// The final `acquisition.json` cannot be written (the folder became unwritable just before it):
+/// `finished` says `failed` with `record_write_failed`, the record on disk stays `running`, and
+/// the next case open recovers it as `interrupted` (ARCHITECTURE.md §6b step 11). Unix only: a
+/// read-only folder does not stop file creation on Windows. (Written but not made read-only is
+/// covered by the unit tests of `acquire`.)
+#[cfg(unix)]
+#[test]
+fn a_final_record_that_cannot_be_written_is_recovered_later() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let lab = Lab::new("success");
+    let case = new_case(&lab);
+    let folder = std::cell::RefCell::new(None::<PathBuf>);
+    let (outcome, events) = acquire(&lab, &case, request(&case, None), |event, _| {
+        if matches!(
+            event,
+            AcqEvent::Phase {
+                phase: AcqPhase::Finalizing
+            }
+        ) {
+            let dir = acquire::discover(&case.path).unwrap().remove(0).dir;
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+            *folder.borrow_mut() = Some(dir);
+        }
+    });
+    let dir = folder.into_inner().expect("the Finalizing phase came");
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(outcome.write_error.is_some());
+    let finished = events.last().unwrap();
+    let AcqEvent::Finished {
+        status,
+        reasons,
+        summary,
+        ..
+    } = finished
+    else {
+        panic!("the last event is {finished:?}");
+    };
+    assert_eq!(*status, AcqStatus::Failed);
+    assert_eq!(codes(reasons), ["record_write_failed"]);
+    assert_eq!(summary.status, AcqStatus::Failed);
+    assert_eq!(read_record(&dir).status, AcqStatus::Running);
+    let recovered = acquire::recover_case(&case.path, None, Timestamp::now()).unwrap();
+    assert_eq!(recovered, [outcome.record.acq_id.as_str()]);
+    let record = read_record(&dir);
+    assert_eq!(record.status, AcqStatus::Interrupted);
+    assert_eq!(codes(&record.status_reasons), ["app_interrupted"]);
+}
+
 // ---- later restore ----
 
 #[test]

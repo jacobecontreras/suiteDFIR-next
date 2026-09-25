@@ -291,8 +291,18 @@ pub fn recover_case(
 }
 
 /// The final write shared by [`finalize`] and [`recover`]: refuse if the record on disk is already
-/// final (read-only, or any status but `running`), then write atomically and mark read-only.
+/// final (read-only, or any status but `running`), then write atomically and mark read-only
+/// ([`AcqError::NotReadOnly`] when only that last step fails).
 fn write_final(acq_dir: &Path, record: &AcquisitionRecord) -> Result<(), AcqError> {
+    write_final_marking(acq_dir, record, fsutil::set_read_only)
+}
+
+/// [`write_final`] with the read-only step passed in (tests make it fail).
+fn write_final_marking(
+    acq_dir: &Path,
+    record: &AcquisitionRecord,
+    mark_read_only: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), AcqError> {
     check_folder(acq_dir, &record.acq_id)?;
     let file = acq_dir.join(ACQ_FILE);
     let already = || AcqError::AlreadyFinalized {
@@ -311,7 +321,10 @@ fn write_final(acq_dir: &Path, record: &AcquisitionRecord) -> Result<(), AcqErro
         Err(e) => return Err(AcqError::io(&file, e)),
     }
     fsutil::write_json_atomic(&file, record).map_err(|e| AcqError::io(&file, e))?;
-    fsutil::set_read_only(&file).map_err(|e| AcqError::io(&file, e))
+    mark_read_only(&file).map_err(|source| AcqError::NotReadOnly {
+        path: file.display().to_string(),
+        source,
+    })
 }
 
 fn read_record(file: &Path) -> Result<AcquisitionRecord, AcqError> {
@@ -682,7 +695,7 @@ mod tests {
     use super::*;
 
     use crate::contracts::{
-        AcqCommand, AcqCommandPurpose, AcqPairing, RestoreState, Seal, examples,
+        AcqCommand, AcqCommandPurpose, AcqPairing, ErrorCode, RestoreState, Seal, examples,
     };
     use crate::fsutil::test_support::make_writable;
 
@@ -796,6 +809,29 @@ mod tests {
         );
         assert_eq!(fs::read(dir.join(ACQ_FILE)).unwrap(), sealed);
         make_writable(&dir.join(ACQ_FILE));
+    }
+
+    #[test]
+    fn a_final_record_that_cannot_be_made_read_only_is_still_final() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = dir_for(case.path(), ACQ_ID);
+        write_initial(&dir, &running()).unwrap();
+        let record = examples::acquisition_record();
+        // E.g. a share that refuses permission changes.
+        let err = write_final_marking(&dir, &record, |_| {
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        })
+        .unwrap_err();
+        assert!(matches!(err, AcqError::NotReadOnly { .. }), "{err:?}");
+        assert_eq!(err.code(), ErrorCode::PermissionDenied);
+        // The complete final record is on disk, writable, and recovery leaves it alone.
+        assert_eq!(read(&dir), record);
+        assert!(!is_read_only(&dir));
+        assert_eq!(
+            recover_case(case.path(), None, at("2026-09-25T00:00:00Z")).unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(read(&dir), record);
     }
 
     #[test]

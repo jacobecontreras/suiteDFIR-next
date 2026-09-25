@@ -68,6 +68,15 @@ pub enum RecordError {
         #[source]
         source: io::Error,
     },
+    /// The final record was written (atomically, complete, with its status) but could not be
+    /// made read-only, e.g. on a share that refuses permission changes. The record on disk is
+    /// final: recovery never touches it.
+    #[error("{path} was written but could not be made read-only: {source}")]
+    NotReadOnly {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
 }
 
 impl RecordError {
@@ -81,7 +90,9 @@ impl RecordError {
     /// The `AppError` code (CONTRACTS.md §12). Everything except I/O is a program error.
     pub fn code(&self) -> ErrorCode {
         match self {
-            Self::Io { source, .. } => fsutil::io_error_code(source),
+            Self::Io { source, .. } | Self::NotReadOnly { source, .. } => {
+                fsutil::io_error_code(source)
+            }
             _ => ErrorCode::Internal,
         }
     }
@@ -421,8 +432,18 @@ pub fn recover_case(
 }
 
 /// The final write shared by [`finalize`] and [`recover`]: refuse if the record on disk is already
-/// final (read-only, or any status but `running`), then write atomically and mark read-only.
+/// final (read-only, or any status but `running`), then write atomically and mark read-only
+/// ([`RecordError::NotReadOnly`] when only that last step fails).
 fn write_final(run_dir: &Path, record: &RunRecord) -> Result<(), RecordError> {
+    write_final_marking(run_dir, record, fsutil::set_read_only)
+}
+
+/// [`write_final`] with the read-only step passed in (tests make it fail).
+fn write_final_marking(
+    run_dir: &Path,
+    record: &RunRecord,
+    mark_read_only: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), RecordError> {
     check_folder(run_dir, record)?;
     let file = run_dir.join(RUN_FILE);
     let already = || RecordError::AlreadyFinalized {
@@ -446,7 +467,10 @@ fn write_final(run_dir: &Path, record: &RunRecord) -> Result<(), RecordError> {
         Err(e) => return Err(RecordError::io(&file, e)),
     }
     fsutil::write_json_atomic(&file, record).map_err(|e| RecordError::io(&file, e))?;
-    fsutil::set_read_only(&file).map_err(|e| RecordError::io(&file, e))
+    mark_read_only(&file).map_err(|source| RecordError::NotReadOnly {
+        path: file.display().to_string(),
+        source,
+    })
 }
 
 /// The record must live in the folder named after its run id.
@@ -721,6 +745,34 @@ mod tests {
             "{err:?}"
         );
         assert_eq!(read(&dir).ended_at, Some(at("2026-09-24T18:52:41Z")));
+    }
+
+    #[test]
+    fn a_final_record_that_cannot_be_made_read_only_is_still_final() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = run_dir(case.path());
+        let initial = initial_record(setup_from_example()).unwrap();
+        write_initial(&dir, &initial).unwrap();
+        let mut record = finished(initial);
+        record.ended_at = Some(at("2026-09-24T18:52:41Z"));
+        record.duration_ms = Some(1_356_000);
+        // E.g. a share that refuses permission changes.
+        let err = write_final_marking(&dir, &record, |_| {
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        })
+        .unwrap_err();
+        assert!(matches!(err, RecordError::NotReadOnly { .. }), "{err:?}");
+        assert_eq!(err.code(), ErrorCode::PermissionDenied);
+        // The complete final record is on disk, writable, and recovery leaves it alone.
+        assert_eq!(read(&dir), record);
+        assert!(!is_read_only(&dir));
+        let mut stale = record.clone();
+        stale.status = RunStatus::Running;
+        assert!(matches!(
+            recover(&dir, &mut stale, at("2026-09-25T00:00:00Z")).unwrap_err(),
+            RecordError::AlreadyFinalized { .. }
+        ));
+        assert_eq!(read(&dir), record);
     }
 
     #[test]

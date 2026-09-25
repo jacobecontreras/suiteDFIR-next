@@ -32,12 +32,14 @@ use std::thread;
 use crate::acquire;
 use crate::case::{self, DiscoveredRun};
 use crate::contracts::{
-    AppError, CaseFile, EntryVerifiedAgainst, ErrorCode, HashStatus, InputKind, InputType,
-    InstallSource, ModuleMode, ModulesFile, PlatformKey, Reason, RecordHost, RunCommand, RunEvent,
-    RunInput, RunOptions, RunPhase, RunProcess, RunRecord, RunRequest, RunStatus, RunSummary,
-    RunTool, Seal, SealStatus, Settings, StdStream, Timestamp, ToolId, ToolManifest, ToolState,
-    VersionedFile, parse_versioned,
+    AppError, CaseFile, ErrorCode, HashStatus, InputKind, InputType, ModuleMode, ModulesFile,
+    Reason, RecordHost, RunCommand, RunEvent, RunInput, RunOptions, RunPhase, RunProcess,
+    RunRecord, RunRequest, RunStatus, RunSummary, RunTool, Seal, SealStatus, Settings, StdStream,
+    Timestamp, ToolId, ToolManifest, ToolState, VersionedFile, parse_versioned,
 };
+// Only the debug-build dev override uses these.
+#[cfg(debug_assertions)]
+use crate::contracts::{EntryVerifiedAgainst, InstallSource, PlatformKey};
 use crate::fsutil;
 use crate::hashing::{self, HashOutcome};
 use crate::inspect::{self, OverlapContext};
@@ -346,15 +348,7 @@ pub fn start(request: RunRequest, ctx: RunContext) -> Result<RunJob, AppError> {
         .join(format!("00000000-000000Z-{tool}-000000"));
     check_run_dir_length(&would_be, ctx.max_run_dir_chars)?;
 
-    let acquisition_id =
-        acquire::acquisition_id_for_input(&input, std::iter::once(&ctx.case_dir).chain(&known))
-            .map_err(|e| {
-                app_error(
-                    fsutil::io_error_code(&e),
-                    "The case's acquisitions could not be read",
-                    Some(e.to_string()),
-                )
-            })?;
+    let acquisition_id = acquisition_id_for_input(&input, &ctx.case_dir, &known)?;
 
     let run_input = RunInput {
         // The path as LEAPP gets it: absolute, never canonicalized (ARCHITECTURE.md §7).
@@ -407,6 +401,37 @@ pub fn start(request: RunRequest, ctx: RunContext) -> Result<RunJob, AppError> {
         },
         control: Arc::new(RunControl::default()),
     })
+}
+
+/// `input.acquisition_id`: the acquisition of the run's own case, then of any other known case,
+/// whose folder holds the input. The own case's `acquisitions/` must be readable; an unreadable
+/// one in another case is skipped with a logged warning, so one unrelated case never blocks runs.
+fn acquisition_id_for_input(
+    input: &Path,
+    case_dir: &Path,
+    known: &[PathBuf],
+) -> Result<Option<String>, AppError> {
+    let own = acquire::acquisition_id_for_input(input, [case_dir]).map_err(|e| {
+        app_error(
+            fsutil::io_error_code(&e),
+            "The case's acquisitions could not be read",
+            Some(e.to_string()),
+        )
+    })?;
+    if own.is_some() {
+        return Ok(own);
+    }
+    for other in known.iter().filter(|other| other.as_path() != case_dir) {
+        match acquire::acquisition_id_for_input(input, [other]) {
+            Ok(Some(id)) => return Ok(Some(id)),
+            Ok(None) => {}
+            Err(e) => log::warn!(
+                "skipping the acquisitions of {} for the run's input: {e}",
+                other.display()
+            ),
+        }
+    }
+    Ok(None)
 }
 
 /// The keychain file: iLEAPP only, a readable regular file that passes the overlap rule; always
@@ -623,7 +648,8 @@ pub struct RunOutcome {
     pub record: RunRecord,
     pub summary: RunSummary,
     /// The final write failed: the record on disk stays `running` and becomes `interrupted` on the
-    /// next open; `finished` reported `failed` with `record_write_failed`.
+    /// next open; `finished` reported `failed` with `record_write_failed`. (A record that was
+    /// written but could not be made read-only is final: no error here, only a log line.)
     pub write_error: Option<String>,
 }
 
@@ -1105,27 +1131,8 @@ impl RunJob {
             dir: self.run_dir.clone(),
             record: record.clone(),
         });
-        let (status, reasons, write_error) = match write {
-            Ok(()) => (record.status, record.status_reasons.clone(), None),
-            Err(e) => {
-                log::error!(
-                    "run {}: the final run.json could not be written: {e}",
-                    self.run_id()
-                );
-                summary.status = RunStatus::Failed;
-                (
-                    RunStatus::Failed,
-                    vec![Reason {
-                        code: RECORD_WRITE_FAILED.to_owned(),
-                        message: format!(
-                            "The final run.json could not be written ({e}); the run will show \
-                             as interrupted when the case is next opened"
-                        ),
-                    }],
-                    Some(e.to_string()),
-                )
-            }
-        };
+        let (status, reasons, write_error) = finished_verdict(&record, write);
+        summary.status = status;
         on_event(RunEvent::Finished {
             status,
             reasons,
@@ -1136,6 +1143,46 @@ impl RunJob {
             record,
             summary,
             write_error,
+        }
+    }
+}
+
+/// What `finished` reports after the final write (ARCHITECTURE.md §6 step 10), and the write error
+/// for [`RunOutcome::write_error`]:
+/// - written: the record's status and reasons;
+/// - written but not made read-only ([`record::RecordError::NotReadOnly`]): the final record is
+///   on disk with its real status, so `finished` reports it too; the problem is logged;
+/// - not written: `failed` with `record_write_failed`; the record on disk stays `running` and
+///   becomes `interrupted` when the case is next opened.
+fn finished_verdict(
+    record: &RunRecord,
+    write: Result<(), record::RecordError>,
+) -> (RunStatus, Vec<Reason>, Option<String>) {
+    match write {
+        Ok(()) => (record.status, record.status_reasons.clone(), None),
+        Err(e @ record::RecordError::NotReadOnly { .. }) => {
+            log::error!(
+                "run {}: {e}; the record is final but writable",
+                record.run_id
+            );
+            (record.status, record.status_reasons.clone(), None)
+        }
+        Err(e) => {
+            log::error!(
+                "run {}: the final run.json could not be written: {e}",
+                record.run_id
+            );
+            (
+                RunStatus::Failed,
+                vec![Reason {
+                    code: RECORD_WRITE_FAILED.to_owned(),
+                    message: format!(
+                        "The final run.json could not be written ({e}); the run will show as \
+                         interrupted when the case is next opened"
+                    ),
+                }],
+                Some(e.to_string()),
+            )
         }
     }
 }
@@ -1224,5 +1271,42 @@ fn pending_record(setup: RunSetup) -> RunRecord {
             stderr: STDERR_LOG.to_owned(),
             screen_output: record::SCREEN_OUTPUT.to_owned(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::contracts::examples;
+
+    #[test]
+    fn finished_reports_the_record_or_record_write_failed() {
+        let record = examples::run_record();
+        assert_eq!(record.status, RunStatus::CompletedWithErrors);
+        let written = finished_verdict(&record, Ok(()));
+        assert_eq!(
+            written,
+            (record.status, record.status_reasons.clone(), None)
+        );
+
+        // Written, but not made read-only: the final record is on disk, so its status stands.
+        let not_read_only = record::RecordError::NotReadOnly {
+            path: "run.json".to_owned(),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        assert_eq!(finished_verdict(&record, Err(not_read_only)), written);
+
+        // Not written: the record on disk stays running (interrupted on the next open).
+        let failed = record::RecordError::Io {
+            path: "run.json".to_owned(),
+            source: io::Error::other("disk full"),
+        };
+        let (status, reasons, error) = finished_verdict(&record, Err(failed));
+        assert_eq!(status, RunStatus::Failed);
+        assert_eq!(reasons.len(), 1);
+        assert_eq!(reasons[0].code, RECORD_WRITE_FAILED);
+        assert!(reasons[0].message.contains("interrupted"), "{reasons:?}");
+        assert_eq!(error.as_deref(), Some("run.json: disk full"));
     }
 }
