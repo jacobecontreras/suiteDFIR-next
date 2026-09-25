@@ -47,6 +47,7 @@ use crate::contracts::{
 use crate::hashing::to_hex;
 use crate::leapp::install::InstallError;
 use crate::process::{self, ExitInfo, SpawnSpec};
+use crate::run::status::AlwaysRun;
 
 /// Introspection is stopped and fails after this long (LEAPP-CLI.md §5 step 2).
 pub const TIMEOUT: Duration = Duration::from_secs(180);
@@ -224,6 +225,16 @@ pub struct AlwaysRunSet {
     pub names: Vec<String>,
     /// The always-run plugins' module names, from the encoded tool rules.
     pub module_names: Vec<String>,
+}
+
+impl AlwaysRunSet {
+    /// The set as the status rules take it.
+    pub fn for_status(&self) -> AlwaysRun<'_> {
+        AlwaysRun {
+            names: &self.names,
+            module_names: &self.module_names,
+        }
+    }
 }
 
 /// The always-run entries for a run of `tool` with `input_type`, given the tool's
@@ -849,6 +860,9 @@ mod tests {
             ["itunes_backup_info", "itunes_backup_installed_applications"]
         );
         assert_eq!(set.module_names, ["iTunesBackupInfo"]);
+        let status = set.for_status();
+        assert_eq!(status.names, set.names.as_slice());
+        assert_eq!(status.module_names, set.module_names.as_slice());
         for input_type in [InputType::Tar, InputType::Zip, InputType::Raw] {
             assert_eq!(
                 always_run(ToolId::Ileapp, &ileapp.always_run, input_type).names,
