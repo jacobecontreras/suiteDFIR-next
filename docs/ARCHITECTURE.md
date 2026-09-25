@@ -301,6 +301,8 @@ App directories come from Tauri path APIs (identifier `com.suitedfir.desktop`):
 <app_log>/suitedfir.log              app log, truncated at 5 MB, never contains secrets
 ```
 
+Module introspection (LEAPP-CLI.md §5) also uses a per-job temp dir, with a run-id-shaped name (`YYYYMMDD-HHMMSSZ-<ileapp|aleapp>-<6 lowercase hex>`); it is only a directory name under `<app_cache>/tmp`, so it never collides with a real run's folder.
+
 The tools dir (`<app_data>/leapp` by default) can be overridden in settings for machines where AppLocker/WDAC allows execution only from approved paths. It may not be inside a case folder.
 
 A case folder (default parent `<Documents>/suiteDFIR Cases/`):

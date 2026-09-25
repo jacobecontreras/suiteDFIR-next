@@ -1,17 +1,114 @@
-# Real-LEAPP smoke tests (ROADMAP E3). Skeleton: it exists on main so later tasks can dispatch
-# their branch's version with `gh workflow run leapp-smoke.yml --ref <branch>` (DEVELOPMENT.md §6).
+# Real-LEAPP smoke tests (ROADMAP A3; E3 adds runs): the ignored tests in
+# crates/core/tests/leapp_smoke.rs download the pinned LEAPP builds for the runner's platform,
+# install them through the core and introspect them.
+#
+# While the repository is private this workflow is dispatch-only and Linux-only (DEVELOPMENT.md §6):
+#   gh workflow run leapp-smoke.yml --ref <branch>
+# macOS and Windows smoke runs happen on local machines (mac-gate.sh --smoke, win-test.sh --smoke).
+# Once the repository is public: add a weekly `schedule` and `pull_request` with paths
+# leapp-manifest.json, crates/core/src/leapp/**, crates/core/src/process/**,
+# crates/core/tests/leapp_smoke.rs and this file, plus the macos-15, macos-15-intel, windows-2025
+# and ubuntu-24.04-arm (+ ubuntu:22.04 container) runners.
 name: leapp-smoke
 
 on:
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  smoke:
-    name: LEAPP smoke (Linux)
+  linux:
+    name: LEAPP smoke (Linux x64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # glibc baseline for Linux builds (ARCHITECTURE.md §10); also checks that the AppImages extract
+    # and run there (LEAPP-CLI.md §9).
+    container: ubuntu:22.04
+    timeout-minutes: 45
+    env:
+      # The toolchain and the cargo registry belong to the unprivileged `builder` user (see below).
+      CARGO_HOME: /home/builder/.cargo
+      RUSTUP_HOME: /home/builder/.rustup
+    defaults:
+      run:
+        # Cargo steps run as the unprivileged `builder` user, never as root, like ci-rust.yml. Only
+        # the setup steps that need root say `shell: bash`.
+        shell: setpriv --reuid=builder --regid=builder --init-groups env HOME=/home/builder USER=builder LOGNAME=builder bash --noprofile --norc -eo pipefail {0}
     steps:
-      - name: Not implemented
-        run: echo "not implemented"
+      # git must exist before checkout, otherwise actions/checkout falls back to a REST download
+      # without .git. build-essential: the TLS crate compiles C code.
+      - name: Install system packages
+        shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git build-essential curl
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same uid as the owner of the mounted workspace, so the user can read the runner's step scripts
+      # and write the runner's file commands.
+      - name: Create the unprivileged build user
+        shell: bash
+        run: |
+          uid="$(stat -c %u "$GITHUB_WORKSPACE")"
+          if [ "$uid" -eq 0 ]; then
+            echo "::error::$GITHUB_WORKSPACE is owned by root; cannot choose an unprivileged uid"
+            exit 1
+          fi
+          useradd --create-home --uid "$uid" --user-group --shell /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          id builder
+
+      - name: Check that the smoke steps run unprivileged
+        run: |
+          echo "smoke steps run as: $(id)"
+          if [ "$(id -u)" -eq 0 ]; then
+            echo "::error::smoke steps must not run as root"
+            exit 1
+          fi
+
+      - name: Install Rust (pinned rustup-init; toolchain from rust-toolchain.toml)
+        env:
+          # Same pinned rustup-init as ci-rust.yml.
+          RUSTUP_INIT_VERSION: "1.29.1"
+          RUSTUP_INIT_SHA256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+        run: |
+          dl="$(mktemp -d)"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$dl/rustup-init" \
+            "https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+          echo "${RUSTUP_INIT_SHA256}  $dl/rustup-init" | sha256sum -c -
+          chmod +x "$dl/rustup-init"
+          "$dl/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$CARGO_HOME/bin:$PATH"
+          rustup toolchain install
+          rustc --version
+
+      - name: Build the smoke tests
+        run: cargo test -p suitedfir-core --test leapp_smoke --locked --no-run
+
+      - name: Real-LEAPP smoke tests
+        run: |
+          cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1 \
+            2>&1 | tee leapp-smoke.log
+
+      - name: Upload the smoke log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: leapp-smoke-linux-x64
+          path: leapp-smoke.log
+          if-no-files-found: warn
+          retention-days: 1

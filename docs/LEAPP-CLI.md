@@ -101,15 +101,26 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP
 **Procedure:**
 
 1. Create a temp dir containing:
-   - `probe_artifacts/suitedfir_probe.py`:
+   - `probe_artifacts/suitedfir_probe.py` (`leapp::modules::PROBE_SOURCE`). The dict keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function:
      ```python
      __artifacts_v2__ = {
          "suitedfir_probe": {
-             "name": "suiteDFIR probe", "description": "", "author": "", "version": "1",
-             "date": "", "requirements": "", "category": "suiteDFIR", "notes": "",
-             "paths": ("*/suitedfir_probe.marker",), "output_types": [], "function": "suitedfir_probe",
+             "name": "suiteDFIR probe",
+             "description": "Lists the artifacts of this build for suiteDFIR",
+             "author": "suiteDFIR",
+             "creation_date": "2026-09-25",
+             "last_update_date": "2026-09-25",
+             "requirements": "none",
+             "category": "suiteDFIR",
+             "notes": "",
+             "paths": ("*/suitedfir_probe.marker",),
+             "output_types": [],
+             "artifact_icon": "list",
+             "function": "suitedfir_probe",
          }
      }
+
+
      def suitedfir_probe(files_found, report_folder, seeker, wrap_text, *args):
          import json, os
          from scripts.plugin_loader import PluginLoader
@@ -123,20 +134,25 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP
              out["timezones"] = list(pytz.all_timezones)
          except Exception:
              out["timezones"] = None
-         with open(os.environ["SUITEDFIR_PROBE_OUT"], "w", encoding="utf-8") as f:
+         path = os.environ["SUITEDFIR_PROBE_OUT"]
+         with open(path + ".partial", "w", encoding="utf-8") as f:
              json.dump(out, f)
+         os.replace(path + ".partial", path)
      ```
-     Model the dict keys on a current upstream artifact at the pinned tag and adjust if the loader requires more.
+     `PluginLoader()` without arguments loads only the built-in artifacts, so the probe does not list itself.
    - `input/suitedfir_probe.marker` (non-empty dir, avoiding the exit-2 case).
    - An empty `out/`.
    - `probe.<ext>` = `{"leapp": "<tool>", "format_version": 1, "plugins": ["suitedfir_probe"]}`.
-2. Run `<entry> -t fs -i <tmp>/input -o <tmp>/out --custom_output_folder probe --custom_artifacts_path <tmp>/probe_artifacts -m <tmp>/probe.<ext>` through `process` (same session/job and temp rules) with `SUITEDFIR_PROBE_OUT` set. Timeout 180 s, then cancel and fail with `introspection_failed`.
+2. Run `<entry> -t fs -i <tmp>/input -o <tmp>/out --custom_output_folder probe --custom_artifacts_path <tmp>/probe_artifacts -m <tmp>/probe.<ext>` through `process` (same session/job and temp rules) with `SUITEDFIR_PROBE_OUT` set. The temp dir is `<app_cache>/tmp/<id>` with a run-id-shaped `id` (`YYYYMMDD-HHMMSSZ-<ileapp|aleapp>-<6 lowercase hex>`), which the `process` temp-dir functions require; it is only a directory name under `<app_cache>/tmp`, so it never collides with a real run's folder. Timeout 180 s, then cancel and fail with `introspection_failed`. The exit code is not used; the probe's output decides.
 3. Read the JSON, drop the probe itself, and apply the tool's rules:
    - **iLEAPP v2026.4.2:**
      - Selection excludes `module_name == "iTunesBackupInfo"`, `name == "last_build"`, and `module_name == "logarchive" and name != "logarchive"`.
-     - `always_run`: `default: ["last_build"]`. With `-t itunes`, `last_build` is replaced by `itunes_backup_info` and `itunes_backup_installed_applications` (from source; exact names UNVERIFIED until E3).
-   - **aLEAPP v2026.4.1:** nothing is excluded from the plugin list except that plugins with `module_name == "usagestatsVersion"` are removed from the selectable list and always run first (`aleapp.py:206-212, 329`). `always_run.default` = those plugins' names.
-4. Fewer than 500 modules → `introspection_failed`.
+     - `always_run`: `default: ["last_build"]`. With `-t itunes`, `last_build` is replaced by `itunes_backup_info` and `itunes_backup_installed_applications` (from source; that they run this way is UNVERIFIED until E3).
+     - The always-run plugins' module names (which the status rules also match, CONTRACTS.md §7.3) are `lastBuild` and `iTunesBackupInfo`.
+     - `timezones` = the probe's `pytz.all_timezones`; a missing or empty list fails (runs validate `-tz` against it, D19).
+   - **aLEAPP v2026.4.1:** nothing is excluded from the plugin list except that plugins with `module_name == "usagestatsVersion"` are removed from the selectable list and always run first (`aleapp.py:206-212, 329`). `always_run.default` = those plugins' names (`["usagestatsVersion"]`). `timezones` is `null`.
+   - Introspection checks the binary against these rules: each always-run artifact must exist in its encoded module, and no selectable plugin may be in an always-run module. Otherwise it fails with `introspection_failed` (the rules are stale for that binary).
+4. Fewer than 500 selectable modules → `introspection_failed`.
 
 ## 6. Output layout (`<o>/<custom_output_folder>/`)
 
