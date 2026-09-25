@@ -1,0 +1,23 @@
+{
+  "budget_ms": 100,
+  "results": [
+    {
+      "query": "history",
+      "modules": 1300,
+      "runs": 7,
+      "render_ms_median": 11.6,
+      "filter_ms_median": 4.1,
+      "total_ms_median": 15.7,
+      "total_ms_max": 33.3
+    },
+    {
+      "query": "a",
+      "modules": 1300,
+      "runs": 7,
+      "render_ms_median": 10.9,
+      "filter_ms_median": 18.1,
+      "total_ms_median": 29,
+      "total_ms_max": 36.6
+    }
+  ]
+}
