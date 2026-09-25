@@ -1260,6 +1260,12 @@ input[type="radio"] {
   background: var(--bg);
 }
 
+/* Off-screen groups skip rendering, so searches that open many groups stay fast. */
+.picker-group {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 33px;
+}
+
 .picker-group + .picker-group {
   border-top: 1px solid var(--border);
 }

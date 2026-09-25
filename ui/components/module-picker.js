@@ -161,8 +161,10 @@ export function modulePicker(spec) {
     groupList,
   );
 
+  /** Whether each module matches the current search (all true without one). */
+  const shown = modules.map(() => true);
   /** @param {number} i */
-  const isShown = (i) => tokens.length === 0 || matchesTokens(texts[i], tokens);
+  const isShown = (i) => shown[i];
 
   /** @param {GroupView} g */
   function shownNames(g) {
@@ -241,7 +243,14 @@ export function modulePicker(spec) {
 
   function applyFilter() {
     let shownGroups = 0;
-    for (let i = 0; i < rows.length; i++) rows[i].hidden = !isShown(i);
+    for (let i = 0; i < rows.length; i++) {
+      const match = tokens.length === 0 || matchesTokens(texts[i], tokens);
+      // Touch only rows whose visibility changes, to keep style and layout work small.
+      if (match !== shown[i]) {
+        shown[i] = match;
+        rows[i].hidden = !match;
+      }
+    }
     for (const g of groups) {
       const anyShown = g.members.some(isShown);
       g.node.hidden = !anyShown;

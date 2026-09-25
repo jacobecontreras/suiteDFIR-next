@@ -458,7 +458,8 @@ const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.l
 
 /**
  * Render + filter of 1,300 fixture modules in the module picker, measured in the page with
- * performance.now() (DEVELOPMENT.md §4.6, ROADMAP D3). Layout is forced before each reading.
+ * performance.now() (DEVELOPMENT.md §4.6, ROADMAP D3). The picker is placed in view and layout is
+ * forced before each reading.
  * @param {Page} page
  * @param {string} query
  */
@@ -475,8 +476,10 @@ async function measurePicker(page, query) {
       const { modulePicker } = await import(pickerUrl);
       const { makeModules } = await import(fixtureUrl);
       const list = makeModules("ileapp", 1300);
+      // In view at the top of the page, as an examiner sees it (off-screen content is not rendered).
       const host = document.createElement("div");
-      document.body.append(host);
+      document.body.prepend(host);
+      window.scrollTo(0, 0);
       const t0 = performance.now();
       const picker = modulePicker({ modules: list, selected: [], toolLabel: "iLEAPP", onChange() {} });
       host.append(picker.node);
