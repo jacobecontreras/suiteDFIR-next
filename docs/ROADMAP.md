@@ -247,7 +247,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 ### C3 Hashing and inspection
 
 - **Input hashing:** `hashing::sha256_file_with_progress` (1 MiB buffer, ≤ 10 progress callbacks/s, cancellable).
-- **Seal:** `hashing::seal_tree(dir, manifest_path, cancel)` writes a manifest per CONTRACTS §8 (GNU escaping, sorted, symlinks counted, not listed) and returns the manifest hash, count, bytes, warnings and a `cancelled` flag. It is used for `report.sha256` (runs) and `backup.sha256` (acquisitions).
+- **Seal:** `hashing::seal_tree(dir, manifest_path, cancel, progress)` (progress feeds the `seal_progress` events) writes a manifest per CONTRACTS §8 (GNU escaping, sorted, symlinks counted, not listed) and returns the manifest hash, count, bytes, warnings and a `cancelled` flag. It is used for `report.sha256` (runs) and `backup.sha256` (acquisitions).
 - **`inspect`:**
   - Kind and size.
   - Type detection: a directory with `Manifest.db`/`Manifest.plist` → `itunes` (iLEAPP), else `fs`. `.zip` → `zip`, `.tar` → `tar`, `.gz`/`.tgz` → `gz`, `.e01`/`.dd`/`.img`/`.bin`/`.raw`/`.001` → `raw`, any other file → `file` (iLEAPP) or `invalid_input` (aLEAPP).
