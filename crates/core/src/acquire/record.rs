@@ -451,22 +451,37 @@ pub fn summary(acq: &DiscoveredAcq) -> AcqSummary {
     }
 }
 
-/// `run.json`'s `input.acquisition_id`: the id of the acquisition of `case_dir` whose folder holds
-/// `input`, else `None`. Paths are compared as `fsutil::path_within` does (links resolved).
-pub fn acquisition_id_for_input(input: &Path, case_dir: &Path) -> io::Result<Option<String>> {
-    let root = case_dir.join(ACQUISITIONS_DIR);
-    let entries = match fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    for entry in entries {
-        let entry = entry?;
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
+/// `run.json`'s `input.acquisition_id` (CONTRACTS.md §7.1: "the `acq_id` when the input lies inside
+/// a case's `acquisitions/<acq_id>/`"): the id of the acquisition folder that holds `input`, in any
+/// of `case_dirs`, else `None`.
+///
+/// Scope: the caller (E1a's `run_start`) passes every known case folder, the run's own case first,
+/// since an acquisition of another known case is a valid input too. A folder counts only if it has
+/// an acquisition id as its name and a valid `acquisition.json` naming it. Case folders that no
+/// longer exist are skipped. Paths are compared as `fsutil::path_within` does (links resolved).
+pub fn acquisition_id_for_input<P: AsRef<Path>>(
+    input: &Path,
+    case_dirs: impl IntoIterator<Item = P>,
+) -> io::Result<Option<String>> {
+    for case_dir in case_dirs {
+        let case_dir = case_dir.as_ref();
+        let root = case_dir.join(ACQUISITIONS_DIR);
+        let entries = match fs::read_dir(&root) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
         };
-        if is_acq_id(&name) && fsutil::path_within(input, &entry.path())? {
-            return Ok(Some(name));
+        for entry in entries {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if is_acq_id(&name)
+                && fsutil::path_within(input, &entry.path())?
+                && load(case_dir, &name).is_ok()
+            {
+                return Ok(Some(name));
+            }
         }
     }
     Ok(None)
@@ -792,36 +807,40 @@ mod tests {
 
     #[test]
     fn acquisition_id_of_an_input() {
-        let case = tempfile::tempdir().unwrap();
-        assert_eq!(
-            acquisition_id_for_input(case.path(), case.path()).unwrap(),
-            None
+        let root = tempfile::tempdir().unwrap();
+        let (own, other, gone) = (
+            root.path().join("own"),
+            root.path().join("other"),
+            root.path().join("gone"),
         );
-        let dir = dir_for(case.path(), ACQ_ID);
+        let find = |input: &Path| {
+            acquisition_id_for_input(input, [&own, &gone, &other])
+                .unwrap()
+                .map(|id| id.to_owned())
+        };
+        fs::create_dir_all(&own).unwrap();
+        assert_eq!(find(&own), None, "no acquisitions/ yet");
+        // An acquisition with a valid record, in another known case.
+        let dir = dir_for(&other, ACQ_ID);
+        fsutil::write_json_atomic(&dir.join(ACQ_FILE), &examples::acquisition_record()).unwrap();
         let backup = dir.join("backup").join("00008101-000A1B2C3D4E001E");
         fs::create_dir_all(&backup).unwrap();
-        fs::create_dir_all(case.path().join("acquisitions/not-an-acq/x")).unwrap();
-        assert_eq!(
-            acquisition_id_for_input(&backup, case.path())
-                .unwrap()
-                .as_deref(),
-            Some(ACQ_ID)
-        );
-        assert_eq!(
-            acquisition_id_for_input(&dir, case.path())
-                .unwrap()
-                .as_deref(),
-            Some(ACQ_ID)
-        );
-        assert_eq!(
-            acquisition_id_for_input(&case.path().join("acquisitions/not-an-acq/x"), case.path())
-                .unwrap(),
-            None
-        );
-        assert_eq!(
-            acquisition_id_for_input(&case.path().join("runs"), case.path()).unwrap(),
-            None
-        );
+        assert_eq!(find(&backup).as_deref(), Some(ACQ_ID));
+        assert_eq!(find(&dir).as_deref(), Some(ACQ_ID));
+        // An id-named folder without a valid acquisition.json does not count.
+        let no_record = dir_for(&own, "20260925-000000Z-ios-000000");
+        fs::create_dir_all(no_record.join("backup")).unwrap();
+        assert_eq!(find(&no_record.join("backup")), None);
+        fs::write(no_record.join(ACQ_FILE), "{").unwrap();
+        assert_eq!(find(&no_record.join("backup")), None);
+        // Nor does a record that names another acquisition, or a folder that is not an id.
+        let mismatched = dir_for(&own, "20260925-000001Z-ios-000000");
+        fsutil::write_json_atomic(&mismatched.join(ACQ_FILE), &examples::acquisition_record())
+            .unwrap();
+        assert_eq!(find(&mismatched), None);
+        fs::create_dir_all(own.join("acquisitions/not-an-acq/x")).unwrap();
+        assert_eq!(find(&own.join("acquisitions/not-an-acq/x")), None);
+        assert_eq!(find(&own.join("runs")), None);
     }
 
     #[test]

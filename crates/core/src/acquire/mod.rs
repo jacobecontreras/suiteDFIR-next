@@ -1093,6 +1093,19 @@ impl AcqJob {
             command.exit_code = exit.exit_code;
             command.exited_at = Some(exit.exited_at);
         }
+        if parsed_output.sync_lock_failed
+            && let Some(change) = record
+                .device_changes
+                .iter_mut()
+                .rev()
+                .find(|c| c.change == DeviceChangeKind::SyncLockTaken)
+        {
+            // The tool opened the lock file and posted the sync notifications, but never held
+            // the lock.
+            change.detail = "idevicebackup2 requested /com.apple.itunes.lock_sync, but the lock \
+                             could not be taken"
+                .to_owned();
+        }
         record.process = Some(AcqProcess {
             exit_code: exit.exit_code,
             signal: exit.signal,

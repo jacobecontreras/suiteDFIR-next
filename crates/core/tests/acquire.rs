@@ -324,7 +324,7 @@ fn success() {
     assert_eq!(acquire::load(&case.path, &record.acq_id).unwrap(), record);
     // A run on the backup records the acquisition id.
     assert_eq!(
-        acquire::acquisition_id_for_input(&dir.join("backup").join(UDID), &case.path)
+        acquire::acquisition_id_for_input(&dir.join("backup").join(UDID), [&case.path])
             .unwrap()
             .as_deref(),
         Some(record.acq_id.as_str())
@@ -471,6 +471,14 @@ fn sync_lock() {
         log_lines(&events)
             .iter()
             .any(|l| l == "ERROR: timeout while locking for sync")
+    );
+    // The lock was requested (the tool posted the sync notifications) but never held.
+    let lock = &record.device_changes[0];
+    assert_eq!(lock.change, DeviceChangeKind::SyncLockTaken);
+    assert!(
+        lock.detail.contains("could not be taken"),
+        "{}",
+        lock.detail
     );
 }
 
