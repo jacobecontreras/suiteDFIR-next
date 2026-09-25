@@ -75,7 +75,7 @@ Tracks A–D and X run in parallel after M0.3 (contract freeze), at most 4 imple
   Its macOS and Windows jobs are dispatch- or public-only.
 - **`ci-js.yml`** (same triggers, `paths` for `ui/**`, `ui-dev/**`, `tests/ui/**`, `package*.json`, `tsconfig.json`): `npm ci`, typecheck, tests.
 - **Hygiene:** `concurrency` with `cancel-in-progress` for PRs only; actions pinned by commit SHA; `Swatinem/rust-cache` (or equivalent) pinned by SHA; no Tauri CLI in CI.
-- **Dispatch-only skeletons of `leapp-smoke.yml`, `idevice-tools.yml` and `release.yml`:** each has a single job that prints "not implemented". They must exist on `main` so later tasks can `gh workflow run <file> --ref <branch>`.
+- **Dispatch-only skeletons of `leapp-smoke.yml` and `release.yml`:** each has a single job that prints "not implemented". They must exist on `main` so later tasks can `gh workflow run <file> --ref <branch>`.
 
 **Accept:**
 - CI is green on the PR, and `gate/macos` + `gate/windows` statuses are `success` on its head.
@@ -355,16 +355,16 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 - **Build steps:**
   - Download the pinned tarballs and verify their hashes.
   - Build every library with `--enable-static --disable-shared`; use `pkg-config --static`; build libimobiledevice with `--with-mbedtls --without-cython`.
-  - **macOS arm64 and x64** (x64 cross-built with `-arch x86_64`, or on `macos-15-intel`):
+  - **macOS arm64 and x64**, built locally on the Mac (x64 cross-built with `-arch x86_64`):
     - `MACOSX_DEPLOYMENT_TARGET=11.0`.
     - libtatsu links the **system** libcurl. macOS has no `libcurl.pc`, so set `libcurl_CFLAGS=-I$(xcrun --show-sdk-path)/usr/include`, `libcurl_LIBS=-lcurl`, and keep Homebrew curl off `PKG_CONFIG_PATH`.
     - `otool -L` must list only `/usr/lib` and `/System` libraries.
-  - **Windows x64:** MSYS2 UCRT64 on the `windows-2025` runner; static where possible. Any unavoidable DLLs are listed in `files`.
+  - **Windows x64:** built locally on the Windows machine over ssh with a **per-user MSYS2** (UCRT64). Install it from the self-extracting base archive into `C:\Users\agent\msys64`, which needs no admin; verify this first and escalate if it fails. Link statically where possible; any unavoidable DLLs are listed in `files`.
 - **Bundle output:** a **`.zip`** (the `zip` crate is already allowed; don't use tar/gz) containing:
   - the four tools (+ DLLs);
   - `BUILDINFO.json` (source URLs + hashes, compiler and toolchain versions, configure flags, date);
   - `COPYING`, `COPYING.LESSER`, the `3rd_party/` notices and the mbedtls notice.
-- **Workflow:** `.github/workflows/idevice-tools.yml` (dispatch-only; skeleton from M0.2) builds the Windows bundle and optionally macOS. Bundles are uploaded to a **prerelease** named `idevice-tools-<version>` (`gh release upload --clobber` allowed for these prereleases). macOS bundles may be built locally on the Mac and uploaded the same way.
+- **Publishing:** all bundles are built locally (no GitHub Actions) and uploaded to a **prerelease** named `idevice-tools-<version>` (`gh release upload --clobber` is allowed for these prereleases). This way both machines and release builds fetch the same pinned artifacts.
 - **`cargo xtask fetch-idevice-tools`:**
   - Downloads the host bundle via the **API asset URL** with `Accept: application/octet-stream` and a token from `GH_TOKEN`, or `gh auth token` while private.
   - Verifies `bundle_sha256` and every (unsigned) file hash.
@@ -492,7 +492,7 @@ The gate is green.
 ### F1 Bundles and release workflow
 
 - **Bundle targets:**
-  - macOS: `.app` + `.dmg` per arch (`macos-15`, `macos-15-intel`), minimum 11.0.
+  - macOS: `.app` + `.dmg` per arch, minimum 11.0. While private, both are built locally on the Mac (`--target aarch64-apple-darwin` / `x86_64-apple-darwin`); the `macos-15` / `macos-15-intel` runners are used only once public.
   - Windows x64: NSIS online installer (default `downloadBootstrapper`) and an offline installer built with a config overlay `{"bundle":{"windows":{"webviewInstallMode":{"type":"offlineInstaller","silent":true}}}}` via `cargo tauri build --config <file>`. Rename the outputs to `suiteDFIR_<ver>_x64-online-setup.exe` and `…_x64-offline-setup.exe`.
   - Linux: AppImage + `.deb`, built in the `ubuntu:22.04` container.
 - **iOS tools:** `cargo xtask fetch-idevice-tools` + `--config src-tauri/tauri.release.conf.json` bundle the pinned X1 tools as sidecars (macOS arm64/x64, Windows x64). Signing changes their bytes; runtime verification follows D22 (`code_signature` on signed macOS builds). Linux packages declare no dependency on them; the user guide explains installing them.

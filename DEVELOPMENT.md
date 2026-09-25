@@ -32,7 +32,7 @@ node scripts/serve-ui.mjs [--port 5173]  # serve ui/ + ui-dev/ (at /dev/) with t
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/*.json
 cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
-scripts/build-idevice-tools.sh           # build pinned libimobiledevice tools for the host (macOS; Windows via MSYS2/CI)
+scripts/build-idevice-tools.sh           # build pinned libimobiledevice tools locally (macOS; Windows via per-user MSYS2)
 cargo xtask fetch-idevice-tools          # fetch + verify the pinned tool bundle into src-tauri/binaries/ (release builds)
 cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1   # real LEAPP
 cargo xtask fetch-idevice-tools && cargo tauri build --config src-tauri/tauri.release.conf.json   # release bundle (host)
@@ -74,7 +74,7 @@ fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <R
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
 scripts/build-idevice-tools.sh  reproducible libimobiledevice build from pinned tarballs (X1)
-.github/workflows/            ci-rust.yml, ci-js.yml, leapp-smoke.yml, idevice-tools.yml, release.yml
+.github/workflows/            ci-rust.yml, ci-js.yml, leapp-smoke.yml, release.yml
 docs/                         ARCHITECTURE, CONTRACTS, LEAPP-CLI, IDEVICE-CLI, ROADMAP, USER-GUIDE, QA-CHECKLIST
 ```
 
@@ -282,7 +282,7 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **Tauri CLI:** CI does **not** install the Tauri CLI; `cargo build` compiles the app, including `tauri-build` config validation. `cargo tauri build` runs in the local gates.
 - **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
 - **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. They run only on `workflow_dispatch` with an `os` input, or automatically once the repository is public (`if: github.event_name == 'workflow_dispatch' || !github.event.repository.private`).
-- **Dispatch-only workflows:** `leapp-smoke.yml`, `idevice-tools.yml` and `release.yml` are `workflow_dispatch`-only while private. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
+- **Dispatch-only workflows:** `leapp-smoke.yml` and `release.yml` are `workflow_dispatch`-only while private (Linux legs only). All other builds, including the iOS tools and the macOS/Windows release bundles, happen on local machines. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 
 ### Platform test caveats
