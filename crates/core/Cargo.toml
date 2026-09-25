@@ -5,3 +5,33 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+
+# Every direct dependency is on the allowlist in DEVELOPMENT.md §4.2, with the specs listed there.
+[dependencies]
+getrandom = "0.4"
+log = "0.4"
+plist = "1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Features: ARCHITECTURE.md §7 (process model) plus Win32_Storage_FileSystem (fsutil::free_space).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"
