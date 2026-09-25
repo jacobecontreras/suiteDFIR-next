@@ -689,8 +689,10 @@ export function newRunScreen(ctx) {
               nameField.setError(null);
               try {
                 const saved = await api.profile_save({ tool, name, modules: [...f.customModules] });
-                profiles = await api.profiles_list({ tool });
+                const list = await api.profiles_list({ tool });
                 dialog.close();
+                if (disposed || f.tool !== tool) return;
+                profiles = list;
                 modulesStatus.textContent = `Saved profile “${saved.name}” (${formatCount(saved.modules.length)} modules).`;
                 renderModules();
               } catch (err) {
@@ -737,8 +739,10 @@ export function newRunScreen(ctx) {
         if (!replace) return;
         info = await api.profile_import({ tool, path, name: null, overwrite: true });
       }
-      profiles = await api.profiles_list({ tool });
+      const list = await api.profiles_list({ tool });
+      // The examiner may have switched tools meanwhile: never show another tool's profiles.
       if (disposed || f.tool !== tool) return;
+      profiles = list;
       f.moduleMode = "profile";
       f.profile = profiles.find((p) => p.name === info.name) ?? info;
       modulesStatus.textContent =
