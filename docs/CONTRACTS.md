@@ -688,10 +688,15 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 - if the enable command ran (it is in `commands`) and its outcome is unknown, add `encryption_state_unknown`. The outcome is unknown when `will_encrypt_after_enable` is null, or when the command exited 0 but `WillEncrypt` still read false. Without an enable command nothing was changed on the device, so a null `will_encrypt_after_enable` adds no warning;
 - pending hash and seal statuses become `interrupted`.
 
-**Later restore:** `acq_restore_encryption` writes `encryption-restore.json` (`schema_version`, `acq_id`, `at`, `argv` without the password, `exit_code`, `will_encrypt_after`, `restored`, `tools`) and marks it read-only. `acquisition.json` is not modified.
+**Later restore:** each `acq_restore_encryption` attempt writes its own record and marks it read-only. The fields are `schema_version`, `acq_id`, `at`, `argv` without the password, `exit_code`, `will_encrypt_after`, `restored` and `tools`. `acquisition.json` is not modified.
 - `exit_code` is `null` when the process was killed by a signal.
 - `will_encrypt_after` is `null` when `WillEncrypt` was unreadable.
 - `tools` has the same shape as in `acquisition.json`.
+- **Attempt files:**
+  - The first attempt writes `encryption-restore.json`; later ones write `encryption-restore-2.json`, `encryption-restore-3.json`, … (`encryption-restore-<n>.json`, `n` ≥ 2, no leading zeros).
+  - Each attempt takes the number after the highest attempt name already present, so a gap is never refilled and an existing file, readable or not, is never overwritten or rewritten.
+- **Retry rule:** a failed attempt (`restored: false`) does not block a retry. Once any attempt file of this acquisition records `restored: true`, further attempts are refused with `restore_not_applicable`.
+- **Reading:** attempt files that cannot be read, are invalid or name another `acq_id` count as not restored. Other files in the folder are ignored.
 
 ### 13.4 Expected outcomes for fake-idevice scenarios (normative for tests)
 
@@ -743,7 +748,9 @@ type AcqSummary = {
   acq_id: string; acq_dir: string; label: string | null; status: AcqStatus; udid: string;
   device_name: string | null; product_version: string | null; created_at: string; started_at: string | null;
   ended_at: string | null; duration_ms: number | null; backup_path: string | null; // abs path of backup/<udid> when succeeded
-  warnings: string[];  // warning codes, so the Case screen can offer "Turn backup encryption off"
+  warnings: string[];  // warning codes, so the Case screen can offer "Turn backup encryption off";
+                       // derived: once a later-restore attempt records restored: true, it omits
+                       // encryption_left_enabled and encryption_state_unknown (acquisition.json keeps them)
 };
 ```
 
@@ -755,7 +762,7 @@ type AcqSummary = {
 | `acq_start` | `AcqRequest` + `on_event: AcqEvent` | `{acq_id, acq_dir}` | Validation per ARCHITECTURE.md §6b step 4. |
 | `acq_cancel` | `{acq_id}` | none | Idempotent. Semantics by phase per ARCHITECTURE.md §6b. |
 | `acq_get` | `{case_path, acq_id}` | `AcquisitionRecord` | |
-| `acq_restore_encryption` | `{case_path, acq_id, password}` | `{restored: boolean, will_encrypt_after: boolean \| null}` | Allowed only when the record has `encryption_left_enabled` or `encryption_state_unknown` (`restore_not_applicable` otherwise) and the device is connected and paired. Counts as a job. |
+| `acq_restore_encryption` | `{case_path, acq_id, password}` | `{restored: boolean, will_encrypt_after: boolean \| null}` | Allowed only when all hold (else `restore_not_applicable`): the record has `encryption_left_enabled` or `encryption_state_unknown`, **and** no later-restore attempt file records `restored: true`. The device must be connected and paired. Each attempt writes its own read-only `encryption-restore[-N].json` (§13.3), and a failed attempt can be retried. On Windows the password must be printable ASCII (`invalid_input`). Counts as a job. |
 | `open_acq_file` | `{case_path, acq_id, which: "stdout"\|"stderr"\|"acquisition_json"\|"backup_manifest"\|"device_info"}` | none | |
 
 ```ts

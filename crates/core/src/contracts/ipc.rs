@@ -630,7 +630,9 @@ pub struct AcqSummary {
     pub duration_ms: Option<u64>,
     /// The absolute path of `backup/<udid>` when succeeded.
     pub backup_path: Option<String>,
-    /// Warning codes, so the Case screen can offer "Turn backup encryption off".
+    /// Warning codes, so the Case screen can offer "Turn backup encryption off". Derived: once a
+    /// later-restore attempt records `restored: true`, `encryption_left_enabled` and
+    /// `encryption_state_unknown` are left out (`acquisition.json` keeps them).
     pub warnings: Vec<String>,
 }
 
