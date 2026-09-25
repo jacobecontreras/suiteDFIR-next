@@ -90,7 +90,9 @@ json_str() {
 # The first line of a command's output, or "unknown".
 first_line() {
   local out
-  out=$("$@" 2>&1 | head -n 1 | tr -d '\r') || true
+  out=$("$@" 2>&1) || true
+  out=${out%%$'\n'*}
+  out=${out//$'\r'/}
   echo "${out:-unknown}"
 }
 
@@ -140,7 +142,7 @@ if have nproc; then jobs=$(nproc); else jobs=$(sysctl -n hw.ncpu); fi
 
 manifest_flat=$(tr -d '\r\n' <"$manifest")
 head_part=${manifest_flat%%\"sources\"*}
-version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$head_part" | head -n 1 | sed -E 's/.*"([^"]*)"$/\1/')
+version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$head_part" | sed -nE '1s/.*"([^"]*)"$/\1/p')
 [[ -n $version ]] || die "no version in $manifest"
 sources_part=${manifest_flat#*\"sources\"}
 sources_part=${sources_part%%\"platforms\"*}
@@ -199,9 +201,11 @@ bootstrap_buildtool() {
 
 # autoconf needs GNU M4 1.4.8 or later (1.4.16 or later recommended).
 m4_is_recent() {
+  local out
   have m4 || return 1
-  m4 --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 |
-    awk -F. '{ ok = $1 > 1 || ($1 == 1 && ($2 > 4 || ($2 == 4 && $3 >= 16))) } END { exit !ok }'
+  out=$(m4 --version 2>/dev/null) || return 1
+  grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"${out%%$'\n'*}" |
+    awk -F. 'NR == 1 { ok = $1 > 1 || ($1 == 1 && ($2 > 4 || ($2 == 4 && $3 >= 16))) } END { exit !ok }'
 }
 
 export PATH="$buildtools/bin:$PATH"
@@ -213,7 +217,7 @@ have automake || bootstrap_buildtool automake
 have pkg-config || bootstrap_buildtool pkgconf
 if have glibtool; then
   libtool_cmd=glibtool
-elif libtool --version 2>/dev/null | grep -q GNU; then
+elif [[ $(libtool --version 2>/dev/null) == *"GNU libtool"* ]]; then
   libtool_cmd=libtool
 else
   die "GNU libtool is required (glibtool or libtool on PATH)"
@@ -241,7 +245,7 @@ case $platform in
     # libtatsu links the system libcurl; macOS ships no libcurl.pc.
     libcurl_cflags="-I$sdk/usr/include"
     libcurl_libs="-lcurl"
-    tools_ldflags="$LDFLAGS"
+    tools_ldflags="$LDFLAGS -Wl,-u,_libimobiledevice_glue_version"
     mbedtls_libs="-lmbedtls -lmbedx509 -lmbedcrypto"
     ;;
   windows-*)
@@ -252,20 +256,25 @@ case $platform in
     # Consumers of the static libraries must not declare their symbols dllimport.
     export CPPFLAGS="-DLIBPLIST_STATIC -DLIMD_GLUE_STATIC -DLIBUSBMUXD_STATIC -DLIBTATSU_STATIC -DLIBIMOBILEDEVICE_STATIC"
     export LDFLAGS="-static-libgcc"
-    # libtatsu needs the libcurl headers only: none of the four tools links libtatsu.
+    # libtatsu needs the MSYS2 libcurl headers only: none of the four tools links libtatsu. The
+    # flags are usually empty (the headers are in the default path); a blank value still keeps
+    # configure from asking pkg-config, whose search path is our prefix.
     libcurl_cflags=$(PKG_CONFIG_LIBDIR=/ucrt64/lib/pkgconfig pkg-config --cflags libcurl)
     libcurl_cflags=${libcurl_cflags:- }
     libcurl_libs=$(PKG_CONFIG_LIBDIR=/ucrt64/lib/pkgconfig pkg-config --libs libcurl)
     # libtool passes -static to the compiler for programs linked with -all-static.
-    tools_ldflags="$LDFLAGS -all-static"
-    # mbedtls gathers entropy with BCryptGenRandom.
-    mbedtls_libs="-lmbedtls -lmbedx509 -lmbedcrypto -lbcrypt"
+    tools_ldflags="$LDFLAGS -all-static -Wl,-u,libimobiledevice_glue_version"
+    # As in mbedtls's own CMake build: x509 uses inet_pton (ws2_32), entropy uses BCryptGenRandom.
+    mbedtls_libs="-lmbedtls -lmbedx509 -lmbedcrypto -lws2_32 -lbcrypt"
     ;;
 esac
+# libimobiledevice-glue initializes itself (on Windows: WSAStartup) in a constructor in glue.o, and
+# the tools reference nothing else in glue.o, so a static link would drop it and every socket call
+# would fail. -u pulls glue.o in; the checks below confirm the constructor is linked.
 
 # ---- sources ----
 
-rm -rf "$src" "$prefix" "$stage"
+rm -rf "$work"
 mkdir -p "$src" "$prefix" "$stage" "$downloads" "$out_dir"
 for ((i = 0; i < ${#SRC_NAMES[@]}; i++)); do
   url=${SRC_URLS[$i]}
@@ -362,6 +371,8 @@ done
 linked_json=""
 for t in $TOOLS; do
   f="$stage/$t$exe"
+  syms=$(nm "$f")
+  grep -q 'internal_glue_init$' <<<"$syms" || die "$t lacks the libimobiledevice-glue constructor"
   case $platform in
     macos-*)
       [[ $(lipo -archs "$f") == "$arch" ]] || die "$t is not a $arch binary: $(lipo -archs "$f")"
@@ -421,6 +432,14 @@ cp "$(src_dir mbedtls)/LICENSE" "$stage/mbedtls/LICENSE"
     awk '{ print } /\*\// { exit }' "$(src_dir libplist)/$f"
   done
 } >"$stage/libplist-embedded-notices.txt"
+case $platform in
+  windows-*)
+    # The tools link the MinGW-w64 runtime statically; its license asks for these notices in binary
+    # distributions.
+    mkdir -p "$stage/mingw-w64"
+    cp /ucrt64/share/licenses/crt/COPYING.MinGW-w64-runtime.txt "$stage/mingw-w64/"
+    ;;
+esac
 
 # ---- BUILDINFO.json ----
 
