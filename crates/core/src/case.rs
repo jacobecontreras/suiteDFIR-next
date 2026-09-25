@@ -317,8 +317,8 @@ pub struct DiscoveredRun {
 }
 
 /// Finds the runs of a case by scanning `runs/*/run.json`, newest first. Folders whose `run.json`
-/// is missing, unreadable, invalid or names another run are skipped with a logged warning. A case
-/// without `runs/` has no runs.
+/// is missing, unreadable or invalid, has an invalid run id or names another run are skipped with
+/// a logged warning. A case without `runs/` has no runs.
 pub fn discover_runs(case_dir: &Path) -> Result<Vec<DiscoveredRun>, CaseError> {
     let runs_dir = case_dir.join(RUNS_DIR);
     let entries = match fs::read_dir(&runs_dir) {
@@ -354,6 +354,12 @@ pub fn discover_runs(case_dir: &Path) -> Result<Vec<DiscoveredRun>, CaseError> {
 fn read_run(dir: &Path) -> Result<RunRecord, String> {
     let bytes = fs::read(dir.join(RUN_FILE)).map_err(|e| format!("{RUN_FILE}: {e}"))?;
     let record: RunRecord = parse_versioned(&bytes).map_err(|e| e.to_string())?;
+    if !crate::run::record::is_run_id(&record.run_id) {
+        return Err(format!(
+            "{RUN_FILE} has an invalid run_id {:?}",
+            record.run_id
+        ));
+    }
     let folder = dir.file_name().map(|name| name.to_string_lossy());
     if folder.as_deref() != Some(record.run_id.as_str()) {
         return Err(format!(
