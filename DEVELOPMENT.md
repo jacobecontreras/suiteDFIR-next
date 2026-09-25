@@ -245,7 +245,7 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
   - `FAKE_IDEVICE_HOLD=<path>`: `idevice_id -l` waits until that file exists (at most 15 s), so a test can keep a poll in flight.
   - See the binary's module docs.
 
-**Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow.
+**Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow. With `SUITEDFIR_SMOKE_CAPTURE=<dir>` they save the fixture runs' `_lava_data.lava` and `Screen_Output.html` (paths replaced by `<RUN_DIR>`, `<INPUT>`, `<LAB>`) with an `outcome.json`; `fixtures/leapp/<tool>/<version>/` holds such captures from macOS arm64, and the `run::status` tests check them. Re-capture them when the pinned versions change.
 
 **UI tests:**
 - `node --test` over pure modules: store, filters, virtual-list math, selection/profile diff, formatting.
@@ -309,8 +309,9 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **Tauri CLI:** CI does **not** install the Tauri CLI; `cargo build` compiles the app, including `tauri-build` config validation. `cargo tauri build` runs in the local gates.
 - **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
 - **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. A `workflow_dispatch` runs only the job(s) selected by its `os` input (`linux`, `macos`, `windows` or `all`). On pull requests and pushes to `main`, the Linux job always runs, and the macOS and Windows jobs run only once the repository is public (`!github.event.repository.private`). Draft pull requests run no CI jobs.
-- **LEAPP smoke container:** `leapp-smoke.yml` runs in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
-- **Dispatch-only workflows:** `leapp-smoke.yml` and `release.yml` are `workflow_dispatch`-only while private (Linux legs only). All other builds, including the iOS tools and the macOS/Windows release bundles, happen on local machines. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
+- **LEAPP smoke container:** `leapp-smoke.yml` runs its Linux legs (x64 and arm64) in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
+- **LEAPP smoke triggers** (the repository is public): a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process}/**`, `crates/core/src/runner.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`.
+- **Dispatch-only workflows:** `release.yml` is `workflow_dispatch`-only. All other builds, including the iOS tools and the macOS/Windows release bundles, happen on local machines. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 
 ### Platform test caveats

@@ -14,8 +14,9 @@
 //! - a cancel mid-run → `cancelled`, no process of the tree left, the per-run temp dir (which held
 //!   the onefile runtime `_MEI*`, so the bootloader honoured `TMPDIR`/`TEMP`) removed;
 //! - a profile with an unknown module name → `unknown_modules` before anything is created;
-//! - iLEAPP only: an encrypted backup without a password, run directly (the runner refuses it),
-//!   must not block on the password prompt (LEAPP-CLI.md Q5, §9 item 4).
+//! - iLEAPP only: an encrypted backup without a password, run directly (the runner refuses it):
+//!   the password prompt reads EOF and iLEAPP exits on macOS and Linux, and blocks until stopped
+//!   on Windows (LEAPP-CLI.md Q5).
 //!
 //! **Fixture files** (written by the tests, all tiny):
 //! - iLEAPP `fs`: `private/var/installd/Library/MobileInstallation/LastBuildInfo.plist`
@@ -792,7 +793,7 @@ fn ileapp_installs_introspects_and_runs() {
 
     unknown_profile_is_refused(&smoke, &fs_input, "deviceName");
     cancel_mid_run(&smoke, &fs_input);
-    password_prompt_does_not_block(&smoke);
+    password_prompt_behaviour(&smoke);
 }
 
 #[test]
@@ -823,10 +824,14 @@ fn aleapp_installs_introspects_and_runs() {
     cancel_mid_run(&smoke, &fs_input);
 }
 
-/// iLEAPP on an encrypted backup without a password asks for one (LEAPP-CLI.md Q5). The runner
-/// never starts it that way; this runs it directly, as a spawn does (own session or job, stdin
-/// null, no window), and checks that the prompt cannot block (§9 item 4).
-fn password_prompt_does_not_block(smoke: &Smoke) {
+/// iLEAPP on an encrypted backup without a password asks for one (LEAPP-CLI.md Q5, §9 item 4).
+/// The runner never starts it that way (`password_required`); this runs it directly, as a spawn
+/// does (own session or job, stdin null, no window), and records what the prompt does:
+/// - macOS and Linux: `getpass` has no terminal (new session) and reads stdin, which is null: EOF,
+///   iLEAPP reports the exception and exits without a report;
+/// - Windows: `getpass` waits for console keystrokes, and a process without a console never gets
+///   any, so it blocks until it is stopped (here by the spawn's timeout; in the app by a cancel).
+fn password_prompt_behaviour(smoke: &Smoke) {
     let input = encrypted_backup(smoke.root());
     let prepared = smoke.context().tool;
     let out = smoke.root().join("prompt");
@@ -857,10 +862,13 @@ fn password_prompt_does_not_block(smoke: &Smoke) {
     spec.args[3] = input.clone().into_os_string();
     spec.args[5] = out.clone().into_os_string();
     spec.temp_dir = Some(temp);
-    spec.timeout = Some(Duration::from_secs(180));
+    // Long enough for iLEAPP to start and reach the prompt (a few seconds) many times over.
+    spec.timeout = Some(Duration::from_secs(if cfg!(windows) { 45 } else { 180 }));
     let handle = process::spawn(spec).unwrap();
+    let watch = ProcessWatch::open(handle.pid());
     let exit = handle.wait().unwrap();
     process::remove_temp_dir(&smoke.paths.app_cache, job).unwrap();
+    assert!(!watch.is_alive());
     let tail = |name: &str| tail::last_lines(&out.join(name), 8).unwrap().join(" | ");
     report(&format!(
         "  ileapp encrypted backup without a password: exit {:?} signal {:?} timed out {}; \
@@ -871,6 +879,18 @@ fn password_prompt_does_not_block(smoke: &Smoke) {
         tail("stdout.log"),
         tail("stderr.log")
     ));
-    assert!(!exit.timed_out, "the password prompt blocked");
+    if cfg!(windows) {
+        assert!(
+            exit.timed_out,
+            "the Windows password prompt no longer blocks: update LEAPP-CLI.md Q5"
+        );
+    } else {
+        assert!(!exit.timed_out, "the password prompt blocked");
+        assert!(
+            tail("stdout.log").contains("EOFError"),
+            "{}",
+            tail("stdout.log")
+        );
+    }
     assert!(!out.join("report").join("index.html").exists());
 }
