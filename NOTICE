@@ -1,0 +1,22 @@
+suiteDFIR
+Copyright 2026 suiteDFIR
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party attributions:
+
+iLEAPP and aLEAPP
+  Copyright (c) 2020 Alexis Brignoni and contributors
+  License: MIT
+  https://github.com/abrignoni/iLEAPP
+  https://github.com/abrignoni/ALEAPP
+  Not bundled with suiteDFIR. The official release builds are downloaded (or imported
+  offline) only on user action, and run unmodified.
+
+libimobiledevice stack (libimobiledevice, libimobiledevice-glue, libusbmuxd, libplist, libtatsu)
+  License: LGPL-2.1-or-later (the upstream repositories also ship the GPL-2.0 COPYING text)
+  https://libimobiledevice.org/
+  The bundled command-line tools are built from pinned upstream source releases; the exact
+  source tarballs and build script are published with each release.
+
+Full license texts: THIRD-PARTY-NOTICES.md.

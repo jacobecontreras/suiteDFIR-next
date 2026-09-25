@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "src-tauri", "xtask"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Input hashing and report sealing use sha2; keep them fast in debug builds and tests.
+[profile.dev.package.sha2]
+opt-level = 3
