@@ -513,6 +513,59 @@ mod tests {
         assert!(check_overlap(&p(&evidence, "dir"), &ctx).is_ok());
     }
 
+    /// The Windows form of a linked `runs/`: a directory junction. Unlike symlinks, junctions need
+    /// no privilege, so this runs on every Windows machine (the symlink tests skip without
+    /// Developer Mode or admin).
+    #[cfg(windows)]
+    #[test]
+    fn overlap_catches_a_junctioned_runs_folder() {
+        let lab = Lab::new();
+        let evidence = lab.root.join("evidence");
+        let target = p(&evidence, "sub");
+        fs::create_dir_all(&target).unwrap();
+        let case = p(&lab.root, "cases/Junction");
+        fs::create_dir_all(&case).unwrap();
+        let runs = case.join("runs");
+        let output = std::process::Command::new("cmd")
+            .arg("/c")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&runs)
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "mklink /J failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            fs::symlink_metadata(&runs)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "runs is a junction (a name-surrogate reparse point)"
+        );
+        let ctx = OverlapContext {
+            case_dir: &case,
+            known_cases: &[],
+            app_dirs: &lab.app_dirs,
+            temp_root: &lab.temp_root,
+        };
+        let would_be = runs.join("20260924-183005Z-ileapp-3f9a1c");
+        assert!(fsutil::path_within(&would_be, &evidence).unwrap());
+        assert!(!fsutil::path_within(&case, &evidence).unwrap());
+        for input in [&evidence, &target] {
+            let err = check_overlap(input, &ctx).unwrap_err();
+            assert_eq!(err.code(), ErrorCode::InputOverlapsCase, "{input:?}");
+            assert!(err.to_string().contains("run folder"), "{err}");
+        }
+        let err = inspect(&evidence, &input_types(ToolId::Ileapp), &ctx).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::InputOverlapsCase);
+        assert!(check_overlap(&p(&evidence, "dir"), &ctx).is_ok());
+    }
+
     #[test]
     fn overlap_catches_linked_case_and_temp_folders() {
         let lab = Lab::new();
