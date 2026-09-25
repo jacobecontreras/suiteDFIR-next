@@ -1,5 +1,5 @@
-//! Process-tree tests with fake-leapp (ROADMAP B2; DEVELOPMENT.md §4.8): spawn, cancel,
-//! timeout and temp dirs, on every OS. Timing bounds are the spec's, measured with
+//! Process-tree tests with fake-leapp (ROADMAP B2, B3; DEVELOPMENT.md §4.8): spawn, cancel,
+//! timeout, temp dirs and log streaming, on every OS. Timing bounds are the spec's, measured with
 //! deadlines rather than fixed sleeps, so they hold on a loaded machine.
 
 use std::ffi::OsString;
@@ -10,6 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use suitedfir_core::process::{self, ExitInfo, Handle, SpawnSpec};
+use suitedfir_core::tail::{self, ScreenOutputTail};
 
 const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
 /// Cancel → whole tree gone (ROADMAP B2: "both PIDs dead within 12 s").
@@ -77,6 +78,13 @@ impl Fixture {
 
     fn report(&self) -> PathBuf {
         self.out.join("report")
+    }
+
+    fn screen_output(&self) -> PathBuf {
+        self.report()
+            .join("_HTML")
+            .join("_Script_Logs")
+            .join("Screen_Output.html")
     }
 
     fn stdout(&self) -> String {
@@ -336,6 +344,52 @@ fn spawn_errors_start_nothing() {
     let error = process::spawn(spec).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
     assert!(!fixture.pidfile.exists());
+}
+
+/// ROADMAP B3: 50 lines at 100 ms; at least 40 must be delivered before the process exits.
+#[test]
+fn streams_screen_output_lines_before_exit() {
+    let fixture = Fixture::new();
+    let spec = fixture.spec(
+        "success",
+        &[
+            ("FAKE_LEAPP_LINES", "50"),
+            ("FAKE_LEAPP_INTERVAL_MS", "100"),
+        ],
+    );
+    let handle = process::spawn(spec).unwrap();
+    let mut tail = ScreenOutputTail::new(fixture.screen_output());
+    let mut batches: Vec<(Instant, Vec<String>)> = Vec::new();
+    let end = tail::follow(&handle, &mut tail, tail::POLL_INTERVAL, |lines| {
+        batches.push((Instant::now(), lines));
+    })
+    .unwrap();
+
+    assert_eq!(end.exit.exit_code, Some(0));
+    let lines: Vec<&String> = batches.iter().flat_map(|(_, lines)| lines).collect();
+    assert_eq!(lines.len(), 50);
+    assert_eq!(
+        lines[0],
+        "Processing started. Please wait. This may take a few minutes..."
+    );
+    // Markup is stripped.
+    assert_eq!(lines[1], "iLEAPP v0.0.0-fake (fake-leapp test double)");
+    let before_exit: usize = batches
+        .iter()
+        .filter(|(at, _)| *at < end.exit.exit_instant)
+        .map(|(_, lines)| lines.len())
+        .sum();
+    assert!(
+        before_exit >= 40,
+        "only {before_exit} of 50 lines arrived before the exit"
+    );
+    // stdout arrives only at exit (fully buffered); its tail comes with the end of the stream.
+    assert_eq!(end.stdout_tail.len(), 50);
+    assert_eq!(
+        end.stdout_tail[1],
+        "<b>iLEAPP v0.0.0-fake</b> (fake-leapp test double)"
+    );
+    assert!(end.stderr_tail.is_empty());
 }
 
 /// Signals a single process through `sh`, which has `kill` built in.
