@@ -911,6 +911,159 @@ input[type="radio"] {
   font-size: 13px;
 }
 
+/* ---- Cases ---- */
+
+.case-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.case-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.case-item-missing {
+  grid-template-columns: 1fr auto;
+  background: var(--surface);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.case-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.case-name {
+  font-size: 15px;
+}
+
+.case-meta {
+  color: var(--fg);
+}
+
+.case-path {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.case-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.case-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ---- Tables ---- */
+
+.table-wrap {
+  position: relative;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+
+.table thead th {
+  background: var(--surface);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  color: var(--fg);
+}
+
+.sort-mark {
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.sort-mark-idle {
+  color: var(--border-strong);
+}
+
+.cell-input .truncate {
+  display: block;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.cell-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.cell-actions .btn + .btn {
+  margin-left: 4px;
+}
+
+.cell-sub {
+  display: block;
+  font-size: 12px;
+}
+
+.cell-label {
+  min-width: 120px;
+}
+
 /* ---- Dialogs ---- */
 
 .modal {
@@ -996,4 +1149,28 @@ input[type="radio"] {
   gap: 2px 8px;
   font-weight: 400;
   color: var(--fg);
+}
+
+.detail-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px 24px;
+}
+
+.detail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.detail-group h3 {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.raw-json summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
 }

@@ -9,6 +9,8 @@ import { shell } from "./components/shell.js";
 import { h } from "./lib/dom.js";
 import { parseRoute } from "./lib/router.js";
 import { createStore } from "./lib/store.js";
+import { caseScreen } from "./screens/case.js";
+import { casesScreen } from "./screens/cases.js";
 import { notFoundScreen } from "./screens/not-found.js";
 
 /** @typedef {import("./lib/context").Api} Api */
@@ -17,7 +19,10 @@ import { notFoundScreen } from "./screens/not-found.js";
 /** @typedef {import("./lib/context").View} View */
 
 /** @type {Record<string, (ctx: ScreenContext) => View>} */
-const ROUTES = {};
+const ROUTES = {
+  cases: casesScreen,
+  case: caseScreen,
+};
 
 /** How often `job_active` is polled while a job is active. */
 const JOB_POLL_MS = 2000;
