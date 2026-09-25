@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use common::{Lab, UDID};
 use suitedfir_core::acquire::{
-    self, AcqContext, AcqControl, AcqError, AcqOutcome, BACKUP_MANIFEST,
+    self, AcqContext, AcqControl, AcqError, AcqOutcome, BACKUP_MANIFEST, RestoreRefusal,
 };
 use suitedfir_core::case::{self, CreatedCase};
 use suitedfir_core::contracts::{
@@ -1121,6 +1121,14 @@ fn a_later_restore_writes_encryption_restore_json() {
     )
     .unwrap_err();
     assert_eq!(err.code(), ErrorCode::RestoreNotApplicable);
+    assert!(matches!(
+        err,
+        AcqError::RestoreNotApplicable(RestoreRefusal::AlreadyRecorded)
+    ));
+    // The message never claims that nothing is left to turn off.
+    let message = err.message();
+    assert!(message.contains("already recorded"), "{message}");
+    assert!(message.contains("may still be on"), "{message}");
     lab.assert_no_temp_dirs();
 }
 
@@ -1136,7 +1144,13 @@ fn a_later_restore_is_refused_without_an_encryption_warning() {
         &mut |_| {},
     )
     .unwrap_err();
-    assert!(matches!(err, AcqError::RestoreNotApplicable(_)), "{err}");
+    assert!(
+        matches!(
+            err,
+            AcqError::RestoreNotApplicable(RestoreRefusal::NoEncryptionWarning)
+        ),
+        "{err}"
+    );
     assert_eq!(err.code(), ErrorCode::RestoreNotApplicable);
     assert!(!acq_dir(&outcome).join("encryption-restore.json").exists());
     // No device command ran for it.

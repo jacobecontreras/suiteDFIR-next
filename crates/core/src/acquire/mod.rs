@@ -101,7 +101,7 @@ pub enum AcqError {
         message: Option<String>,
     },
     #[error("encryption cannot be restored for this acquisition: {0}")]
-    RestoreNotApplicable(String),
+    RestoreNotApplicable(RestoreRefusal),
     #[error("acquisition {acq_id} is already finalized")]
     AlreadyFinalized { acq_id: String },
     #[error("acquisition {acq_id} cannot be written: {reason}")]
@@ -125,6 +125,26 @@ pub enum AcqError {
         #[source]
         source: io::Error,
     },
+}
+
+/// Why `acq_restore_encryption` is refused with `restore_not_applicable`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestoreRefusal {
+    /// The record has neither `encryption_left_enabled` nor `encryption_state_unknown`.
+    NoEncryptionWarning,
+    /// `encryption-restore.json` already exists (it is read-only, so only one is recorded).
+    AlreadyRecorded,
+}
+
+impl std::fmt::Display for RestoreRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NoEncryptionWarning => {
+                "the record has neither encryption_left_enabled nor encryption_state_unknown"
+            }
+            Self::AlreadyRecorded => "encryption-restore.json already records a later restore",
+        })
+    }
 }
 
 impl AcqError {
@@ -190,9 +210,17 @@ impl AcqError {
                 }
                 _ => "Pair the device with this computer first.".to_owned(),
             },
-            Self::RestoreNotApplicable(_) => {
-                "This acquisition has no backup-encryption setting left to turn off.".to_owned()
-            }
+            Self::RestoreNotApplicable(refusal) => match refusal {
+                RestoreRefusal::NoEncryptionWarning => "Turning backup encryption off applies \
+                     only to acquisitions whose record shows that encryption was left on or in \
+                     an unknown state, and this record shows neither."
+                    .to_owned(),
+                RestoreRefusal::AlreadyRecorded => "A later restore is already recorded for this \
+                     acquisition (encryption-restore.json), and only one can be recorded. If it \
+                     did not turn backup encryption off, the setting may still be on: check the \
+                     device."
+                    .to_owned(),
+            },
             Self::Io { .. } => "The acquisition folder could not be read or written.".to_owned(),
             _ => "The acquisition record could not be written.".to_owned(),
         }
@@ -1238,15 +1266,14 @@ pub fn restore_later(
         .any(|w| w.code == "encryption_left_enabled" || w.code == "encryption_state_unknown");
     if !applicable {
         return Err(AcqError::RestoreNotApplicable(
-            "the record has neither encryption_left_enabled nor encryption_state_unknown"
-                .to_owned(),
+            RestoreRefusal::NoEncryptionWarning,
         ));
     }
     let dir = record::acq_dir(case_dir, acq_id);
     if fs::symlink_metadata(dir.join(RESTORE_FILE)).is_ok() {
-        return Err(AcqError::RestoreNotApplicable(format!(
-            "{RESTORE_FILE} already records a later restore"
-        )));
+        return Err(AcqError::RestoreNotApplicable(
+            RestoreRefusal::AlreadyRecorded,
+        ));
     }
     if password.chars() < MIN_PASSWORD_CHARS {
         return Err(AcqError::PasswordRequired);
@@ -1366,7 +1393,7 @@ mod tests {
                 ErrorCode::EncryptionAlreadyOn,
             ),
             (
-                AcqError::RestoreNotApplicable("x".into()),
+                AcqError::RestoreNotApplicable(RestoreRefusal::AlreadyRecorded),
                 ErrorCode::RestoreNotApplicable,
             ),
             (
