@@ -1,14 +1,18 @@
 // @ts-check
 /**
- * Case screen (ROADMAP D2): metadata with edit (editable fields only), and the runs table with
- * local times (UTC on hover), status badges and row actions (open report, reveal folder, details).
+ * Case screen (ROADMAP D2, D5): metadata with edit (editable fields only); the runs table with local
+ * times (UTC on hover), status badges and row actions (open report, reveal folder, details); and the
+ * acquisitions table (status, device, iOS version, date; reveal folder, details, open log, "Parse
+ * with iLEAPP", and "Turn backup encryption off" when an acquisition may have left it on).
  */
 import { appError, errorSlot } from "../components/app-error.js";
 import { caseForm } from "../components/case-form.js";
 import { modal } from "../components/dialog.js";
+import { restoreEncryptionDialog } from "../components/restore-dialog.js";
+import { needsEncryptionOff } from "../lib/acquire.js";
 import { editableFields, folderLabel, updatedRunSummary } from "../lib/cases.js";
 import { h } from "../lib/dom.js";
-import { formatBytes, formatCount, formatDuration } from "../lib/format.js";
+import { formatBytes, formatCount, formatDuration, middleEllipsis } from "../lib/format.js";
 import { jobKey } from "../lib/jobs.js";
 import { routeHref } from "../lib/router.js";
 import { DEFAULT_RUN_SORT, nextSort, sortRuns } from "../lib/sort.js";
@@ -16,6 +20,8 @@ import { watch } from "../lib/store.js";
 import { loadTimezones } from "../lib/timezones.js";
 import { icon, inputTypeLabel, pathText, sizeText, statusBadge, timeText, toolName } from "../lib/view.js";
 
+/** @typedef {import("../types").AcqSummary} AcqSummary */
+/** @typedef {import("../types").AcquisitionRecord} AcquisitionRecord */
 /** @typedef {import("../types").CaseDetail} CaseDetail */
 /** @typedef {import("../types").RunRecord} RunRecord */
 /** @typedef {import("../types").RunSummary} RunSummary */
@@ -67,6 +73,8 @@ export function caseScreen(ctx) {
   const metaCard = h("section", { class: "card", "aria-labelledby": "case-details-heading" });
   const runsErrors = errorSlot();
   const runsCard = h("section", { class: "card", "aria-labelledby": "runs-heading" });
+  const acqErrors = errorSlot();
+  const acqCard = h("section", { class: "card", "aria-labelledby": "acquisitions-heading" });
 
   async function open() {
     try {
@@ -91,14 +99,17 @@ export function caseScreen(ctx) {
     title.textContent = detail.case.name;
     headActions.replaceChildren(
       h("button", { class: "btn", type: "button", onClick: () => reveal(detail?.path ?? path) }, icon("folder"), "Reveal folder"),
+      h("a", { class: "btn", href: routeHref("acquire", { case: detail.path }) }, icon("smartphone"), "Acquire iOS backup"),
       h("a", { class: "btn btn-primary", href: routeHref("new-run", { case: detail.path }) }, "New run"),
     );
     renderMeta();
     renderRuns();
+    renderAcqs();
     body.replaceChildren(
       ...(recovered.length ? [recoveredNotice(recovered)] : []),
       metaCard,
       runsCard,
+      acqCard,
     );
   }
 
@@ -251,7 +262,16 @@ export function caseScreen(ctx) {
       "tr",
       null,
       h("td", null, statusBadge(run.status)),
-      h("td", { class: "cell-label" }, run.label ? run.label : dash()),
+      // The label opens the Run screen: progress and log while running, the result afterwards.
+      h(
+        "td",
+        { class: "cell-label" },
+        h(
+          "a",
+          { href: routeHref("run", { case: detail?.path ?? path, id: run.run_id }), title: run.status === "running" ? "Show the run's progress and log" : "Show the run's result" },
+          run.label ?? h("span", { class: "untitled" }, "Unlabeled run"),
+        ),
+      ),
       h("td", { class: "nowrap" }, toolName(run.tool), h("span", { class: "muted cell-sub" }, run.tool_version)),
       h(
         "td",
@@ -281,13 +301,16 @@ export function caseScreen(ctx) {
     }
   }
 
-  /** @param {string} target */
-  async function reveal(target) {
-    runsErrors.clear();
+  /**
+   * @param {string} target
+   * @param {ReturnType<typeof errorSlot>} [slot] Where to show a failure (the runs card's by default).
+   */
+  async function reveal(target, slot = runsErrors) {
+    slot.clear();
     try {
       await api.reveal_path({ path: target });
     } catch (err) {
-      runsErrors.show(err, "The folder could not be revealed.");
+      slot.show(err, "The folder could not be revealed.");
     }
   }
 
@@ -314,9 +337,181 @@ export function caseScreen(ctx) {
       .finally(() => content.removeAttribute("aria-busy"));
   }
 
-  // When a run of this case stops being the active job (it finished), re-read just that run with
-  // run_get and update its row. case_open is not called again: it would run recovery and reorder
-  // the recent-cases list.
+  // ---- Acquisitions (D5) ----
+
+  function renderAcqs() {
+    if (!detail) return;
+    const acqs = detail.acquisitions;
+    const casePath = detail.path;
+    acqCard.replaceChildren(
+      h(
+        "div",
+        { class: "card-head" },
+        h("h2", { id: "acquisitions-heading" }, "Acquisitions"),
+        h("span", { class: "muted" }, acqs.length === 1 ? "1 acquisition" : `${formatCount(acqs.length)} acquisitions`),
+      ),
+      acqErrors.node,
+      acqs.length === 0
+        ? h("p", { class: "muted" }, "No acquisitions yet. ", h("a", { href: routeHref("acquire", { case: casePath }) }, "Acquire an iOS backup"), ".")
+        : h(
+            "div",
+            { class: "table-wrap" },
+            h(
+              "table",
+              { class: "table acq-table" },
+              h("caption", { class: "visually-hidden" }, "iOS backups acquired into this case, newest first."),
+              h(
+                "thead",
+                null,
+                h(
+                  "tr",
+                  null,
+                  ["Status", "Label", "Device", "iOS", "Created"].map((label) => h("th", { scope: "col" }, label)),
+                  h("th", { scope: "col" }, h("span", { class: "visually-hidden" }, "Actions")),
+                ),
+              ),
+              h("tbody", null, acqs.map(acqRow)),
+            ),
+          ),
+    );
+  }
+
+  /** @param {AcqSummary} a */
+  function acqRow(a) {
+    const casePath = detail?.path ?? path;
+    // AcqSummary.warnings is derived by the core: it drops these codes once a later restore
+    // recorded `restored: true` (acquisition.json keeps them), so the action then disappears.
+    const encryptionOn = needsEncryptionOff(a.warnings);
+    const canParse = a.status === "succeeded" && a.backup_path !== null;
+    return h(
+      "tr",
+      null,
+      h(
+        "td",
+        null,
+        statusBadge(a.status),
+        encryptionOn && h("span", { class: "cell-sub cell-warn" }, icon("lock"), " Encryption may still be on"),
+      ),
+      h(
+        "td",
+        { class: "cell-label" },
+        a.status === "running"
+          ? h("a", { href: routeHref("acquire", { case: casePath }), title: "Show the acquisition's progress" }, a.label ?? h("span", { class: "untitled" }, "Unlabeled acquisition"))
+          : (a.label ?? dash()),
+      ),
+      h(
+        "td",
+        null,
+        a.device_name ?? h("span", { class: "muted" }, "Unnamed device"),
+        h("span", { class: "muted cell-sub mono", title: a.udid }, middleEllipsis(a.udid, 18)),
+      ),
+      h("td", { class: "nowrap" }, a.product_version ?? dash()),
+      h("td", { class: "nowrap" }, timeText(a.created_at)),
+      h(
+        "td",
+        { class: "cell-actions cell-actions-wrap" },
+        h(
+          "button",
+          {
+            class: "btn btn-sm",
+            type: "button",
+            disabled: !canParse,
+            title: canParse ? "Open New run with this backup as the input" : "Only a succeeded backup can be parsed",
+            onClick: () => ctx.navigate(routeHref("new-run", { case: casePath, input: /** @type {string} */ (a.backup_path), acq: a.acq_id })),
+          },
+          "Parse with iLEAPP",
+        ),
+        h("button", { class: "btn btn-sm", type: "button", title: "Reveal the acquisition folder", onClick: () => reveal(a.acq_dir, acqErrors) }, "Folder"),
+        h("button", { class: "btn btn-sm", type: "button", onClick: () => showAcqDetails(a) }, "Details"),
+        h("button", { class: "btn btn-sm", type: "button", title: "Open idevicebackup2.stdout.log", onClick: () => openAcqLog(a) }, "Log"),
+        encryptionOn && h("button", { class: "btn btn-sm btn-warn", type: "button", onClick: () => openRestore(a) }, icon("lock"), "Turn backup encryption off"),
+      ),
+    );
+  }
+
+  /** @param {AcqSummary} a */
+  async function openAcqLog(a) {
+    acqErrors.clear();
+    try {
+      await api.open_acq_file({ case_path: detail?.path ?? path, acq_id: a.acq_id, which: "stdout" });
+    } catch (err) {
+      acqErrors.show(err, "The log could not be opened.");
+    }
+  }
+
+  /** @param {AcqSummary} a */
+  function openRestore(a) {
+    acqErrors.clear();
+    const dialog = restoreEncryptionDialog({
+      api,
+      casePath: detail?.path ?? path,
+      acq: { acq_id: a.acq_id, label: a.label, device_name: a.device_name, udid: a.udid },
+      // Whatever the outcome, re-read the rows: their warnings say whether the action still applies.
+      onSettled: () => {
+        if (!disposed) void reloadAcqs();
+      },
+    });
+    cleanups.push(() => dialog.close());
+    dialog.open();
+  }
+
+  /**
+   * Re-reads the acquisitions (`case_open`, the core's `AcqSummary` rows) and redraws their table.
+   * The runs table and the recovered-jobs notice stay as they are.
+   */
+  async function reloadAcqs() {
+    try {
+      const opened = await api.case_open({ path: detail?.path ?? path });
+      if (disposed || !detail) return;
+      detail = { ...detail, acquisitions: opened.acquisitions };
+      renderAcqs();
+    } catch (err) {
+      if (!disposed) acqErrors.show(err, "The acquisitions could not be read again. Reopen the case to see their current state.");
+    }
+  }
+
+  /** @param {AcqSummary} a */
+  function showAcqDetails(a) {
+    const content = h("div", { class: "stack", "aria-busy": "true" }, h("p", { class: "muted" }, "Loading acquisition.json…"));
+    const dialog = modal({
+      title: `Acquisition ${a.label ?? a.acq_id}`,
+      wide: true,
+      content: () =>
+        h(
+          "div",
+          { class: "modal-main" },
+          h("div", { class: "modal-body modal-scroll" }, content),
+          h("div", { class: "modal-footer" }, h("button", { class: "btn", type: "button", onClick: () => dialog.close() }, "Close")),
+        ),
+    });
+    cleanups.push(() => dialog.close());
+    dialog.open();
+    api
+      .acq_get({ case_path: detail?.path ?? path, acq_id: a.acq_id })
+      .then((record) => content.replaceChildren(...acqDetails(record)))
+      .catch((err) => content.replaceChildren(appError(err, { title: "acquisition.json could not be read." }).node))
+      .finally(() => content.removeAttribute("aria-busy"));
+  }
+
+  /**
+   * A finished acquisition's row: the core's `AcqSummary` from its `finished` event when this
+   * window received it, else re-read with the other rows.
+   * @param {string} acqId
+   */
+  function refreshAcq(acqId) {
+    const finished = /** @type {import("../lib/jobstream.js").AcqFinished | null | undefined} */ (ctx.jobs.find("acquisition", acqId)?.finished);
+    if (!finished || !detail || !detail.acquisitions.some((a) => a.acq_id === acqId)) {
+      void reloadAcqs();
+      return;
+    }
+    const summary = finished.summary;
+    detail = { ...detail, acquisitions: detail.acquisitions.map((a) => (a.acq_id === acqId ? summary : a)) };
+    renderAcqs();
+  }
+
+  // When a job of this case stops being the active job (it finished), re-read just that run or
+  // acquisition and update its row. case_open is not called again: it would run recovery and
+  // reorder the recent-cases list.
   let lastJob = store.get().activeJob;
   cleanups.push(
     watch(
@@ -326,9 +521,14 @@ export function caseScreen(ctx) {
         const job = store.get().activeJob;
         const previous = lastJob;
         lastJob = job;
-        if (previous?.kind !== "run" || previous.case_path !== (detail?.path ?? path)) return;
-        if (job?.kind === "run" && job.run_id === previous.run_id) return;
-        void refreshRun(previous.run_id);
+        if (!previous || previous.case_path !== (detail?.path ?? path)) return;
+        if (previous.kind === "run") {
+          if (job?.kind === "run" && job.run_id === previous.run_id) return;
+          void refreshRun(previous.run_id);
+        } else {
+          if (job?.kind === "acquisition" && job.acq_id === previous.acq_id) return;
+          void refreshAcq(previous.acq_id);
+        }
       },
     ),
   );
@@ -351,6 +551,7 @@ export function caseScreen(ctx) {
     dispose() {
       disposed = true;
       runsErrors.dispose();
+      acqErrors.dispose();
       for (const fn of cleanups) fn();
     },
   };
@@ -471,6 +672,108 @@ function runDetails(r) {
       h("summary", null, "Raw run.json"),
       h("pre", { class: "pre" }, JSON.stringify(r, null, 2)),
     ),
+  ];
+}
+
+/**
+ * The key facts of an acquisition record, then the raw JSON as text (D5).
+ * @param {AcquisitionRecord} r
+ * @returns {Node[]}
+ */
+function acqDetails(r) {
+  const yesNo = (/** @type {boolean | null} */ v) => (v === null ? dash() : v ? "Yes" : "No");
+  /** @param {import("../types").Reason[]} list */
+  const reasons = (list) =>
+    list.length ? h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))) : dash();
+  const e = r.encryption;
+  const seal = r.output.seal;
+  const b = r.backup_result;
+  const mono = (/** @type {string | null} */ v) => (v === null ? dash() : h("span", { class: "mono break" }, v));
+  /** @type {[string, [string, Node | string][]][]} */
+  const groups = [
+    [
+      "Outcome",
+      [
+        ["Status", statusBadge(r.status)],
+        ["Reasons", reasons(r.status_reasons)],
+        ["Warnings", reasons(r.warnings)],
+        ["Acquisition ID", h("span", { class: "mono" }, r.acq_id)],
+        ["Label", r.label ?? dash()],
+      ],
+    ],
+    [
+      "Times",
+      [
+        ["Created", timeText(r.created_at)],
+        ["Started", timeText(r.started_at)],
+        ["Ended", timeText(r.ended_at)],
+        ...(r.recovered_at ? /** @type {[string, Node][]} */ ([["Recovered", timeText(r.recovered_at)]]) : []),
+        ["Duration", r.duration_ms === null ? dash() : formatDuration(r.duration_ms)],
+      ],
+    ],
+    [
+      "Device",
+      [
+        ["Name", r.device.device_name ?? dash()],
+        ["Model", r.device.product_type ?? dash()],
+        ["iOS", r.device.product_version && r.device.build_version ? `${r.device.product_version} (${r.device.build_version})` : (r.device.product_version ?? dash())],
+        ["Serial", r.device.serial_number ?? dash()],
+        ["UDID", mono(r.device.udid)],
+        ["device-info.plist SHA-256", mono(r.device.info_file_sha256)],
+      ],
+    ],
+    [
+      "Pairing and device changes",
+      [
+        ["Paired before", yesNo(r.pairing.paired_before)],
+        ["Paired by the app", r.pairing.paired_by_app_at ? timeText(r.pairing.paired_by_app_at) : "No"],
+        ["Host ID", mono(r.pairing.host_id)],
+        [
+          "Changes",
+          r.device_changes.length
+            ? h("ul", { class: "list-compact" }, r.device_changes.map((c) => h("li", null, h("code", null, c.change), " ", c.detail)))
+            : dash(),
+        ],
+      ],
+    ],
+    [
+      "Encryption",
+      [
+        ["Before", yesNo(e.will_encrypt_before)],
+        ["Turn on requested", yesNo(e.enable_requested)],
+        ["Turned on by the examiner", yesNo(e.enabled_by_examiner)],
+        ["Turn off afterwards", e.restore_requested ? statusWord(e.restored_after) : "Not requested"],
+        ["After", yesNo(e.will_encrypt_after_restore ?? e.will_encrypt_after_enable)],
+        ["Password", e.password_supplied ? `Supplied via ${e.password_channel ?? "?"} (not recorded)` : "Not supplied"],
+      ],
+    ],
+    [
+      "Backup",
+      [
+        ["Tool said", b?.final_message ? h("span", { class: "mono" }, b.final_message) : dash()],
+        ["Snapshot", b?.snapshot_state ?? dash()],
+        ["Manifest", b?.manifest_found ?? dash()],
+        ["Last progress", b?.last_progress_percent === null || b === null ? dash() : `${b.last_progress_percent}%`],
+        ["Device file errors", b ? formatCount(b.device_file_errors) : dash()],
+        ["Backup seal", seal.status === "sealed" ? `${statusWord(seal.status)}: ${formatCount(seal.file_count)} files, ${formatBytes(seal.total_bytes)}` : statusWord(seal.status)],
+        ["Tools", `libimobiledevice ${r.tools.version ?? "(system)"}, ${r.tools.source}, verified by ${r.tools.binaries.idevicebackup2.verified_against.replaceAll("_", " ")}`],
+      ],
+    ],
+  ];
+  return [
+    h(
+      "div",
+      { class: "detail-groups" },
+      groups.map(([heading, rows]) =>
+        h(
+          "section",
+          { class: "detail-group" },
+          h("h3", null, heading),
+          h("dl", { class: "facts facts-compact" }, rows.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
+        ),
+      ),
+    ),
+    h("details", { class: "raw-json" }, h("summary", null, "Raw acquisition.json"), h("pre", { class: "pre" }, JSON.stringify(r, null, 2))),
   ];
 }
 

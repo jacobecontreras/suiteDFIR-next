@@ -10,11 +10,29 @@
 // - URL flags, `?mock&scenario=a,b`: `empty` (no recent cases), `no_tools` (no parser installed),
 //   `dev_override`, `active_run` (a slow run is already active at load), `install_fail`,
 //   `no_devices`, `idevice_missing`, `usbmuxd_unavailable`, `idevice_verification_failed`,
-//   `idevice_unsupported`, `preflight_warn`, `preflight_block`.
+//   `idevice_unsupported`, `preflight_warn`, `preflight_block`, `tool_verification_failed` (iLEAPP
+//   fails verification), `tool_unsupported` (no aLEAPP build for the platform).
+//   `hold_<phase>` (e.g. `hold_analyzing`, `hold_sealing_report`, `hold_enabling_encryption`,
+//   `hold_backing_up`): a run or acquisition stops in that phase (after its device prompt, if any)
+//   until it is cancelled, so every phase can be screenshotted. With `active_run` / `active_acq`, a
+//   `hold_<phase>` flag makes the start-up job a normal one (an acquisition then turns encryption
+//   on and off), so it reaches that phase before the UI attaches, as after a reload mid-phase.
+//   `pair_states`: one device in every PairState, as `devices_list` reports it (the real core
+//   reports `not_paired` while there is no host pair record, e.g. after a Pair that returned
+//   `awaiting_trust`; this rendering fixture shows every state at once). `active_acq`: a slow
+//   acquisition of the first device is already active at load. `idevice_session_error`: the tools
+//   are ok but listing the devices failed (state `ok` with `guidance`, as the core reports it).
+// - Pairing: Pair on a device that was never asked answers `awaiting_trust` (the Trust dialog) and
+//   creates no host record, so `devices_list` still reports `not_paired`; the next Pair pairs.
+// - Later restores (`acq_restore_encryption`): each attempt is numbered (encryption-restore.json,
+//   encryption-restore-2.json, …). The password `wrong` fails an attempt, which can be retried;
+//   after an attempt that restored, `AcqSummary.warnings` leaves out `encryption_left_enabled` and
+//   `encryption_state_unknown`, and further attempts are refused (`restore_not_applicable`).
 // - Runs: the final status is chosen by the input path's last segment without extension:
 //   `errors`, `fail-invalid`, `fail-early`, `fail-argparse`, `fail-crash`, `slow` (runs until
-//   cancelled), `interrupt` (the "app crashes": the next case_open marks it interrupted); anything
-//   else succeeds. `run_cancel` gives `cancelled`.
+//   cancelled), `interrupt` (the "app crashes": the next case_open marks it interrupted), `flood`
+//   (100,000 log lines in batches of 500, then success); anything else succeeds. `run_cancel`
+//   gives `cancelled`.
 // - Inputs: `…/denied` → permission_denied, `…/missing…` → invalid_input, anything overlapping a
 //   case (ARCHITECTURE.md §6 step 1) → input_overlaps_case.
 // - Acquisitions: chosen by a label suffix `/<scenario>` (fake-idevice names, CONTRACTS.md §13.4):
@@ -29,6 +47,7 @@ import {
   REASONS,
   RUN_OUTCOMES,
   TOOLS,
+  acquisitionIdOf,
   acqSummary,
   finalizeRunRecord,
   initialAcqRecord,
@@ -75,6 +94,8 @@ const FLAGS = new Set(
 );
 /** @param {string} flag */
 const has = (flag) => FLAGS.has(flag);
+/** A `hold_<phase>` flag is set: a job started at load must reach that phase. */
+const HOLDING = [...FLAGS].some((flag) => flag.startsWith("hold_"));
 
 function tick() {
   const t = /** @type {any} */ (globalThis).__SUITEDFIR_MOCK_TICK_MS;
@@ -83,6 +104,20 @@ function tick() {
 
 /** @param {number} ms */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * With the `hold_<phase>` flag, keeps the job in `phase` until it is cancelled.
+ * @param {{ cancelRequested: boolean }} j
+ * @param {string} phase
+ */
+async function holdIn(j, phase) {
+  if (!has(`hold_${phase}`)) return;
+  while (!j.cancelRequested) await sleep(Math.max(tick(), 50));
+}
+
+/** `flood` runs: lines and batch size (the core sends at most 500 lines per `log` event). */
+const FLOOD_LINES = 100_000;
+const FLOOD_BATCH = 500;
 
 /**
  * @param {ErrorCode} code
@@ -180,6 +215,16 @@ if (has("dev_override")) {
   for (const tool of /** @type {ToolId[]} */ (["ileapp", "aleapp"])) {
     tools[tool] = { ...installedStatus(tool), state: "dev_override", installed_version: "dev-override", install_source: "dev_override" };
   }
+}
+if (has("tool_verification_failed")) {
+  tools.ileapp = {
+    ...installedStatus("ileapp"),
+    state: "verification_failed",
+    problem: "The entry's SHA-256 does not match the pinned value: expected 5c1e0b3a…9d42, found 77ab04e1…c3f0 (bin/ileapp).",
+  };
+}
+if (has("tool_unsupported")) {
+  tools.aleapp = { ...notInstalledStatus("aleapp"), state: "unsupported_platform", problem: null };
 }
 
 const settings = clone(fx.Settings);
@@ -330,25 +375,56 @@ const profiles = {
   aleapp: new Map([["Android triage", MODULES.aleapp.filter((_, i) => i % 83 === 0).map((m) => m.name)]]),
 };
 
+/**
+ * A device as seen before pairing (`ideviceinfo -s`: no name or serial; no encryption or disk data).
+ * @param {string} udid
+ * @param {string} productType
+ * @param {string} version
+ * @param {import("../ui/types").PairState} state
+ * @param {string | null} message
+ * @returns {DeviceSummary}
+ */
+function unpairedDevice(udid, productType, version, state, message) {
+  return {
+    udid,
+    device_name: null,
+    product_type: productType,
+    product_version: version,
+    serial_number: null,
+    pair_state: state,
+    busy: false,
+    will_encrypt: null,
+    data_used_bytes: null,
+    data_capacity_bytes: null,
+    message,
+  };
+}
+
+const IPAD = unpairedDevice("4e1c2b3a5d6f708192a3b4c5d6e7f8091a2b3c4d", "iPad13,4", "17.5.1", "not_paired", null);
+
 /** @type {DeviceSummary[]} */
 const devices = has("no_devices")
   ? []
-  : [
-      clone(fx.DeviceSummary),
-      {
-        udid: "4e1c2b3a5d6f708192a3b4c5d6e7f8091a2b3c4d",
-        device_name: null,
-        product_type: "iPad13,4",
-        product_version: "17.5.1",
-        serial_number: null,
-        pair_state: "not_paired",
-        busy: false,
-        will_encrypt: null,
-        data_used_bytes: null,
-        data_capacity_bytes: null,
-        message: null,
-      },
-    ];
+  : has("pair_states")
+    ? [
+        clone(fx.DeviceSummary),
+        IPAD,
+        unpairedDevice("00008110-001A2B3C4D5E6F70", "iPhone14,5", "18.5", "awaiting_trust", "ERROR: Please accept the trust dialog on the screen of device 00008110-001A2B3C4D5E6F70, then attempt to pair again."),
+        unpairedDevice("00008120-000C1D2E3F405162", "iPhone15,2", "18.6", "locked", "ERROR: Could not validate with device 00008120-000C1D2E3F405162 because a passcode is set. Please enter the passcode on the device and retry."),
+        unpairedDevice("00008030-0019283746AB5C6D", "iPhone12,1", "17.7", "trust_denied", "ERROR: Device 00008030-0019283746AB5C6D said that the user denied the trust dialog."),
+        unpairedDevice("00008101-0005A4B3C2D1E0F9", "iPhone13,4", "18.6", "pairing_failed", "ERROR: Pairing with device 00008101-0005A4B3C2D1E0F9 failed."),
+        unpairedDevice("00008027-001122334455AABB", "iPad8,9", "16.7.10", "unknown", "idevicepair hostid did not answer within 20 s"),
+        {
+          ...clone(fx.DeviceSummary),
+          udid: "00008140-00AB12CD34EF5601",
+          device_name: "Loaner iPhone",
+          product_type: "iPhone16,1",
+          serial_number: "G7KXXXXXXX",
+          will_encrypt: null,
+          message: "WillEncrypt could not be read",
+        },
+      ]
+    : [clone(fx.DeviceSummary), IPAD];
 /** @type {Map<string, number>} */
 const pairAttempts = new Map();
 
@@ -493,7 +569,7 @@ function detail(path, c, recovered = []) {
     path,
     case: c.file,
     runs: c.runs.map((r) => runSummary(path, r)).sort((a, b) => b.created_at.localeCompare(a.created_at)),
-    acquisitions: c.acqs.map((a) => acqSummary(path, a)).sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    acquisitions: c.acqs.map((a) => acqSummary(path, a, restoredLater(a.acq_id))).sort((a, b) => b.created_at.localeCompare(a.created_at)),
     recovered,
   });
 }
@@ -546,7 +622,11 @@ function inspect(tool, path, casePath) {
   const toolTypes = TOOLS[tool].input_types;
   if (!isFile) {
     const itunes = /backup/i.test(stem) || /^[0-9a-f]{8}-[0-9a-f]{12,16}$/i.test(stem) || /^[0-9a-f]{40}$/i.test(stem);
-    const encrypted = itunes && (path === fx.InputInspection.path || /encrypted/i.test(stem));
+    // An acquired backup is encrypted when the acquisition turned encryption on, or it was on before.
+    const acqId = acquisitionIdOf(casePath, path);
+    const acq = acqId ? cases.get(casePath)?.acqs.find((a) => a.acq_id === acqId) : undefined;
+    const acqEncrypted = acq ? acq.encryption.enabled_by_examiner || acq.encryption.will_encrypt_before === true : false;
+    const encrypted = itunes && (path === fx.InputInspection.path || /encrypted/i.test(stem) || acqEncrypted);
     const canItunes = itunes && toolTypes.includes("itunes");
     return {
       path,
@@ -614,16 +694,40 @@ function profileInfo(tool, name) {
 // ---- §10: app, settings, tools ----
 
 /** @type {Api["app_info"]} */
-export const app_info = async () => ({ ...clone(fx.AppInfo), dev_override: has("dev_override") });
+export const app_info = async () => {
+  const info = { ...clone(fx.AppInfo), dev_override: has("dev_override") };
+  // `paths.tools_dir` is the folder in effect: the override, else the default.
+  info.paths.tools_dir = settings.tools_dir ?? LEAPP_DIR;
+  return info;
+};
 
 /** @type {Api["licenses_get"]} */
 export const licenses_get = async () =>
   [
     "# Third-party notices (mock)",
     "",
-    "iLEAPP and aLEAPP: MIT License, Copyright (c) Alexis Brignoni and contributors.",
-    "",
     "The real app returns the embedded THIRD-PARTY-NOTICES.md here.",
+    "",
+    "## iLEAPP and aLEAPP",
+    "",
+    "MIT License",
+    "",
+    "Copyright (c) Alexis Brignoni and contributors",
+    "",
+    "Permission is hereby granted, free of charge, to any person obtaining a copy",
+    "of this software and associated documentation files (the \"Software\"), to deal",
+    "in the Software without restriction, including without limitation the rights",
+    "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell",
+    "copies of the Software, and to permit persons to whom the Software is",
+    "furnished to do so, subject to the following conditions: …",
+    "",
+    "## Rust crates",
+    "",
+    "| Crate      | Version | License           |",
+    "|------------|---------|-------------------|",
+    "| serde      | 1.0.228 | MIT OR Apache-2.0 |",
+    "| sha2       | 0.10.9  | MIT OR Apache-2.0 |",
+    "| tauri      | 2.11.0  | Apache-2.0 OR MIT |",
   ].join("\n");
 
 /** @type {Api["settings_get"]} */
@@ -639,7 +743,13 @@ export const settings_update = async (req) => {
     if (!req.defaults) throw appError("invalid_input", "defaults may not be null.");
     settings.defaults = clone(req.defaults);
   }
-  if ("tools_dir" in req) settings.tools_dir = req.tools_dir ?? null;
+  if ("tools_dir" in req) {
+    const dir = req.tools_dir ?? null;
+    if (dir !== null && settings.recent_cases.some((c) => within(dir, c))) {
+      throw appError("path_not_allowed", "The tools folder cannot be inside a case folder.", dir);
+    }
+    settings.tools_dir = dir;
+  }
   return clone(settings);
 };
 
@@ -945,6 +1055,7 @@ async function simulateRun(j, scenario, resolved) {
   const tool = TOOLS[rec.tool.id];
   runPhase(j, "preparing");
   await sleep(t);
+  await holdIn(j, "preparing");
   rec.started_at = isoNow();
   runPhase(j, "running");
   emitLog(j, [
@@ -953,6 +1064,17 @@ async function simulateRun(j, scenario, resolved) {
     `File/Directory selected: ${rec.input.path}`,
     `Artifact categories to parse: ${resolved.length}`,
   ]);
+  if (scenario === "flood") {
+    for (let n = 0; n < FLOOD_LINES && !j.cancelRequested; n += FLOOD_BATCH) {
+      const lines = [];
+      for (let k = n; k < n + FLOOD_BATCH; k++) {
+        const name = resolved[k % Math.max(resolved.length, 1)] ?? "last_build";
+        lines.push(`[${String(k + 1).padStart(6, "0")}] ${name}: parsed ${k % 97} records from ${rec.input.path}/private/var/mobile/Library/${name}.db`);
+      }
+      emitLog(j, lines);
+      await sleep(5);
+    }
+  }
   const hashing = rec.input.hash.status === "pending";
   const bytesTotal = rec.input.size_bytes ?? 1;
   const batches = scenario === "slow" ? Number.POSITIVE_INFINITY : scenario === "interrupt" ? 5 : 14;
@@ -998,20 +1120,27 @@ async function simulateRun(j, scenario, resolved) {
   if (hashing && !cancelled) {
     runPhase(j, "hashing_input");
     await sleep(t);
+    if (has("hold_hashing_input")) {
+      emit(j, { type: "hash_progress", bytes_done: Math.round(bytesTotal * 0.93), bytes_total: bytesTotal });
+      await holdIn(j, "hashing_input");
+    }
     emit(j, { type: "hash_progress", bytes_done: bytesTotal, bytes_total: bytesTotal });
   }
   runPhase(j, "analyzing");
   await sleep(t);
+  await holdIn(j, "analyzing");
   if (outcome.report) {
     runPhase(j, "sealing_report");
     const files = outcome.index ? 5321 : 214;
     for (let i = 1; i <= 3; i++) {
       await sleep(t);
       emit(j, { type: "seal_progress", files_done: Math.round((files * i) / 3), files_total: files });
+      if (i === 1) await holdIn(j, "sealing_report");
     }
   }
   runPhase(j, "finalizing");
   await sleep(t);
+  await holdIn(j, "finalizing");
   finalizeRunRecord(rec, outcome, { startedAt: rec.started_at, exitedAt, endedAt: isoNow() });
   job = null;
   emit(j, { type: "finished", status: rec.status, reasons: rec.status_reasons, warnings: rec.warnings, summary: runSummary(j.casePath, rec) });
@@ -1072,16 +1201,16 @@ export const temp_cleanup = async () => {
 /** @returns {import("../ui/types").DevicesResult["tools"]} */
 function ideviceTools() {
   if (has("idevice_missing")) {
-    return { source: null, version: null, state: "missing", guidance: "The libimobiledevice tools were not found. Reinstall suiteDFIR." };
+    return { source: null, version: null, state: "missing", guidance: "idevice_id was not found next to the app executable." };
   }
   if (has("usbmuxd_unavailable")) {
-    return { source: "bundled", version: "1.4.0", state: "usbmuxd_unavailable", guidance: "Install the Apple Devices app (or iTunes) so the Apple Mobile Device Service runs." };
+    return { source: "bundled", version: "1.4.0", state: "usbmuxd_unavailable", guidance: "idevice_id -l: ERROR: Unable to retrieve device list!" };
   }
   if (has("idevice_verification_failed")) {
-    return { source: "bundled", version: "1.4.0", state: "verification_failed", guidance: "A bundled tool does not match its pinned hash. Reinstall suiteDFIR." };
+    return { source: "bundled", version: "1.4.0", state: "verification_failed", guidance: "idevicebackup2: SHA-256 7c1e9a04…b25d does not match the pinned 945993e3…a2d2." };
   }
   if (has("idevice_unsupported")) {
-    return { source: null, version: null, state: "unsupported_platform", guidance: "iOS acquisition is not available on Windows on Arm." };
+    return { source: null, version: null, state: "unsupported_platform", guidance: "No iOS tools are pinned for windows-aarch64." };
   }
   return clone(fx.DevicesResult.tools);
 }
@@ -1090,6 +1219,7 @@ function ideviceTools() {
 export const devices_list = async () => {
   const toolsState = ideviceTools();
   if (toolsState.state !== "ok") return { tools: toolsState, devices: [] };
+  if (has("idevice_session_error")) return { tools: { ...toolsState, guidance: "Listing the devices failed unexpectedly." }, devices: [] };
   const busyUdid = job?.kind === "acquisition" ? job.record.device.udid : null;
   return {
     tools: toolsState,
@@ -1117,20 +1247,27 @@ export const device_pair = async (req) => {
   await sleep(tick());
   const attempt = (pairAttempts.get(req.udid) ?? 0) + 1;
   pairAttempts.set(req.udid, attempt);
-  if (attempt === 1) {
-    device.pair_state = "awaiting_trust";
-    device.message = "Unlock the device and tap Trust, then press Pair again.";
-  } else {
-    Object.assign(device, {
-      pair_state: "paired",
-      message: null,
-      device_name: "Evidence iPad",
-      serial_number: "DMPXXXXXXXXX",
-      will_encrypt: true,
-      data_used_bytes: 42949672960,
-      data_capacity_bytes: 128849018880,
-    });
+  // A device that was never asked shows the Trust dialog first; a retry (the examiner tapped Trust,
+  // unlocked it or reconnected it) pairs. Until then the host has no pair record, so the device
+  // stays `not_paired` in `devices_list` (ARCHITECTURE.md §6b step 1); only this answer says more.
+  if (attempt === 1 && device.pair_state === "not_paired") {
+    return {
+      ...clone(device),
+      pair_state: "awaiting_trust",
+      message: `ERROR: Please accept the trust dialog on the screen of device ${req.udid}, then attempt to pair again.`,
+    };
   }
+  const ipad = device.product_type?.startsWith("iPad") ?? false;
+  Object.assign(device, {
+    pair_state: "paired",
+    message: null,
+    device_name: ipad ? "Evidence iPad" : "Evidence iPhone",
+    serial_number: ipad ? "DMPXXXXXXXXX" : "FFMXXXXXXXXX",
+    // The iPad's owner turned backup encryption on (the "already encrypted" variant).
+    will_encrypt: ipad,
+    data_used_bytes: 42949672960,
+    data_capacity_bytes: 128849018880,
+  });
   return clone(device);
 };
 
@@ -1211,8 +1348,10 @@ async function simulateAcq(j, scenario, req) {
   const rec = j.record;
   const tool = rec.tools.binaries.idevicebackup2.path;
   const udid = rec.device.udid;
+  const device = devices.find((d) => d.udid === udid);
   acqPhase(j, "preparing");
   await sleep(t);
+  await holdIn(j, "preparing");
   rec.started_at = isoNow();
   /** @type {Reason[]} */
   let reasons = [];
@@ -1226,12 +1365,14 @@ async function simulateAcq(j, scenario, req) {
   if (req.enable_encryption) {
     acqPhase(j, "enabling_encryption");
     emit(j, { type: "device_prompt", kind: "passcode_for_encryption", text: "Please confirm enabling the backup encryption by entering the passcode on the device." });
+    await holdIn(j, "enabling_encryption");
     await sleep(3 * t);
     const ok = scenario !== "enable_fail";
     rec.commands.push({ purpose: "enable_encryption", argv: [tool, "-u", udid, "encryption", "on"], exit_code: ok ? 0 : 1, started_at: rec.started_at, exited_at: isoNow() });
     rec.encryption.will_encrypt_after_enable = ok;
     if (ok) {
       enabled = true;
+      if (device) device.will_encrypt = true;
       rec.encryption.enabled_by_examiner = true;
       rec.device_changes.push({ at: isoNow(), change: "backup_encryption_enabled", detail: "WillEncrypt false → true" });
     } else {
@@ -1247,6 +1388,7 @@ async function simulateAcq(j, scenario, req) {
     rec.commands.push({ purpose: "backup", argv: [tool, "-u", udid, "backup", "--full", `${j.casePath}/acquisitions/${rec.acq_id}/backup`], exit_code: null, started_at: started, exited_at: null });
     emit(j, { type: "device_prompt", kind: "passcode_for_backup", text: "*** Waiting for passcode to be entered on the device ***" });
     emitLog(j, ['Started "com.apple.mobilebackup2" service on port 49324.', "Negotiated Protocol Version 2.1", "Starting backup..."]);
+    await holdIn(j, "backing_up");
     const stopAt = ACQ_FAILURES[scenario] ? 40 : 100;
     const step = scenario === "slow" ? 1 : 10;
     for (let pct = 0; pct <= stopAt; pct += step) {
@@ -1278,12 +1420,14 @@ async function simulateAcq(j, scenario, req) {
   if (enabled && req.restore_encryption && scenario !== "disconnect") {
     acqPhase(j, "restoring_encryption");
     emit(j, { type: "device_prompt", kind: "passcode_for_encryption", text: "Please confirm disabling the backup encryption by entering the passcode on the device." });
+    await holdIn(j, "restoring_encryption");
     await sleep(2 * t);
     const ok = scenario !== "restore_fail";
     rec.commands.push({ purpose: "restore_encryption", argv: [tool, "-u", udid, "encryption", "off"], exit_code: ok ? 0 : 1, started_at: isoNow(), exited_at: isoNow() });
     rec.encryption.restored_after = ok ? "restored" : "failed";
     rec.encryption.will_encrypt_after_restore = !ok;
     if (ok) {
+      if (device) device.will_encrypt = false;
       rec.device_changes.push({ at: isoNow(), change: "backup_encryption_disabled", detail: "WillEncrypt true → false" });
     } else {
       warnings.push(r("encryption_restore_failed", "Turning backup encryption off failed"));
@@ -1298,6 +1442,7 @@ async function simulateAcq(j, scenario, req) {
 
   acqPhase(j, "validating");
   await sleep(t);
+  await holdIn(j, "validating");
   if (backupRan) {
     rec.backup_result = {
       final_message: cancelledBeforeExit ? "Backup Aborted." : ACQ_FAILURES[scenario] ? null : "Backup Successful.",
@@ -1321,6 +1466,7 @@ async function simulateAcq(j, scenario, req) {
       if (j.cancelRequested && backupExited && !cancelledBeforeExit) break;
       done = Math.round((files * i) / 3);
       emit(j, { type: "seal_progress", files_done: done, files_total: files });
+      if (i === 1) await holdIn(j, "sealing");
     }
     const sealCancelled = done < files;
     if (sealCancelled) warnings.push(r("seal_cancelled", "Sealing was cancelled; backup.sha256 is incomplete"));
@@ -1332,6 +1478,7 @@ async function simulateAcq(j, scenario, req) {
   }
   acqPhase(j, "finalizing");
   await sleep(t);
+  await holdIn(j, "finalizing");
   /** @type {AcqStatus} */
   const status = cancelledBeforeExit ? "cancelled" : reasons.length ? "failed" : "succeeded";
   rec.status = status;
@@ -1364,17 +1511,40 @@ function findAcq(casePath, acqId) {
 /** @type {Api["acq_get"]} */
 export const acq_get = async (req) => clone(findAcq(req.case_path, req.acq_id));
 
+/**
+ * The later-restore attempt files of each acquisition, in order (CONTRACTS.md §13.3):
+ * `encryption-restore.json`, then `encryption-restore-2.json`, … Each records whether it restored.
+ * @type {Map<string, { file: string, restored: boolean }[]>}
+ */
+const restoreAttempts = new Map();
+
+/**
+ * True once a later-restore attempt of this acquisition recorded `restored: true`.
+ * @param {string} acqId
+ */
+const restoredLater = (acqId) => (restoreAttempts.get(acqId) ?? []).some((a) => a.restored);
+
 /** @type {Api["acq_restore_encryption"]} */
 export const acq_restore_encryption = async (req) => {
   const acq = findAcq(req.case_path, req.acq_id);
   if (!acq.warnings.some((w) => w.code === "encryption_left_enabled" || w.code === "encryption_state_unknown")) {
     throw appError("restore_not_applicable", "This acquisition did not leave backup encryption on.");
   }
+  const attempts = restoreAttempts.get(acq.acq_id) ?? [];
+  const earlier = attempts.find((a) => a.restored);
+  if (earlier) throw appError("restore_not_applicable", "An earlier attempt already turned backup encryption off for this acquisition.", earlier.file);
   if (job) throw appError("run_already_active", "Another job is running.");
   const device = findDevice(acq.device.udid);
   if (device.pair_state !== "paired") throw appError("device_not_paired", "Pair the device first.");
   if (!req.password) throw appError("encryption_password_required", "Enter the backup password that was set during the acquisition.");
   await sleep(2 * tick());
+  // The password "wrong" stands for a wrong password: the tool fails, encryption stays on, and
+  // the attempt can be retried.
+  const restored = req.password !== "wrong";
+  const n = attempts.length + 1;
+  attempts.push({ file: n === 1 ? "encryption-restore.json" : `encryption-restore-${n}.json`, restored });
+  restoreAttempts.set(acq.acq_id, attempts);
+  if (!restored) return { restored: false, will_encrypt_after: true };
   device.will_encrypt = false;
   return { restored: true, will_encrypt_after: false };
 };
@@ -1395,12 +1565,14 @@ export const dialog_save = (options) => pickSave(options);
 
 // ---- Start-up scenario ----
 
+// With a `hold_<phase>` flag the start-up job is a normal one that stops in that phase, so the UI
+// attaches mid-phase (as after a reload); otherwise it is a slow one.
 if (has("active_run")) {
   void run_start(
     {
       case_path: NIGHTJAR,
       tool: "ileapp",
-      input_path: "/Volumes/Evidence/slow",
+      input_path: HOLDING ? "/Volumes/Evidence/Pixel-7-extraction" : "/Volumes/Evidence/slow",
       input_type: "fs",
       modules: { mode: "all" },
       timezone: "UTC",
@@ -1408,6 +1580,19 @@ if (has("active_run")) {
       keychain_path: null,
       hash_input: false,
       label: "Long-running triage",
+    },
+    () => {},
+  );
+}
+if (has("active_acq")) {
+  void acq_start(
+    {
+      case_path: NIGHTJAR,
+      udid: fx.DeviceSummary.udid,
+      label: HOLDING ? "Seized iPhone, item 7" : "Seized iPhone, item 7/slow",
+      enable_encryption: HOLDING,
+      encryption_password: HOLDING ? "examiner-pw" : null,
+      restore_encryption: HOLDING,
     },
     () => {},
   );

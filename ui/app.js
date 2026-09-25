@@ -7,14 +7,20 @@ import { loadApi } from "./api/index.js";
 import { appError } from "./components/app-error.js";
 import { shell } from "./components/shell.js";
 import { h } from "./lib/dom.js";
+import { handoff } from "./lib/handoff.js";
+import { createJobStreams } from "./lib/jobstream.js";
 import { pollActiveJob } from "./lib/jobs.js";
 import { parseRoute } from "./lib/router.js";
 import { createStore } from "./lib/store.js";
+import { acquireScreen } from "./screens/acquire.js";
 import { caseScreen } from "./screens/case.js";
 import { casesScreen } from "./screens/cases.js";
 import { newRunScreen } from "./screens/new-run.js";
 import { notFoundScreen } from "./screens/not-found.js";
+import { runScreen } from "./screens/run.js";
+import { settingsScreen } from "./screens/settings.js";
 
+/** @typedef {import("./types").AcqStatus} AcqStatus */
 /** @typedef {import("./lib/context").AppState} AppState */
 /** @typedef {import("./lib/context").ScreenContext} ScreenContext */
 /** @typedef {import("./lib/context").View} View */
@@ -24,6 +30,9 @@ const ROUTES = {
   cases: casesScreen,
   case: caseScreen,
   "new-run": newRunScreen,
+  run: runScreen,
+  settings: settingsScreen,
+  acquire: acquireScreen,
 };
 
 /** How often `job_active` is polled while a job is active. */
@@ -41,7 +50,7 @@ async function main() {
   const { api, mode } = loaded;
 
   const store = createStore(
-    /** @type {AppState} */ ({ mode, appInfo: null, settings: null, tools: null, activeJob: null, timezones: null }),
+    /** @type {AppState} */ ({ mode, appInfo: null, settings: null, tools: null, activeJob: null, timezones: null, installs: {} }),
   );
   const chrome = shell({ store });
   root.replaceChildren(chrome.node);
@@ -62,6 +71,12 @@ async function main() {
   }
 
   pollActiveJob(api, store, JOB_POLL_MS);
+  const jobs = createJobStreams(store, {
+    // A kept backup password is useless once its acquisition failed, or finished unseen.
+    onFinished: (s) => {
+      if (s.kind === "acquisition" && s.id && s.finished) handoff.finished(s.id, /** @type {AcqStatus} */ (s.finished.status));
+    },
+  });
 
   /** @type {View | null} */
   let current = null;
@@ -70,7 +85,7 @@ async function main() {
     const route = parseRoute(window.location.hash);
     current?.dispose();
     const factory = ROUTES[route.name] ?? notFoundScreen;
-    current = factory({ api, store, params: route.params, navigate });
+    current = factory({ api, store, params: route.params, navigate, jobs });
     chrome.main.replaceChildren(current.node);
     chrome.setRoute(route.name);
     // Move focus to the new screen's heading so keyboard and screen-reader users follow the change.

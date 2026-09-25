@@ -84,6 +84,14 @@ for (const [suffix, status, reasons] of /** @type {const} */ ([
   });
 }
 
+test("a flood run streams 100,000 log lines in batches of at most 500, then succeeds", async () => {
+  const { fin, events } = await runToEnd(`${EV}/flood`);
+  const batches = events.filter((e) => e.type === "log").map((e) => (e.type === "log" ? e.lines.length : 0));
+  assert.ok(batches.every((n) => n <= 500));
+  assert.ok(batches.reduce((a, b) => a + b, 0) >= 100_000);
+  assert.equal(fin.status, "succeeded");
+});
+
 test("a cancelled run finishes cancelled", async () => {
   const { fin } = await runToEnd(`${EV}/slow`, async (runId, events) => {
     while (!events.some((e) => e.type === "log")) await new Promise((resolve) => setTimeout(resolve, 2));
@@ -181,12 +189,59 @@ for (const [scenario, status, warning] of /** @type {const} */ ([
   ["/sync_lock", "failed", null],
 ])) {
   test(`an acquisition labelled "…${scenario}" finishes ${status}`, async () => {
-    const { fin, events } = await acquire(`Handset${scenario}`);
+    const { fin, events, started } = await acquire(`Handset${scenario}`);
     assert.equal(fin.status, status);
     if (warning) assert.ok(fin.warnings.some((w) => w.code === warning));
     assert.ok(events.some((e) => e.type === "device_prompt"));
+    if (warning === "encryption_left_enabled") {
+      // The device still encrypts backups, so turning encryption on again is refused …
+      await assert.rejects(acquire("Handset"), { code: "encryption_already_on" });
+      // … until "Turn backup encryption off" (a later acq_restore_encryption) succeeds.
+      await turnOffLater(started.acq_id);
+    }
   });
 }
+
+/**
+ * The later-restore rule (CONTRACTS.md §13.3/§13.5): a failed attempt keeps the warnings and can be
+ * retried; a successful one takes them out of AcqSummary.warnings (acquisition.json keeps them);
+ * a further attempt is refused.
+ * @param {string} acqId
+ */
+async function turnOffLater(acqId) {
+  /** @param {string} id */
+  const row = async (id) => (await mock.case_open({ path: CASE })).acquisitions.find((a) => a.acq_id === id);
+  assert.ok((await row(acqId))?.warnings.includes("encryption_left_enabled"));
+  const wrong = await mock.acq_restore_encryption({ case_path: CASE, acq_id: acqId, password: "wrong" });
+  assert.deepEqual(wrong, { restored: false, will_encrypt_after: true });
+  assert.ok((await row(acqId))?.warnings.includes("encryption_left_enabled"), "a failed attempt keeps the warning");
+  const wrongAgain = await mock.acq_restore_encryption({ case_path: CASE, acq_id: acqId, password: "wrong" });
+  assert.equal(wrongAgain.restored, false, "and can be retried");
+  const later = await mock.acq_restore_encryption({ case_path: CASE, acq_id: acqId, password: "1234" });
+  assert.deepEqual(later, { restored: true, will_encrypt_after: false });
+  const after = await row(acqId);
+  assert.ok(after);
+  const rec = await mock.acq_get({ case_path: CASE, acq_id: acqId });
+  assert.ok(rec.warnings.some((w) => w.code === "encryption_left_enabled"), "acquisition.json keeps the code");
+  assert.deepEqual(
+    after.warnings,
+    rec.warnings.map((w) => w.code).filter((c) => c !== "encryption_left_enabled" && c !== "encryption_state_unknown"),
+    "AcqSummary.warnings drop only the two codes",
+  );
+  await assert.rejects(mock.acq_restore_encryption({ case_path: CASE, acq_id: acqId, password: "1234" }), { code: "restore_not_applicable" });
+}
+
+test("the seeded acquisition that left encryption on follows the later-restore rule", async () => {
+  const detail = await mock.case_open({ path: CASE });
+  const left = detail.acquisitions.find((a) => a.warnings.includes("encryption_left_enabled") && a.status !== "interrupted");
+  assert.ok(left, "the mock seeds one");
+  await turnOffLater(left.acq_id);
+});
+
+test("a later restore is refused for an acquisition that did not leave encryption on", async () => {
+  const { started } = await acquire("Handset");
+  await assert.rejects(mock.acq_restore_encryption({ case_path: CASE, acq_id: started.acq_id, password: "1234" }), { code: "restore_not_applicable" });
+});
 
 test("a cancelled acquisition finishes cancelled and still restores encryption", async () => {
   const { fin, started } = await acquire("Handset/slow", {}, async (acqId, events) => {

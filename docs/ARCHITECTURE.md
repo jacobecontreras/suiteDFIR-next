@@ -154,7 +154,7 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 - **The mock** when `window.__TAURI__` is absent **and** the URL has `?mock`. It dynamically imports `/dev/mock.js`, which is served only by `scripts/serve-ui.mjs` from `ui-dev/` and does not exist in bundles. A persistent "MOCK DATA" banner is shown.
 - **Otherwise** an error screen.
 
-Screens: Cases, Case, New run, Run, Settings, plus the module-picker component. The UI holds no business logic that the core also implements.
+Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker component. The UI holds no business logic that the core also implements.
 
 ## 6. Run lifecycle
 

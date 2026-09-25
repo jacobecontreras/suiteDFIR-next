@@ -10,10 +10,11 @@ import { appError, errorSlot } from "../components/app-error.js";
 import { confirmDialog, modal } from "../components/dialog.js";
 import { modulePicker } from "../components/module-picker.js";
 import { folderLabel } from "../lib/cases.js";
-import { h } from "../lib/dom.js";
+import { h, keepFocus } from "../lib/dom.js";
 import { isAppError } from "../lib/errors.js";
 import { field, selectInput, textInput } from "../lib/form.js";
 import { formatCount, plural } from "../lib/format.js";
+import { handoff } from "../lib/handoff.js";
 import { buildRunRequest, canHash, initialInputType, needsPassword, startBlockers } from "../lib/newrun.js";
 import { routeHref } from "../lib/router.js";
 import { jobKey, setActiveJob } from "../lib/jobs.js";
@@ -27,7 +28,6 @@ import { icon, inputTypeLabel, sizeText, toolName, uid } from "../lib/view.js";
 /** @typedef {import("../types").InputType} InputType */
 /** @typedef {import("../types").ModuleMode} ModuleMode */
 /** @typedef {import("../types").ProfileInfo} ProfileInfo */
-/** @typedef {import("../types").RunEvent} RunEvent */
 /** @typedef {import("../types").ToolId} ToolId */
 /** @typedef {import("../types").ToolModules} ToolModules */
 /** @typedef {import("../types").ToolStatus} ToolStatus */
@@ -41,9 +41,16 @@ import { icon, inputTypeLabel, sizeText, toolName, uid } from "../lib/view.js";
  * @returns {View}
  */
 export function newRunScreen(ctx) {
-  const { api, store, navigate } = ctx;
+  const { api, store, navigate, jobs } = ctx;
   const casePath = ctx.params.case ?? "";
   const caseHref = routeHref("case", { path: casePath });
+  // "Parse with iLEAPP" (D5): the acquired backup as the input, and the backup password the examiner
+  // set, if the Acquire screen kept it. Taken at once, so it lives only in this form from now on.
+  const handedInput = ctx.params.input ?? null;
+  const handedAcq = ctx.params.acq ?? null;
+  /** @type {string | null} */
+  let handedPassword = handedAcq ? handoff.take(handedAcq) : null;
+  const passwordHanded = handedPassword !== null;
   let disposed = false;
   /** @type {(() => void)[]} */
   const cleanups = [];
@@ -204,12 +211,14 @@ export function newRunScreen(ctx) {
       installed = installedTools(tools);
       f.toolsInstalled = installed.length > 0;
       f.tool = installed.find((t) => t.tool === "ileapp")?.tool ?? installed[0]?.tool ?? null;
+      if (handedInput && f.tool) f.inputPath = handedInput;
       body.replaceChildren(form);
       renderTool();
       renderInput();
       renderOptions();
       renderModules();
       refresh();
+      if (f.inputPath) void inspectInput();
       await loadToolData();
     } catch (err) {
       if (disposed) return;
@@ -345,7 +354,21 @@ export function newRunScreen(ctx) {
 
   function inputResult() {
     if (!f.inputPath) return h("p", { class: "muted" }, "No input chosen.");
-    const pathLine = h("p", { class: "mono break input-path" }, f.inputPath);
+    const pathLine =
+      f.inputPath === handedInput && handedAcq
+        ? h(
+            "div",
+            { class: "stack-sm" },
+            h("p", { class: "mono break input-path" }, f.inputPath),
+            h(
+              "p",
+              { class: "muted small" },
+              "The backup of acquisition ",
+              h("span", { class: "mono" }, handedAcq),
+              passwordHanded && f.password !== "" ? ". The backup password set during the acquisition is filled in." : ".",
+            ),
+          )
+        : h("p", { class: "mono break input-path" }, f.inputPath);
     if (f.inspecting) return h("div", { class: "stack-sm" }, pathLine, h("p", { class: "muted", role: "status" }, "Checking the input…"));
     if (f.inputFailed || !f.inspection) {
       return h("div", { class: "stack-sm" }, pathLine, appError(inputError, { title: "This input cannot be used." }).node);
@@ -424,10 +447,20 @@ export function newRunScreen(ctx) {
       f.inputType = initialInputType(insp);
       f.hashInput = true;
       hashBox.checked = true;
+      if (path === handedInput) {
+        // An acquired backup is an iTunes-format backup (CONTRACTS.md §13.5).
+        if (insp.allowed_types.includes("itunes")) f.inputType = "itunes";
+        if (handedPassword !== null && needsPassword(f)) {
+          password.value = handedPassword;
+          f.password = handedPassword;
+        }
+        handedPassword = null;
+      }
     } catch (err) {
       if (disposed || seq !== inspectSeq) return;
       f.inputFailed = true;
       inputError = err;
+      if (path === handedInput) handedPassword = null;
     }
     f.inspecting = false;
     renderInput();
@@ -438,6 +471,12 @@ export function newRunScreen(ctx) {
   // ---- 3. Options ----
 
   function renderOptions() {
+    // Re-rendering moves the persistent controls, which drops their focus: an examiner typing the
+    // password or the label while the tool data loads keeps the focus and the caret.
+    keepFocus(optionsBody, renderOptionsParts);
+  }
+
+  function renderOptionsParts() {
     const features = f.tool ? TOOL_FEATURES[f.tool] : null;
     /** @type {Node[]} */
     const parts = [];
@@ -807,32 +846,26 @@ export function newRunScreen(ctx) {
     starting = true;
     startErrors.clear();
     refresh();
+    // The run's events stream into the job hub, so the Run screen (and any later visit to it) sees
+    // all of them; the hub also keeps the top bar's active-job phase current.
+    const stream = jobs.begin("run", casePath);
     try {
-      await api.run_start(req, onRunEvent);
+      const started = await api.run_start(req, stream.onEvent);
+      stream.bind(started.run_id);
       clearPassword();
       api
         .job_active()
         .then((job) => setActiveJob(store, job))
         .catch(() => {});
-      navigate(caseHref);
+      navigate(routeHref("run", { case: casePath, id: started.run_id }));
     } catch (err) {
+      stream.abandon();
       clearPassword();
       startErrors.show(err, "The run could not be started.");
     } finally {
       starting = false;
       if (!disposed) refresh();
     }
-  }
-
-  /**
-   * Keeps the top bar's active-job indicator current while this run streams (the Run screen
-   * attaches to the full event stream).
-   * @param {RunEvent} event
-   */
-  function onRunEvent(event) {
-    const job = store.get().activeJob;
-    if (event.type === "phase" && job?.kind === "run") store.set({ activeJob: { ...job, phase: event.phase } });
-    if (event.type === "finished") store.set({ activeJob: null });
   }
 
   function clearPassword() {
@@ -847,6 +880,7 @@ export function newRunScreen(ctx) {
     node,
     dispose() {
       disposed = true;
+      handedPassword = null;
       clearPassword();
       picker?.dispose();
       modulesErrors.dispose();

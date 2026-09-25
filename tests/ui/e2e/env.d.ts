@@ -47,6 +47,12 @@ declare module "playwright" {
   interface Locator {
     click(options?: { timeout?: number }): Promise<void>;
     check(): Promise<void>;
+    uncheck(): Promise<void>;
+    isChecked(): Promise<boolean>;
+    isDisabled(): Promise<boolean>;
+    inputValue(): Promise<string>;
+    textContent(options?: { timeout?: number }): Promise<string | null>;
+    focus(): Promise<void>;
     fill(value: string): Promise<void>;
     press(key: string): Promise<void>;
     waitFor(options?: { state?: "attached" | "detached" | "visible" | "hidden"; timeout?: number }): Promise<void>;
@@ -55,9 +61,12 @@ declare module "playwright" {
     nth(index: number): Locator;
     locator(selector: string, options?: { hasText?: string | RegExp }): Locator;
     getByRole(role: string, options?: { name?: string | RegExp; exact?: boolean }): Locator;
+    getByLabel(text: string | RegExp, options?: { exact?: boolean }): Locator;
+    getByText(text: string | RegExp, options?: { exact?: boolean }): Locator;
     count(): Promise<number>;
   }
   interface Page {
+    keyboard: { press(key: string): Promise<void> };
     goto(url: string): Promise<unknown>;
     on(event: "console", listener: (message: ConsoleMessage) => void): void;
     on(event: "pageerror", listener: (error: Error) => void): void;

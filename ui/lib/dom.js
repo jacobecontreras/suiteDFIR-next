@@ -47,6 +47,95 @@ export function h(tag, props, ...children) {
 }
 
 /**
+ * Replaces the children of `el`, with the same child rules as `h()` (text stays text; `false`,
+ * `null` and `undefined` are skipped).
+ * @param {Element} el
+ * @param {...Child} children
+ * @returns {Element}
+ */
+export function fill(el, ...children) {
+  el.replaceChildren(...flattenChildren(children));
+  return el;
+}
+
+/**
+ * Runs `render`, which may detach and re-attach the focused control inside `container` (e.g. by
+ * replacing children that include persistent inputs), and then gives the focus and the text caret
+ * back to that control if it is still in the document, or to the new control with the same
+ * `data-focus-key`. An examiner typing (or tabbing) while a section re-renders stays in place.
+ * @param {Element} container
+ * @param {() => void} render
+ */
+export function keepFocus(container, render) {
+  const focused = document.activeElement;
+  const inside = typeof HTMLElement !== "undefined" && focused instanceof HTMLElement && container.contains(focused) ? focused : null;
+  // A control that is rebuilt on every render carries `data-focus-key`; its replacement gets the focus.
+  const key = inside?.dataset.focusKey ?? null;
+  const keep = inside && (inside instanceof HTMLInputElement || inside instanceof HTMLSelectElement) ? inside : null;
+  const selection = keep && keep instanceof HTMLInputElement ? [keep.selectionStart, keep.selectionEnd] : null;
+  render();
+  if (key !== null && !inside?.isConnected) {
+    for (const el of container.querySelectorAll("[data-focus-key]")) {
+      if (el instanceof HTMLElement && el.dataset.focusKey === key) {
+        el.focus();
+        return;
+      }
+    }
+    return;
+  }
+  if (!keep || !keep.isConnected || document.activeElement === keep) return;
+  keep.focus();
+  if (keep instanceof HTMLInputElement && selection && selection[0] !== null && selection[1] !== null) {
+    try {
+      keep.setSelectionRange(selection[0], selection[1]);
+    } catch {
+      // Not a text control (e.g. a checkbox): there is no caret to restore.
+    }
+  }
+}
+
+/**
+ * Sets `textContent` only when it differs (replacing equal text still swaps the text node).
+ * @param {Node} el
+ * @param {string} text
+ */
+export function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+/**
+ * @typedef {object} KeyedSlot
+ * @property {Element} node
+ * @property {(key: string, build: () => Child) => boolean} update Rebuilds the children (keeping
+ *   the focus, see `keepFocus`) only when `key` differs from the last one; returns whether it did.
+ * @property {() => void} reset The next `update` rebuilds whatever its key.
+ */
+
+/**
+ * A container rebuilt only when what it shows changes. Screens that render on every job event
+ * (several per second) use it so focusable controls stay put and a live region (`role="alert"` /
+ * `"status"`) inside is inserted, and so announced, only when its content changes.
+ * @param {Element} node
+ * @returns {KeyedSlot}
+ */
+export function keyedSlot(node) {
+  /** @type {string | null} */
+  let last = null;
+  return {
+    node,
+    update(key, build) {
+      if (key === last) return false;
+      last = key;
+      keepFocus(node, () => fill(node, build()));
+      return true;
+    },
+    reset() {
+      last = null;
+    },
+  };
+}
+
+/**
  * Flattens nested child arrays, drops skipped values and turns numbers into strings.
  * @param {Child[]} children
  * @returns {(Node | string)[]}
