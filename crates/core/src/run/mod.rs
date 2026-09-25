@@ -72,7 +72,8 @@ mod tests {
             options: example.options,
             modules: example.modules,
             command: recorded,
-        });
+        })
+        .unwrap();
         assert!(run.options.password_supplied);
         record::write_initial(&run_dir, &run).unwrap();
         let file = run_dir.join("run.json");

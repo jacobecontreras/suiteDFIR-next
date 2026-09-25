@@ -47,6 +47,11 @@ pub enum RecordError {
         run_id: String,
         reason: &'static str,
     },
+    #[error("run {run_id} is not a valid initial record: {reason}")]
+    NotInitial {
+        run_id: String,
+        reason: &'static str,
+    },
     #[error("the record names run {run_id:?} but the folder is {folder}")]
     FolderMismatch { run_id: String, folder: String },
     #[error("{path}: {source}")]
@@ -228,9 +233,29 @@ pub struct RunSetup {
 }
 
 /// The initial record (CONTRACTS.md §7.2): every known field, `status: running`, and `null` or
-/// `pending` for everything that is not known yet.
-pub fn initial_record(setup: RunSetup) -> RunRecord {
-    RunRecord {
+/// `pending` for everything that is not known yet. `input.hash` must be an initial one (see
+/// [`initial_hash`]): `not_applicable` for a directory, `pending` or `not_requested` for a file, and
+/// no value or times.
+pub fn initial_record(setup: RunSetup) -> Result<RunRecord, RecordError> {
+    let hash = &setup.input.hash;
+    let status_fits = match setup.input.kind {
+        InputKind::Directory => hash.status == HashStatus::NotApplicable,
+        InputKind::File => matches!(hash.status, HashStatus::Pending | HashStatus::NotRequested),
+    };
+    let reason = if !status_fits {
+        Some("input.hash.status must be not_applicable (directory) or pending/not_requested (file)")
+    } else if hash.value.is_some() || hash.started_at.is_some() || hash.completed_at.is_some() {
+        Some("input.hash has a value or times before hashing started")
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        return Err(RecordError::NotInitial {
+            run_id: setup.run_id,
+            reason,
+        });
+    }
+    Ok(RunRecord {
         schema_version: RunRecord::SCHEMA_VERSION,
         run_id: setup.run_id,
         label: setup.label,
@@ -267,7 +292,7 @@ pub fn initial_record(setup: RunSetup) -> RunRecord {
             stderr: STDERR_LOG.to_owned(),
             screen_output: SCREEN_OUTPUT.to_owned(),
         },
-    }
+    })
 }
 
 /// Writes the initial record into its (new) run folder, atomically. A `run.json` that already
@@ -275,7 +300,7 @@ pub fn initial_record(setup: RunSetup) -> RunRecord {
 pub fn write_initial(run_dir: &Path, record: &RunRecord) -> Result<(), RecordError> {
     check_folder(run_dir, record)?;
     if record.status != RunStatus::Running {
-        return Err(RecordError::NotFinal {
+        return Err(RecordError::NotInitial {
             run_id: record.run_id.clone(),
             reason: "an initial record has status running",
         });
@@ -297,8 +322,9 @@ pub fn write_initial(run_dir: &Path, record: &RunRecord) -> Result<(), RecordErr
 
 /// Finalizes a run (lifecycle step 10): sets `ended_at` and `duration_ms`, writes the complete
 /// record atomically and makes it read-only. The record must carry a final status (not `running`,
-/// and not `interrupted`, which only [`recover`] writes) and no `pending` hash or seal. A run that
-/// is already final on disk is rejected, so a record is never finalized twice.
+/// and not `interrupted`, which only [`recover`] writes) and no `pending` or `interrupted` hash or
+/// seal status. A run that is already final on disk is rejected, so a record is never finalized
+/// twice.
 pub fn finalize(
     run_dir: &Path,
     record: &mut RunRecord,
@@ -315,11 +341,21 @@ pub fn finalize(
         }
         _ => {}
     }
-    if record.input.hash.status == HashStatus::Pending {
-        return Err(not_final("the input hash is still pending"));
+    match record.input.hash.status {
+        HashStatus::Pending => return Err(not_final("the input hash is still pending")),
+        HashStatus::Interrupted => {
+            return Err(not_final(
+                "an interrupted input hash is written only by recovery",
+            ));
+        }
+        _ => {}
     }
-    if record.output.seal.status == SealStatus::Pending {
-        return Err(not_final("the report seal is still pending"));
+    match record.output.seal.status {
+        SealStatus::Pending => return Err(not_final("the report seal is still pending")),
+        SealStatus::Interrupted => {
+            return Err(not_final("an interrupted seal is written only by recovery"));
+        }
+        _ => {}
     }
     record.ended_at = Some(ended_at);
     record.recovered_at = None;
@@ -568,16 +604,60 @@ mod tests {
 
     #[test]
     fn initial_record_is_7_2() {
-        let record = initial_record(setup_from_example());
+        let record = initial_record(setup_from_example()).unwrap();
         assert_eq!(record, examples::run_record_initial());
         assert_eq!(record_app(), examples::run_record().app);
+    }
+
+    #[test]
+    fn initial_record_needs_an_initial_hash() {
+        let with = |kind: InputKind, hash: InputHash| {
+            let mut setup = setup_from_example();
+            setup.input.kind = kind;
+            setup.input.hash = hash;
+            initial_record(setup)
+        };
+        // The three §7.2 statuses, each for its kind.
+        for (kind, requested) in [
+            (InputKind::Directory, false),
+            (InputKind::Directory, true),
+            (InputKind::File, true),
+            (InputKind::File, false),
+        ] {
+            assert!(with(kind, initial_hash(kind, requested)).is_ok());
+        }
+        let hash = |status| InputHash {
+            status,
+            ..initial_hash(InputKind::File, true)
+        };
+        for (kind, status) in [
+            (InputKind::Directory, HashStatus::Pending),
+            (InputKind::Directory, HashStatus::NotRequested),
+            (InputKind::File, HashStatus::NotApplicable),
+            (InputKind::File, HashStatus::Completed),
+            (InputKind::File, HashStatus::Interrupted),
+            (InputKind::File, HashStatus::Cancelled),
+            (InputKind::File, HashStatus::Failed),
+        ] {
+            let err = with(kind, hash(status)).unwrap_err();
+            assert!(
+                matches!(err, RecordError::NotInitial { .. }),
+                "{kind} {status}: {err:?}"
+            );
+        }
+        let mut valued = initial_hash(InputKind::File, true);
+        valued.value = Some("ab".repeat(32));
+        assert!(with(InputKind::File, valued).is_err());
+        let mut timed = initial_hash(InputKind::File, true);
+        timed.started_at = Some(at("2026-09-24T18:30:05Z"));
+        assert!(with(InputKind::File, timed).is_err());
     }
 
     #[test]
     fn write_initial_creates_run_json_once() {
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let record = initial_record(setup_from_example());
+        let record = initial_record(setup_from_example()).unwrap();
         write_initial(&dir, &record).unwrap();
         assert_eq!(read(&dir), record);
         assert!(!is_read_only(&dir), "the running record is not final yet");
@@ -596,7 +676,7 @@ mod tests {
     fn finalize_writes_read_only_and_only_once() {
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let initial = initial_record(setup_from_example());
+        let initial = initial_record(setup_from_example()).unwrap();
         write_initial(&dir, &initial).unwrap();
 
         let mut record = finished(initial);
@@ -631,7 +711,7 @@ mod tests {
     fn finalize_twice_is_rejected_even_if_read_only_was_lost() {
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let mut record = finished(initial_record(setup_from_example()));
+        let mut record = finished(initial_record(setup_from_example()).unwrap());
         finalize(&dir, &mut record, at("2026-09-24T18:52:41Z")).unwrap();
         // E.g. the read-only mark failed or was removed: the status on disk still says final.
         make_writable(&dir.join(RUN_FILE));
@@ -647,7 +727,7 @@ mod tests {
     fn finalize_requires_a_final_record() {
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let initial = initial_record(setup_from_example());
+        let initial = initial_record(setup_from_example()).unwrap();
         write_initial(&dir, &initial).unwrap();
 
         let mut running = initial.clone();
@@ -657,7 +737,19 @@ mod tests {
         hashing.input.hash.status = HashStatus::Pending;
         let mut sealing = finished(initial.clone());
         sealing.output.seal.status = SealStatus::Pending;
-        for record in [&mut running, &mut interrupted, &mut hashing, &mut sealing] {
+        // Interrupted hash and seal statuses are written only by recovery.
+        let mut hash_interrupted = finished(initial.clone());
+        hash_interrupted.input.hash.status = HashStatus::Interrupted;
+        let mut seal_interrupted = finished(initial.clone());
+        seal_interrupted.output.seal.status = SealStatus::Interrupted;
+        for record in [
+            &mut running,
+            &mut interrupted,
+            &mut hashing,
+            &mut sealing,
+            &mut hash_interrupted,
+            &mut seal_interrupted,
+        ] {
             let err = finalize(&dir, record, at("2026-09-24T18:52:41Z")).unwrap_err();
             assert!(matches!(err, RecordError::NotFinal { .. }), "{err:?}");
         }
@@ -670,7 +762,7 @@ mod tests {
         // Lifecycle step 2: the initial write failed, then the run is finalized as prepare_failed.
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let mut record = initial_record(setup_from_example());
+        let mut record = initial_record(setup_from_example()).unwrap();
         record.status = RunStatus::Failed;
         record.status_reasons = vec![Reason {
             code: "prepare_failed".to_owned(),
@@ -700,7 +792,7 @@ mod tests {
     fn a_crash_during_finalize_leaves_the_running_record() {
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let initial = initial_record(setup_from_example());
+        let initial = initial_record(setup_from_example()).unwrap();
         write_initial(&dir, &initial).unwrap();
         let file = dir.join(RUN_FILE);
         let final_bytes = serde_json::to_vec_pretty(&examples::run_record()).unwrap();
@@ -719,8 +811,12 @@ mod tests {
     fn recovery_marks_interrupted_and_finalizes() {
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let mut initial = initial_record(setup_from_example());
-        initial.input.hash.status = HashStatus::Pending;
+        // A file input whose hash was still running when the app died.
+        let mut setup = setup_from_example();
+        setup.input.kind = InputKind::File;
+        setup.input.hash = initial_hash(InputKind::File, true);
+        let initial = initial_record(setup).unwrap();
+        assert_eq!(initial.input.hash.status, HashStatus::Pending);
         write_initial(&dir, &initial).unwrap();
 
         let now = at("2026-09-25T08:00:00Z");
@@ -761,12 +857,12 @@ mod tests {
             .join(RUNS_DIR)
             .join("20260925-080000Z-aleapp-aaaaaa");
         fs::create_dir_all(&active).unwrap();
-        let mut active_record = initial_record(setup_from_example());
+        let mut active_record = initial_record(setup_from_example()).unwrap();
         active_record.run_id = "20260925-080000Z-aleapp-aaaaaa".to_owned();
         write_initial(&active, &active_record).unwrap();
 
         let dir = run_dir(case.path());
-        let mut running = initial_record(setup_from_example());
+        let mut running = initial_record(setup_from_example()).unwrap();
         // Hashing had finished and LEAPP had exited when the app died.
         running.input.hash.status = HashStatus::Completed;
         running.started_at = Some(at("2026-09-24T18:30:06Z"));
@@ -798,7 +894,7 @@ mod tests {
     fn recovery_leaves_final_records_alone() {
         let case = tempfile::tempdir().unwrap();
         let dir = run_dir(case.path());
-        let mut record = finished(initial_record(setup_from_example()));
+        let mut record = finished(initial_record(setup_from_example()).unwrap());
         finalize(&dir, &mut record, at("2026-09-24T18:52:41Z")).unwrap();
         let before = fs::read(dir.join(RUN_FILE)).unwrap();
         assert_eq!(
