@@ -47,6 +47,12 @@ declare module "playwright" {
   interface Locator {
     click(options?: { timeout?: number }): Promise<void>;
     check(): Promise<void>;
+    uncheck(): Promise<void>;
+    isChecked(): Promise<boolean>;
+    isDisabled(): Promise<boolean>;
+    inputValue(): Promise<string>;
+    textContent(options?: { timeout?: number }): Promise<string | null>;
+    focus(): Promise<void>;
     fill(value: string): Promise<void>;
     press(key: string): Promise<void>;
     waitFor(options?: { state?: "attached" | "detached" | "visible" | "hidden"; timeout?: number }): Promise<void>;

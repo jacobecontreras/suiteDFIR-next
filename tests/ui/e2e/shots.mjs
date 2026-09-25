@@ -183,9 +183,10 @@ function acquireToolsScreen(name, flags, element) {
  * @param {string} label The phase's label in the step list.
  * @param {string} buttonName
  * @param {string} sample
+ * @param {string} [progress] The label of a progress bar to wait for (held part-way).
  * @returns {Screen}
  */
-function runPhaseScreen(phase, label, buttonName, sample) {
+function runPhaseScreen(phase, label, buttonName, sample, progress) {
   return {
     name: `run-phase-${phase.replaceAll("_", "-")}`,
     query: `?mock&scenario=hold_${phase}`,
@@ -193,6 +194,35 @@ function runPhaseScreen(phase, label, buttonName, sample) {
     setup: async (page) => {
       await startRun(page, buttonName, sample);
       await page.locator(".phase-step-current", { hasText: label }).waitFor();
+      if (progress) await page.locator(".progress-label", { hasText: progress }).waitFor();
+    },
+  };
+}
+
+/**
+ * After a reload in the middle of a phase: the mock's start-up job (`active_run` / `active_acq`)
+ * is held in `phase`, the top bar shows it (from job_active), and only then is the job's screen
+ * opened, so `job_attach` returns just the backlog and no phase event follows. The screen must
+ * show the phase from its first render; `assert` checks the controls that depend on it.
+ * @param {string} name
+ * @param {string} flags
+ * @param {string} label The phase's label.
+ * @param {(page: Page) => Promise<void>} [assert]
+ * @returns {Screen}
+ */
+function attachedMidPhaseScreen(name, flags, label, assert) {
+  return {
+    name,
+    query: `?mock&scenario=${flags}`,
+    hash: "#/cases",
+    setup: async (page) => {
+      await page.locator(".job-indicator .job-phase", { hasText: label }).waitFor({ timeout: 20000 });
+      await page.locator(".job-indicator").click();
+      await page.locator(".phase-steps").waitFor();
+      // The first render: no later phase event can have changed it (the job is held).
+      const current = await page.locator(".phase-step-current").textContent({ timeout: 1000 });
+      if (!current?.includes(label)) throw new Error(`attached mid-phase, the current step is ${JSON.stringify(current)}, expected ${label}`);
+      if (assert) await assert(page);
     },
   };
 }
@@ -580,7 +610,7 @@ const SCREENS = [
   },
   runPhaseScreen("hashing_input", "Hashing input", "Choose file…", "iPhone-12-FFS.zip"),
   runPhaseScreen("analyzing", "Analyzing", "Choose folder…", "Pixel-7-extraction"),
-  runPhaseScreen("sealing_report", "Sealing report", "Choose folder…", "Pixel-7-extraction"),
+  runPhaseScreen("sealing_report", "Sealing report", "Choose folder…", "Pixel-7-extraction", "Sealing the report"),
   runPhaseScreen("finalizing", "Finalizing", "Choose folder…", "Pixel-7-extraction"),
   {
     name: "run-cancel-confirm",
@@ -704,6 +734,18 @@ const SCREENS = [
     },
   },
   {
+    // While a parser installs (its introspection uses a temporary folder): no temp cleanup.
+    name: "settings-storage-installing",
+    query: "?mock&scenario=no_tools",
+    hash: "#/settings",
+    element: "section[aria-labelledby=settings-storage]",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "iLEAPP" }).getByRole("button", { name: /^Install/ }).click();
+      await page.getByText("Not while a parser is being installed.").waitFor();
+      if (!(await page.getByRole("button", { name: "Clean temporary files" }).isDisabled())) throw new Error("Clean temporary files is enabled during an install");
+    },
+  },
+  {
     name: "settings-install-failed",
     query: "?mock&scenario=no_tools,install_fail",
     hash: "#/settings",
@@ -760,6 +802,8 @@ const SCREENS = [
       await waitForLines(page, 10);
     },
   },
+  // After a reload mid-phase: the phase comes from the active job, not from a phase event.
+  attachedMidPhaseScreen("run-attached-mid-phase", "active_run,hold_analyzing", "Analyzing"),
   // ---- D5: Acquire ----
   {
     name: "acquire-devices",
@@ -781,15 +825,20 @@ const SCREENS = [
     },
   },
   {
-    // Pair on the unpaired iPad: the device now shows the Trust dialog.
+    // Pair on the unpaired iPad: the device now shows the Trust dialog. As with the core, the next
+    // polls report `not_paired` (no host pair record yet); the card keeps the Pair answer.
     name: "acquire-awaiting-trust",
     query: "?mock",
     hash: acquireHash(NIGHTJAR),
     element: ".device-list",
     setup: async (page) => {
       await acquireReady(page);
-      await page.locator(".device-card", { hasText: "iPad13,4" }).getByRole("button", { name: "Pair" }).click();
-      await page.getByText("Waiting for Trust").waitFor();
+      const card = page.locator(".device-card", { hasText: "iPad13,4" });
+      await card.getByRole("button", { name: "Pair" }).click();
+      await card.getByText("Waiting for Trust").waitFor();
+      await page.waitForTimeout(4500);
+      await card.getByText("Waiting for Trust").waitFor({ timeout: 1000 });
+      await card.getByRole("button", { name: "Retry pairing" }).waitFor({ timeout: 1000 });
     },
   },
   {
@@ -847,6 +896,8 @@ const SCREENS = [
   acquireToolsScreen("acquire-tools-verification-failed", "idevice_verification_failed"),
   acquireToolsScreen("acquire-tools-unsupported-platform", "idevice_unsupported"),
   acquireToolsScreen("acquire-no-devices", "no_devices"),
+  // The tools are fine but listing the devices failed: state ok with guidance.
+  acquireToolsScreen("acquire-tools-list-failed", "idevice_session_error"),
   {
     name: "acquire-preflight-warn",
     query: "?mock&scenario=preflight_warn",
@@ -886,6 +937,17 @@ const SCREENS = [
       await page.locator(".progress-block").waitFor();
     },
   },
+  attachedMidPhaseScreen("acquire-attached-backing-up", "active_acq,hold_backing_up", "Backing up", async (page) => {
+    const cancel = page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" });
+    if (await cancel.isDisabled()) throw new Error("Cancel is disabled while backing up");
+  }),
+  attachedMidPhaseScreen("acquire-attached-restoring", "active_acq,hold_restoring_encryption", "Restoring encryption", async (page) => {
+    // §6b: the encryption step, its no-time-limit note, and Cancel disabled with the reason.
+    await page.getByText("Turning backup encryption off.").waitFor({ timeout: 1000 });
+    await page.getByText("Cancel is not available in this step").waitFor({ timeout: 1000 });
+    const cancel = page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" });
+    if (!(await cancel.isDisabled())) throw new Error("Cancel is enabled while encryption is turned off again");
+  }),
   {
     name: "acquire-prompt-encryption",
     query: "?mock&scenario=hold_enabling_encryption",
@@ -992,6 +1054,30 @@ const SCREENS = [
     },
   },
   {
+    // A retry with the right password succeeds; the re-read AcqSummary no longer has the warning, so
+    // the result stops offering the action (acquisition.json keeps its warnings).
+    name: "acquire-restore-done",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
+      await acqResult(page, "Succeeded");
+      await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).click();
+      const dialog = page.locator("dialog");
+      await dialog.getByLabel("Backup password").fill("wrong");
+      await dialog.getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is still on.").waitFor();
+      await dialog.getByLabel("Backup password").fill("examiner-pw");
+      await dialog.getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is off.").waitFor();
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await page.getByText("Backup encryption was turned off after this acquisition.").waitFor();
+      if (await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).count()) {
+        throw new Error("the result still offers the action after a successful restore");
+      }
+    },
+  },
+  {
     // "Parse with iLEAPP" after a success with "Parse with iLEAPP now": New run with the backup and
     // the password filled in.
     name: "newrun-handoff",
@@ -1062,6 +1148,24 @@ const SCREENS = [
     },
   },
   {
+    // After the successful later restore the table is re-read (case_open): the row's derived
+    // warnings no longer ask for "Turn backup encryption off".
+    name: "case-acquisitions-after-restore",
+    query: "?mock",
+    hash: caseHash(NIGHTJAR),
+    element: "section[aria-labelledby=acquisitions-heading]",
+    setup: async (page) => {
+      const turnOff = page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" });
+      await turnOff.click();
+      await page.locator("dialog").getByLabel("Backup password").fill("examiner-pw");
+      await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is off.").waitFor();
+      await page.locator("dialog").getByRole("button", { name: "Close" }).click();
+      await turnOff.waitFor({ state: "detached" });
+      if (await page.locator(".acq-table").getByText("Encryption may still be on").count()) throw new Error("the row still says encryption may be on");
+    },
+  },
+  {
     // 100,000 lines (the flood scenario), scrolled to the middle: auto-scroll turns itself off.
     name: "run-log-100k",
     query: "?mock",
@@ -1082,6 +1186,7 @@ const SCREENS = [
 /**
  * @typedef {object} Check
  * @property {string} name
+ * @property {string} [query] The URL query (default "?mock").
  * @property {string} hash
  * @property {(page: Page) => Promise<void>} run Throws when the check fails.
  */
@@ -1252,11 +1357,94 @@ const CHECKS = [
       await turnOff.click();
       await dialog.getByLabel("Backup password").fill("examiner-pw");
       await dialog.getByRole("button", { name: "Turn encryption off" }).click();
+      // While the command runs, Escape (even twice: Chromium's close-watcher rule) keeps the dialog.
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
       await page.getByText("Backup encryption is off.").waitFor();
       const value = await page.evaluate(() => /** @type {HTMLInputElement | null} */ (document.querySelector("dialog input[type=password]"))?.value ?? null);
       if (value !== "") throw new Error(`the password field was not cleared after use: ${JSON.stringify(value)}`);
       await dialog.getByRole("button", { name: "Close" }).click();
-      await page.getByText("Encryption turned off").waitFor();
+      // The rows are re-read: once a restore succeeded, the core's AcqSummary no longer asks for it.
+      await turnOff.waitFor({ state: "detached" });
+    },
+  },
+  {
+    // "New acquisition" starts from the defaults, whatever the previous acquisition used.
+    name: "check-new-acquisition-resets",
+    hash: acquireHash(NIGHTJAR),
+    run: async (page) => {
+      await acquireReady(page);
+      await page.getByRole("radio", { name: "Alex's iPhone" }).waitFor();
+      await page.getByLabel("Label").fill("Item 7");
+      await enableEncryption(page);
+      await page.getByLabel("Turn encryption off again afterwards").uncheck();
+      await page.getByLabel("Parse with iLEAPP now").check();
+      await page.locator(".ready-text").waitFor();
+      await page.getByRole("button", { name: "Start acquisition" }).click();
+      await acqResult(page, "Succeeded");
+      // Left on as asked: turn it off (a later restore), so the next form offers encryption again.
+      await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).click();
+      await page.locator("dialog").getByLabel("Backup password").fill("examiner-pw");
+      await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is off.").waitFor();
+      await page.locator("dialog").getByRole("button", { name: "Close" }).click();
+      await page.getByText("Backup encryption was turned off after this acquisition.").waitFor();
+      await page.getByRole("button", { name: "New acquisition" }).click();
+      await page.getByRole("radio", { name: "Alex's iPhone" }).waitFor();
+      const enable = page.getByLabel("Enable backup encryption (recommended)");
+      await enable.waitFor();
+      const first = { label: await page.getByLabel("Label").inputValue(), enable: await enable.isChecked() };
+      if (first.label !== "" || first.enable) throw new Error(`the form kept the previous options: ${JSON.stringify(first)}`);
+      await enable.check();
+      const next = {
+        restore: await page.getByLabel("Turn encryption off again afterwards").isChecked(),
+        parse: await page.getByLabel("Parse with iLEAPP now").isChecked(),
+        password: await page.getByLabel(/^Backup password/).inputValue(),
+        again: await page.getByLabel("Password again").inputValue(),
+      };
+      if (!next.restore || next.parse || next.password !== "" || next.again !== "") throw new Error(`the encryption options were not reset: ${JSON.stringify(next)}`);
+    },
+  },
+  {
+    // Progress events (several per second) must not move keyboard focus: the facts' time element
+    // (focusable for its UTC tooltip) keeps it during a backup.
+    name: "check-focus-kept-during-backup",
+    hash: acquireHash(NIGHTJAR),
+    run: async (page) => {
+      await startAcquisition(page, { label: "Focus check/slow" });
+      await page.locator(".progress-block").waitFor();
+      await page.locator(".run-facts time").focus();
+      await page.evaluate(() => {
+        /** @type {any} */ (window).__focused = document.activeElement;
+      });
+      await page.waitForTimeout(2500);
+      const state = await page.evaluate(() => ({
+        same: document.activeElement === /** @type {any} */ (window).__focused,
+        tag: document.activeElement?.tagName ?? "",
+        percent: document.querySelector(".progress-block .muted")?.textContent ?? "",
+      }));
+      if (!state.same) throw new Error(`focus moved during the backup: ${JSON.stringify(state)}`);
+      await page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" }).click();
+      await page.locator("dialog").getByRole("button", { name: "Cancel acquisition" }).click();
+      await acqResult(page, "Cancelled");
+    },
+  },
+  {
+    // Install events must not move keyboard focus: the other parser's Install button keeps it.
+    name: "check-focus-kept-during-install",
+    query: "?mock&scenario=no_tools",
+    hash: "#/settings",
+    run: async (page) => {
+      await page.locator(".tool-card", { hasText: "iLEAPP" }).getByRole("button", { name: /^Install/ }).click();
+      await page.getByText(/^Downloading iLEAPP/).waitFor();
+      const other = page.locator(".tool-card", { hasText: "aLEAPP" }).getByRole("button", { name: /^Install/ });
+      await other.focus();
+      await page.evaluate(() => {
+        /** @type {any} */ (window).__focused = document.activeElement;
+      });
+      await page.getByText("Installed and verified.").waitFor({ timeout: 15000 });
+      const same = await page.evaluate(() => document.activeElement === /** @type {any} */ (window).__focused);
+      if (!same) throw new Error("focus moved while the other parser installed");
     },
   },
   {
@@ -1561,7 +1749,7 @@ async function main() {
         const page = await context.newPage();
         watchPage(page, check.name, problems);
         try {
-          await page.goto(`${base}?mock${check.hash}`);
+          await page.goto(`${base}${check.query ?? "?mock"}${check.hash}`);
           await check.run(page);
           process.stdout.write(`passed ${check.name}\n`);
         } catch (err) {
