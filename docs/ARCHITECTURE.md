@@ -178,11 +178,11 @@ Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker co
    - Create the per-run temp dir.
    - On failure after the run dir exists, finalize as `failed` with `prepare_failed`.
 3. **Hash input** (if requested and the input is a file): on its own thread, **concurrently** with LEAPP, with progress events. Finalize waits for it.
-4. **Spawn LEAPP** (argv per LEAPP-CLI.md §4; cwd = run dir; temp env vars; stdin null; stdout → `leapp.stdout.log`, stderr → `leapp.stderr.log`). Record `started_at`. A spawn error → `spawn_failed`.
+4. **Spawn LEAPP** (argv per LEAPP-CLI.md §4; cwd = run dir; temp env vars; stdin null; stdout → `leapp.stdout.log`, stderr → `leapp.stderr.log`). Record `started_at`. A spawn error → `spawn_failed`. So is a LEAPP that exits without creating its output because the dynamic loader refused it (a pinned Linux build on a too-old glibc, LEAPP-CLI.md §2); the reason names the glibc version it needs, as introspection does.
 5. **Stream:** tail `report/_HTML/_Script_Logs/Screen_Output.html` every 250 ms and emit `log` batches.
 6. **Exit or cancel:**
    - Exit: record the exit code or signal and `exited_at`.
-   - Cancel before exit: SIGTERM the group, then SIGKILL after 10 s (Unix), or terminate the job (Windows).
+   - Cancel before exit: SIGTERM the group, then SIGKILL after 10 s (Unix), or terminate the job (Windows). Input hashing stops too. A cancel while preparing keeps LEAPP from starting (`cancelled`, `process: null`).
    - A cancel arriving after exit only stops input hashing.
    - Then drain the tail, emit `stdio_tail`, and remove the per-run temp dir.
 7. **Wait for the input hash** (phase `hashing_input` only if still running).

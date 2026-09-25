@@ -32,6 +32,9 @@
 //! - `slow`: every line, then a heartbeat line per second for up to 300 s before finishing like
 //!   `success`. Meant to be cancelled.
 //! - `ignore_term`: as `slow`, but both processes ignore SIGTERM (Unix).
+//! - `glibc_too_old`: the bootloader fails to load the Python library, as a pinned Linux build does
+//!   on a system whose glibc is too old (LEAPP-CLI.md §2): the loader's
+//!   ``version `GLIBC_2.43' not found`` line on stderr, exit 255, nothing created.
 //!
 //! `fake-leapp --list-modules-json <ileapp|aleapp>` prints the fake module list as a `ToolModules`
 //! JSON object (CONTRACTS.md §9) with version `dev-override`, for the debug-build dev override.
@@ -99,6 +102,7 @@ enum Scenario {
     Prompt,
     Slow,
     IgnoreTerm,
+    GlibcTooOld,
 }
 
 impl Scenario {
@@ -113,6 +117,7 @@ impl Scenario {
             "prompt" => Self::Prompt,
             "slow" => Self::Slow,
             "ignore_term" => Self::IgnoreTerm,
+            "glibc_too_old" => Self::GlibcTooOld,
             _ => return None,
         })
     }
@@ -178,6 +183,17 @@ fn bootloader(args: &[OsString]) -> i32 {
     };
     let pid = std::process::id();
     let runtime_dir = env::temp_dir().join(format!("_MEIfake{pid}"));
+    if config.scenario == Scenario::GlibcTooOld {
+        // What PyInstaller's bootloader prints when the dynamic loader refuses the bundled Python
+        // library (LEAPP-CLI.md §2). Nothing is extracted or created.
+        eprintln!(
+            "[PYI-{pid}:ERROR] Failed to load Python shared library '{}': \
+             /lib/x86_64-linux-gnu/libm.so.6: version `GLIBC_2.43' not found (required by {})",
+            runtime_dir.join("libpython3.14.so.1.0").display(),
+            runtime_dir.join("libmvec.so.1").display()
+        );
+        return 255;
+    }
     if let Err(e) = extract_runtime(&runtime_dir) {
         eprintln!(
             "[PYI-{pid}:ERROR] Could not create temporary directory {}: {e}",
@@ -398,8 +414,8 @@ fn run_worker(config: &Config, args: &[OsString], stdout: &mut BufferedStdout) -
             modules
         }
         Scenario::Success => lava_modules(&run, &selected, 0),
-        // Handled before any output was created.
-        Scenario::EarlyExit | Scenario::ArgparseError => return Ok(0),
+        // Handled before any output was created (glibc_too_old by the bootloader).
+        Scenario::EarlyExit | Scenario::ArgparseError | Scenario::GlibcTooOld => return Ok(0),
     };
     finish_report(&run, &modules)?;
     Ok(0)

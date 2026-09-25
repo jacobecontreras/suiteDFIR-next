@@ -215,7 +215,7 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
   - Creates `$TMPDIR/_MEIfake<pid>` and removes it on graceful exit.
   - Writes `_lava_data.lava` at the end.
 - **Module list:** `--list-modules-json <tool>` prints a small module list as a `ToolModules` JSON object with version `dev-override` (for the dev override).
-- **Scenarios** (`FAKE_LEAPP_SCENARIO`): `success`, `artifact_error`, `invalid_input`, `early_exit`, `argparse_error`, `crash`, `prompt` (opens `/dev/tty` if possible, then reads stdin; EOF → traceback, exit 1), `slow`, `ignore_term` (ignores SIGTERM). Expected outcomes are in CONTRACTS.md §7.4.
+- **Scenarios** (`FAKE_LEAPP_SCENARIO`): `success`, `artifact_error`, `invalid_input`, `early_exit`, `argparse_error`, `crash`, `prompt` (opens `/dev/tty` if possible, then reads stdin; EOF → traceback, exit 1), `slow`, `ignore_term` (ignores SIGTERM). Expected outcomes are in CONTRACTS.md §7.4. One more, `glibc_too_old`, prints the dynamic loader's `version 'GLIBC_2.43' not found` line from the bootloader and exits 255 before creating anything, like a pinned Linux build on a too-old glibc (LEAPP-CLI.md §2); the runner records it as `spawn_failed` with the glibc message.
 
 **Process tests (all three OSes):**
 - Log lines arrive incrementally.

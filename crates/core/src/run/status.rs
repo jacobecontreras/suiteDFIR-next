@@ -366,11 +366,17 @@ fn warnings(input: &StatusInput<'_>, status: RunStatus, lava: Option<&LavaData>)
             "Hashing the input failed; no input hash was recorded",
         )),
         // A cancel after the exit only stops input hashing. A cancel before it already made the
-        // run `cancelled`, which says why the hash is missing.
-        HashStatus::Cancelled if status != RunStatus::Cancelled => warnings.push(reason(
-            "input_hash_cancelled",
-            "A cancel after LEAPP finished stopped input hashing; no input hash was recorded",
-        )),
+        // run `cancelled`, which says why the hash is missing; a run that failed to prepare or to
+        // start never had an exit, and its hash was never run to the end.
+        HashStatus::Cancelled
+            if status != RunStatus::Cancelled
+                && matches!(input.outcome, Outcome::Exited { .. }) =>
+        {
+            warnings.push(reason(
+                "input_hash_cancelled",
+                "A cancel after LEAPP finished stopped input hashing; no input hash was recorded",
+            ))
+        }
         _ => {}
     }
     if input.seal == SealStatus::Failed {
@@ -1079,6 +1085,20 @@ mod tests {
             &["cancelled_by_user"],
             &[],
         );
+        // A run that failed to prepare or to start had no exit: its unfinished hash is no warning.
+        for proc in [
+            Proc::PrepareFailed {
+                detail: "x".to_owned(),
+            },
+            Proc::SpawnFailed {
+                detail: "x".to_owned(),
+            },
+        ] {
+            case.proc = proc;
+            let verdict = case.run();
+            assert_eq!(verdict.status, RunStatus::Failed);
+            assert_eq!(codes(&verdict.warnings), Vec::<&str>::new());
+        }
         // Other hash statuses are not warnings.
         for status in [
             HashStatus::Completed,
