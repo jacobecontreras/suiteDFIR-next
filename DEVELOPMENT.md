@@ -59,7 +59,7 @@ Cargo.toml / Cargo.lock       workspace ([profile.dev.package.sha2] opt-level = 
 rust-toolchain.toml  deny.toml  leapp-manifest.json  idevice-tools.json  .cargo/config.toml
 .gitattributes (* text=auto eol=lf; *.png binary)  .editorconfig  .gitignore  .node-version
 crates/core/                  suitedfir-core: all logic, no Tauri dependency
-  src/{lib.rs, contracts/, fsutil.rs, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
+  src/{lib.rs, contracts/, fsutil/, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
        settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice.rs, acquire.rs}
   src/bin/fake-leapp.rs       test double (never bundled); tests use env!("CARGO_BIN_EXE_fake-leapp")
   src/bin/fake-idevice.rs     test double for the libimobiledevice tools (never bundled)
@@ -68,7 +68,7 @@ src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.jso
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
 xtask/                        pin-leapp, contracts, notices
 ui/                           SHIPPED frontend (frontendDist): index.html app.js styles/ lib/ api/ screens/ components/ types.d.ts
-ui-dev/                       NOT shipped: mock.js, fixtures/contracts/*.json
+ui-dev/                       NOT shipped: mock.js, fixtures/contracts/{*.json, index.js} (generated)
 tests/ui/                     node --test files for ui/ modules
 fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <RUN_DIR>, <INPUT>)
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
@@ -290,3 +290,4 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **Windows symlinks:** creating symlinks requires Developer Mode or admin. Tests that create symlinks must **skip with an explicit message** on `ERROR_PRIVILEGE_NOT_HELD` (1314), never fail silently or pass vacuously.
 - **fake-idevice on Windows:** tests make fake-idevice tool names by **copying** the binary, never by symlinking.
 - **Windows paths:** keep test paths short; long-path support may be disabled on the machine.
+- **Linux CI runs cargo unprivileged:** the Linux job runs every cargo step as an unprivileged user, never root, so permission and read-only tests are real there.

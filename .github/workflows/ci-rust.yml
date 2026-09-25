@@ -25,6 +25,7 @@ on:
       - "idevice-tools.json"
       - "fixtures/**"
       - "ui-dev/fixtures/contracts/**"
+      - "docs/CONTRACTS.md"
       - ".github/workflows/ci-rust.yml"
   push:
     branches: [main]
@@ -47,6 +48,7 @@ on:
       - "idevice-tools.json"
       - "fixtures/**"
       - "ui-dev/fixtures/contracts/**"
+      - "docs/CONTRACTS.md"
       - ".github/workflows/ci-rust.yml"
   workflow_dispatch:
     inputs:
@@ -172,7 +174,7 @@ jobs:
       # rust-cache runs as root: hand whatever it restored or created back to the build user.
       - name: Give the cache to the build user
         shell: bash
-        run: chown -R builder:builder "$CARGO_HOME" "$GITHUB_WORKSPACE"
+        run: chown -R builder:builder "$CARGO_HOME" "$RUSTUP_HOME" "$GITHUB_WORKSPACE"
 
       - name: Install cargo-deny (prebuilt, SHA-256 pinned)
         shell: bash
@@ -200,14 +202,27 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # Before the tests, so a contract change without regenerated fixtures fails here. Like every
+      # cargo step it uses the job's default (unprivileged builder) shell.
+      - name: contracts-drift
+        run: |
+          cargo xtask contracts
+          if ! git diff --exit-code -- ui-dev/fixtures/contracts; then
+            echo "::error::ui-dev/fixtures/contracts is stale: run 'cargo xtask contracts' and commit the result"
+            exit 1
+          fi
+          changes="$(git status --porcelain --untracked-files=all -- ui-dev/fixtures/contracts)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "::error::'cargo xtask contracts' added files to ui-dev/fixtures/contracts; commit the result"
+            exit 1
+          fi
+
       - name: cargo test
         run: cargo test --workspace --locked
 
       - name: cargo build
         run: cargo build --workspace --locked
-
-      - name: contracts-drift (no-op until M0.3)
-        run: echo "contracts-drift is a no-op until ROADMAP M0.3 adds 'cargo xtask contracts'."
 
   macos:
     name: Rust (macOS)
