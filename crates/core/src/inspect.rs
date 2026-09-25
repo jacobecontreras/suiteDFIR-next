@@ -554,15 +554,46 @@ mod tests {
             temp_root: &lab.temp_root,
         };
         let would_be = runs.join("20260924-183005Z-ileapp-3f9a1c");
-        assert!(fsutil::path_within(&would_be, &evidence).unwrap());
         assert!(!fsutil::path_within(&case, &evidence).unwrap());
-        for input in [&evidence, &target] {
-            let err = check_overlap(input, &ctx).unwrap_err();
-            assert_eq!(err.code(), ErrorCode::InputOverlapsCase, "{input:?}");
-            assert!(err.to_string().contains("run folder"), "{err}");
+        // Windows may refuse to traverse a junction that a non-admin created
+        // (ERROR_UNTRUSTED_MOUNT_POINT, Redirection Guard). Nothing can then be created through
+        // it, and the overlap check must still refuse the input (fail closed).
+        const ERROR_UNTRUSTED_MOUNT_POINT: i32 = 448;
+        match fsutil::path_within(&would_be, &evidence) {
+            Ok(within) => {
+                assert!(within, "the run folder would land in the evidence");
+                for input in [&evidence, &target] {
+                    let err = check_overlap(input, &ctx).unwrap_err();
+                    assert_eq!(err.code(), ErrorCode::InputOverlapsCase, "{input:?}");
+                    assert!(err.to_string().contains("run folder"), "{err}");
+                }
+                let err = inspect(&evidence, &input_types(ToolId::Ileapp), &ctx).unwrap_err();
+                assert_eq!(err.code(), ErrorCode::InputOverlapsCase);
+            }
+            Err(e) if e.raw_os_error() == Some(ERROR_UNTRUSTED_MOUNT_POINT) => {
+                eprintln!(
+                    "NOTE: this machine refuses to traverse user-created junctions \
+                     (ERROR_UNTRUSTED_MOUNT_POINT); checking that the overlap rule fails closed"
+                );
+                for input in [&evidence, &target] {
+                    let err = check_overlap(input, &ctx).unwrap_err();
+                    assert!(
+                        matches!(&err, InspectError::Io { source, .. }
+                            if source.raw_os_error() == Some(ERROR_UNTRUSTED_MOUNT_POINT)),
+                        "{input:?}: {err:?}"
+                    );
+                }
+                assert!(inspect(&evidence, &input_types(ToolId::Ileapp), &ctx).is_err());
+                let err = fs::create_dir(&would_be).unwrap_err();
+                assert_eq!(err.raw_os_error(), Some(ERROR_UNTRUSTED_MOUNT_POINT));
+                assert_eq!(
+                    fs::read_dir(&target).unwrap().count(),
+                    0,
+                    "evidence untouched"
+                );
+            }
+            Err(e) => panic!("{}: {e}", would_be.display()),
         }
-        let err = inspect(&evidence, &input_types(ToolId::Ileapp), &ctx).unwrap_err();
-        assert_eq!(err.code(), ErrorCode::InputOverlapsCase);
         assert!(check_overlap(&p(&evidence, "dir"), &ctx).is_ok());
     }
 
