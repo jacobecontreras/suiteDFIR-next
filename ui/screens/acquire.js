@@ -763,7 +763,10 @@ export function acquireScreen(ctx) {
     renderFacts();
     renderElapsed();
     renderPrompt(s);
-    const steps = stepStates(ACQ_PHASES, { phases: s.phases, phase: s.phase, finished: finished !== null, partial: s.partial }, ENCRYPTION_PHASES);
+    // Attached after a reload: turning encryption off again implies it was turned on (§6b step 8).
+    const phases =
+      s.partial && s.phases.includes("restoring_encryption") && !s.phases.includes("enabling_encryption") ? ["enabling_encryption", ...s.phases] : s.phases;
+    const steps = stepStates(ACQ_PHASES, { phases, phase: s.phase, finished: finished !== null, partial: s.partial }, ENCRYPTION_PHASES);
     phaseSlot.update(JSON.stringify(steps), () => stepList("Acquisition phases", steps));
     renderProgress(s);
     log.update(s.log);
@@ -868,7 +871,9 @@ export function acquireScreen(ctx) {
         detail: s.seal.total === null ? plural(s.seal.done, "file", "files") : `${formatCount(s.seal.done)} of ${plural(s.seal.total, "file", "files")}${pct === null ? "" : ` (${pct}%)`}`,
       });
     }
-    const note = s.percent === null && s.seal === null && s.live;
+    // Until the backup reports progress (after a reload, only its next report shows it).
+    const beforeBackupEnd = s.phase === null || s.phase === "preparing" || s.phase === "enabling_encryption" || s.phase === "backing_up";
+    const note = s.percent === null && s.seal === null && s.live && beforeBackupEnd;
     progressSlot.update(`${s.percent !== null}|${s.seal !== null}|${note}`, () => [s.percent !== null && backupMeter.node, s.seal !== null && sealMeter.node, note && progressNote]);
   }
 
