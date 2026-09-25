@@ -134,8 +134,10 @@ export function newRunScreen(ctx) {
   const saveProfileButton = /** @type {HTMLButtonElement} */ (
     h("button", { class: "btn btn-sm", type: "button", onClick: saveProfile }, "Save as profile…")
   );
+  // Start is a plain button, not a submit button: the form then has no default button, so Enter in
+  // a field (the module search, the label, the password) can never start a run.
   const startButton = /** @type {HTMLButtonElement} */ (
-    h("button", { class: "btn btn-primary btn-lg", type: "submit", "aria-describedby": reasonsId, disabled: true }, "Start run")
+    h("button", { class: "btn btn-primary btn-lg", type: "button", "aria-describedby": reasonsId, disabled: true, onClick: start }, "Start run")
   );
 
   /**
@@ -155,7 +157,7 @@ export function newRunScreen(ctx) {
 
   const form = h(
     "form",
-    { class: "form new-run-form", novalidate: true, onSubmit: start },
+    { class: "form new-run-form", novalidate: true, onSubmit: ignoreSubmit },
     section(1, "Tool", [toolBody]),
     section(2, "Input", [inputBody]),
     section(3, "Options", [optionsBody]),
@@ -762,9 +764,16 @@ export function newRunScreen(ctx) {
     );
   }
 
-  /** @param {SubmitEvent} event */
-  async function start(event) {
+  /**
+   * The form never submits: a run starts only from an explicit click (or keyboard activation) of
+   * Start run.
+   * @param {SubmitEvent} event
+   */
+  function ignoreSubmit(event) {
     event.preventDefault();
+  }
+
+  async function start() {
     if (starting || startBlockers(f).length > 0) return;
     const req = buildRunRequest(casePath, f);
     starting = true;

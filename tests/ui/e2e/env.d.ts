@@ -48,6 +48,7 @@ declare module "playwright" {
     click(options?: { timeout?: number }): Promise<void>;
     check(): Promise<void>;
     fill(value: string): Promise<void>;
+    press(key: string): Promise<void>;
     waitFor(options?: { state?: "attached" | "detached" | "visible" | "hidden"; timeout?: number }): Promise<void>;
     screenshot(options: { path: string }): Promise<unknown>;
     first(): Locator;

@@ -9,9 +9,11 @@
 // survive a separate ssh session). Each screen is loaded fresh from /?mock (the mock's state is per
 // page load), set up, and saved as <out>/<screen>-<light|dark>.png.
 //
-// It fails (exit 1) on any console CSP violation, console error or uncaught page error, and when
-// the module-picker measurement (`perf`: render + filter of 1,300 fixture modules) is not under
-// 100 ms. The measurement is written to <out>/perf.json.
+// It also runs behavior checks (`check-*`, no screenshot), e.g. that Enter in a New run field never
+// starts a run. It fails (exit 1) on a failed check, on any console CSP violation, console error or
+// uncaught page error (screens, checks and perf alike), and when the module-picker measurement
+// (`perf`: render + filter of 1,300 fixture modules) is not under 100 ms. The measurement is written
+// to <out>/perf.json.
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -401,6 +403,85 @@ const SCREENS = [
   },
 ];
 
+/**
+ * @typedef {object} Check
+ * @property {string} name
+ * @property {string} hash
+ * @property {(page: Page) => Promise<void>} run Throws when the check fails.
+ */
+
+/** Behavior checks (no screenshot), run once in the light theme. */
+/** @type {Check[]} */
+const CHECKS = [
+  {
+    // Regression check for implicit form submission: Enter in any New run field must never start a
+    // run (a run folder and run.json are permanent); only activating Start run does.
+    name: "check-enter-does-not-start",
+    hash: newRunHash,
+    run: async (page) => {
+      await newRunReady(page);
+      await pickInput(page, "Choose folder…", "00008101-000A1B2C3D4E");
+      const password = page.getByLabel(/Backup password/);
+      await password.fill("examiner-secret");
+      await page.getByRole("radio", { name: /Custom selection/ }).check();
+      await page.locator(".picker").waitFor();
+      await page.locator(".picker-group").nth(0).locator(".picker-group-label input").check();
+      await page.locator(".ready-text").waitFor();
+      const search = page.getByRole("searchbox", { name: "Search modules" });
+      await search.fill("call");
+      await search.press("Enter");
+      const label = page.getByLabel("Label");
+      await label.fill("Enter must not start a run");
+      await label.press("Enter");
+      await password.press("Enter");
+      await page.waitForTimeout(1500);
+      const state = await page.evaluate(() => ({
+        hash: location.hash,
+        indicator: document.querySelector(".job-indicator") !== null,
+        ready: document.querySelector(".ready-text") !== null,
+      }));
+      if (!state.ready) throw new Error(`the form was not ready, so the check proves nothing: ${JSON.stringify(state)}`);
+      if (!state.hash.startsWith("#/new-run") || state.indicator) {
+        throw new Error(`pressing Enter in a field started a run: ${JSON.stringify(state)}`);
+      }
+      // Explicit keyboard activation of Start run does start the run.
+      await page.getByRole("button", { name: "Start run" }).press("Enter");
+      await page.locator(".runs-table .badge-running").waitFor();
+    },
+  },
+];
+
+/**
+ * Records CSP violations, console errors and uncaught page errors of `page` in `problems`.
+ * @param {Page} page
+ * @param {string} label
+ * @param {string[]} problems
+ */
+function watchPage(page, label, problems) {
+  page.on("console", (message) => {
+    const text = message.text();
+    if (/content security policy|csp violation|refused to/i.test(text)) problems.push(`${label}: CSP: ${text}`);
+    else if (message.type() === "error") problems.push(`${label}: console error: ${text}`);
+  });
+  page.on("pageerror", (error) => problems.push(`${label}: page error: ${error.message}`));
+}
+
+/**
+ * A browser context that also reports CSP violations as console errors (Chromium logs its own
+ * message too).
+ * @param {import("playwright").Browser} browser
+ * @param {"light" | "dark"} scheme
+ */
+async function newContext(browser, scheme) {
+  const context = await browser.newContext({ colorScheme: scheme, viewport: { width: 1200, height: 800 }, deviceScaleFactor: 1 });
+  await context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (e) => {
+      console.error(`CSP violation: ${e.violatedDirective} blocked ${e.blockedURI || "inline"}`);
+    });
+  });
+  return context;
+}
+
 /** @param {string[]} argv */
 function parseArgs(argv) {
   /** @type {{ root: string | null, out: string | null, screens: string[] | null }} */
@@ -510,9 +591,11 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const wanted = opts.screens;
   const screens = wanted ? SCREENS.filter((s) => wanted.includes(s.name)) : SCREENS;
+  const checks = wanted ? CHECKS.filter((c) => wanted.includes(c.name)) : CHECKS;
   const runPerf = !wanted || wanted.includes("perf");
   if (wanted) {
-    const unknown = wanted.filter((n) => n !== "perf" && !SCREENS.some((s) => s.name === n));
+    const known = new Set(["perf", ...SCREENS.map((s) => s.name), ...CHECKS.map((c) => c.name)]);
+    const unknown = wanted.filter((n) => !known.has(n));
     if (unknown.length) throw new Error(`unknown screens: ${unknown.join(", ")}`);
   }
   await mkdir(opts.out, { recursive: true });
@@ -528,22 +611,11 @@ async function main() {
     process.stdout.write(`serve-ui on port ${port}\n`);
     browser = await chromium.launch();
     for (const scheme of /** @type {const} */ (["light", "dark"])) {
-      const context = await browser.newContext({ colorScheme: scheme, viewport: { width: 1200, height: 800 }, deviceScaleFactor: 1 });
-      // Surface CSP violations as console errors too (Chromium also logs its own message).
-      await context.addInitScript(() => {
-        document.addEventListener("securitypolicyviolation", (e) => {
-          console.error(`CSP violation: ${e.violatedDirective} blocked ${e.blockedURI || "inline"}`);
-        });
-      });
+      const context = await newContext(browser, scheme);
       for (const screen of screens) {
         const page = await context.newPage();
         const label = `${screen.name} (${scheme})`;
-        page.on("console", (message) => {
-          const text = message.text();
-          if (/content security policy|csp violation|refused to/i.test(text)) problems.push(`${label}: CSP: ${text}`);
-          else if (message.type() === "error") problems.push(`${label}: console error: ${text}`);
-        });
-        page.on("pageerror", (error) => problems.push(`${label}: page error: ${error.message}`));
+        watchPage(page, label, problems);
         const file = path.join(opts.out, `${screen.name}-${scheme}.png`);
         try {
           await page.goto(`${base}${screen.query}${screen.hash}`);
@@ -561,10 +633,28 @@ async function main() {
       await context.close();
     }
 
+    if (checks.length) {
+      const context = await newContext(browser, "light");
+      for (const check of checks) {
+        const page = await context.newPage();
+        watchPage(page, check.name, problems);
+        try {
+          await page.goto(`${base}?mock${check.hash}`);
+          await check.run(page);
+          process.stdout.write(`passed ${check.name}\n`);
+        } catch (err) {
+          problems.push(`${check.name}: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await page.close();
+        }
+      }
+      await context.close();
+    }
+
     if (runPerf) {
-      const context = await browser.newContext({ colorScheme: "light", viewport: { width: 1200, height: 800 } });
+      const context = await newContext(browser, "light");
       const page = await context.newPage();
-      page.on("pageerror", (error) => problems.push(`perf: page error: ${error.message}`));
+      watchPage(page, "perf", problems);
       await page.goto(`${base}?mock${newRunHash}`);
       await newRunReady(page);
       const results = [];
