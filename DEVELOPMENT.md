@@ -292,6 +292,7 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **Tauri CLI:** CI does **not** install the Tauri CLI; `cargo build` compiles the app, including `tauri-build` config validation. `cargo tauri build` runs in the local gates.
 - **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
 - **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. A `workflow_dispatch` runs only the job(s) selected by its `os` input (`linux`, `macos`, `windows` or `all`). On pull requests and pushes to `main`, the Linux job always runs, and the macOS and Windows jobs run only once the repository is public (`!github.event.repository.private`). Draft pull requests run no CI jobs.
+- **LEAPP smoke container:** `leapp-smoke.yml` runs in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
 - **Dispatch-only workflows:** `leapp-smoke.yml` and `release.yml` are `workflow_dispatch`-only while private (Linux legs only). All other builds, including the iOS tools and the macOS/Windows release bundles, happen on local machines. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 

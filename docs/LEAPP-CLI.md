@@ -53,7 +53,17 @@ aLEAPP **v2026.4.1**:
 - **Linux:**
   - A type-2 AppImage (≈ 71 MB) with the static runtime. Mounting needs FUSE; `--appimage-extract` does not.
   - It wraps `usr/bin/ileapp`, itself a onefile binary.
-  - **glibc ≥ 2.38 is required.** VERIFIED by the A3 smoke run in `ubuntu:22.04` (glibc 2.35) for both tools (v2026.4.2 / v2026.4.1, linux-x86_64): `--appimage-extract` works there as an unprivileged user, but the inner binary exits 255 with `[PYI-…:ERROR] Failed to load Python shared library '…/_MEI…/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version 'GLIBC_2.38' not found`. Some bundled libraries reference even newer glibc versions (`libtinfo.so.6` 2.42; iLEAPP's `libmvec.so.1` 2.43), which may matter for the modules that load them.
+  - **Minimum glibc** of the pinned builds:
+
+    | Tool | linux-x86_64 | linux-aarch64 |
+    |---|---|---|
+    | iLEAPP v2026.4.2 | **2.43** | UNVERIFIED (not inspected or run) |
+    | aLEAPP v2026.4.1 | **2.42** | UNVERIFIED (not inspected or run) |
+
+    - These are the highest glibc symbol versions that any bundled library requires, read from the ELF version references of every shared object in the PyInstaller archives. iLEAPP bundles glibc's own `libmvec.so.1`, which requires `libm.so.6` `GLIBC_2.43` (and `GLIBC_PRIVATE`). `libtinfo.so.6` and the `termios` extension require 2.42. `libpython3.14.so.1.0`, `libssl`, `libsqlite3`, `libstdc++` and others require 2.38.
+    - **Too old, VERIFIED:** `ubuntu:22.04` (glibc 2.35), leapp-smoke run 36170550467, both tools. `--appimage-extract` works there as an unprivileged user, but the inner binary exits 255: `[PYI-…:ERROR] Failed to load Python shared library '…/_MEI…/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version 'GLIBC_2.38' not found`. Introspection reports this as `introspection_failed`, saying which glibc the build needs.
+    - **New enough:** the smoke runs in `ubuntu:26.04` (glibc 2.43). Its first run, 36173251647, did not start (GitHub Actions billing), so a passing run is still PENDING.
+    - suiteDFIR itself keeps the `ubuntu:22.04` build baseline (ARCHITECTURE.md §10). Only these parser builds need the newer glibc.
 - **Every run:** extracts ≈ 132 MB into `$TMPDIR/_MEI*` and adds ≈ 2 s of startup.
 
 ## 3. Command-line flags used by suiteDFIR
@@ -209,7 +219,7 @@ The output folder contains (VERIFIED):
 
 1. Windows: the bootloader honours `TEMP`/`TMP`; `Screen_Output.html` newline style; the console window stays hidden with `CREATE_NO_WINDOW`.
 2. Linux: AppImage extraction works on `ubuntu:22.04`, and the inner binary runs there (glibc).
-   - **Resolved by A3 (negative):** extraction works, the inner binary does not run (glibc ≥ 2.38 required, §2). Which Linux baseline the smoke runs and the app support is an open decision.
+   - **Resolved by A3 (negative):** extraction works, but the inner binary does not run there. The pinned linux-x86_64 builds need glibc ≥ 2.43 (iLEAPP) and ≥ 2.42 (aLEAPP) (§2); the failing run is 36170550467. The owner decided to keep the app's 22.04 build baseline and run the LEAPP smoke in `ubuntu:26.04` (glibc 2.43); a passing run there is PENDING (§2). linux-aarch64 is UNVERIFIED.
 3. iLEAPP `-t itunes` always-run artifact names; aLEAPP always-run names.
    - **A3:** introspection confirms on macOS arm64 and Windows x64 that the binaries contain `last_build` (module `lastBuild`), `itunes_backup_info` and `itunes_backup_installed_applications` (module `iTunesBackupInfo`) and aLEAPP `usagestatsVersion` (module `usagestatsVersion`). That they run as described in §5 still needs E3 runs.
 4. Behavior of the password prompt after `setsid` with stdin null (fake `prompt` scenario mirrors the expected result).

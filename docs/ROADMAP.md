@@ -170,7 +170,7 @@ This task removes cross-track collisions so tracks A–D rarely touch the same f
 - **Smoke tests:** `crates/core/tests/leapp_smoke.rs` (all `#[ignore]`) installs the real pinned tools for the host platform and introspects. It asserts count ≥ 500, that known names exist (`callHistory` for iLEAPP; pick a stable one for aLEAPP), that `timezones` contains `America/Chicago` for iLEAPP and is `null` for aLEAPP, and prints `entry_sha256`.
 - **`.github/workflows/leapp-smoke.yml`:**
   - Triggers: `workflow_dispatch` only while private. When public, add a weekly schedule and `pull_request` paths (`leapp-manifest.json`, `crates/core/src/leapp/**`, `crates/core/src/process/**`, `crates/core/tests/leapp_smoke.rs`, the workflow file).
-  - Runners: `ubuntu-24.04` + `ubuntu:22.04` container while private. When public, also `macos-15`, `macos-15-intel`, `windows-2025`, and `ubuntu-24.04-arm` + container.
+  - Runners: `ubuntu-24.04` + `ubuntu:26.04` container while private. The pinned Linux LEAPP builds need glibc ≥ 2.43 and do not start in the app's `ubuntu:22.04` build container (owner decision; LEAPP-CLI.md §2). When public, also `macos-15`, `macos-15-intel`, `windows-2025`, and `ubuntu-24.04-arm` + container.
 
 **Accept:**
 - Smoke tests pass locally on macOS arm64 and on the Windows machine (output in the PR, with local paths redacted).
