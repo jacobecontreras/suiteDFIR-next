@@ -1174,3 +1174,169 @@ input[type="radio"] {
   color: var(--accent);
   font-weight: 500;
 }
+
+/* ---- New run ---- */
+
+.new-run-form {
+  gap: 16px;
+}
+
+.input-path {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.start-card {
+  gap: 10px;
+}
+
+.start-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.start-reasons-title {
+  font-weight: 600;
+}
+
+.ready-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* ---- Module picker ---- */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.picker-search {
+  position: relative;
+  flex: 1 1 260px;
+}
+
+.picker-search > .icon {
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  color: var(--muted);
+}
+
+.picker-search-input {
+  padding-left: 30px;
+}
+
+.picker-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.picker-groups {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.picker-group + .picker-group {
+  border-top: 1px solid var(--border);
+}
+
+.picker-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px;
+}
+
+.picker-toggle {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.picker-toggle:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.picker-chevron {
+  transition: transform 0.12s ease;
+}
+
+.picker-toggle.is-open .picker-chevron {
+  transform: rotate(90deg);
+}
+
+.picker-group-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.picker-group-count {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.picker-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0 0 0 54px;
+}
+
+.picker-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.picker-row label:hover {
+  background: var(--row-hover);
+}
+
+.picker-id {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.picker-unknown ul {
+  columns: 2;
+}

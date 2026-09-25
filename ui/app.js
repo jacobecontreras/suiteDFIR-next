@@ -11,6 +11,7 @@ import { parseRoute } from "./lib/router.js";
 import { createStore } from "./lib/store.js";
 import { caseScreen } from "./screens/case.js";
 import { casesScreen } from "./screens/cases.js";
+import { newRunScreen } from "./screens/new-run.js";
 import { notFoundScreen } from "./screens/not-found.js";
 
 /** @typedef {import("./lib/context").Api} Api */
@@ -22,6 +23,7 @@ import { notFoundScreen } from "./screens/not-found.js";
 const ROUTES = {
   cases: casesScreen,
   case: caseScreen,
+  "new-run": newRunScreen,
 };
 
 /** How often `job_active` is polled while a job is active. */
