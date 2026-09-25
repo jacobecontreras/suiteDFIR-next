@@ -15,6 +15,11 @@
 //! 3. Apply the tool's rules (below) and require at least [`MIN_MODULES`] selectable modules.
 //! 4. Remove the temp dir.
 //!
+//! If the tool exits without running the probe because the system's glibc is too old for the
+//! pinned Linux build (the loader's `version 'GLIBC_x.y' not found`, LEAPP-CLI.md §2), the
+//! `introspection_failed` message says which glibc is needed ([`glibc_too_old`]), and the loader's
+//! line leads the detail.
+//!
 //! **Tool rules** (verified against the source at the pinned tags; see LEAPP-CLI.md §5):
 //! - iLEAPP v2026.4.2 (`ileapp.py:237-241, 455-491`): the selectable list excludes
 //!   `module_name == "iTunesBackupInfo"`, `name == "last_build"`, and `module_name == "logarchive"`
@@ -570,15 +575,96 @@ fn run_probe(
     let bytes = match read_capped(&layout.output) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            return Err(failure(format!(
-                "{tool} exited ({}) without running the probe",
-                describe_exit(&exit)
-            )));
+            return Err(probe_not_run(tool, &manifest.display_name, &exit, &layout));
         }
         Err(e) => return Err(failure(format!("cannot read the probe output: {e}"))),
     };
     serde_json::from_slice(&bytes)
         .map_err(|e| failure(format!("the probe output is not valid: {e}")))
+}
+
+/// The error when the tool exited without writing the probe output. A glibc too old for the
+/// pinned Linux build gets its own message, with the loader's line first in the detail.
+fn probe_not_run(
+    tool: ToolId,
+    display_name: &str,
+    exit: &ExitInfo,
+    layout: &ProbeLayout,
+) -> IntrospectionError {
+    let output = [&layout.stderr, &layout.stdout]
+        .map(|path| tail(path).unwrap_or_default())
+        .join("\n");
+    match glibc_too_old(&output) {
+        Some(too_old) => IntrospectionError {
+            message: too_old.message(display_name),
+            detail: Some(format!("{}\n{}", too_old.loader_line, detail(exit, layout))),
+        },
+        None => IntrospectionError {
+            message: format!(
+                "{tool} exited ({}) without running the probe",
+                describe_exit(exit)
+            ),
+            detail: Some(detail(exit, layout)),
+        },
+    }
+}
+
+/// A dynamic-loader error saying that the system's glibc lacks a symbol version the tool needs,
+/// e.g. `…/libpython3.14.so.1.0: /lib/x86_64-linux-gnu/libm.so.6: version `GLIBC_2.38' not found
+/// (required by …)` (LEAPP-CLI.md §2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GlibcTooOld {
+    /// The highest missing version, e.g. `2.38`.
+    pub required: String,
+    /// The loader's line naming it, as printed.
+    pub loader_line: String,
+}
+
+impl GlibcTooOld {
+    /// The message for the examiner, e.g. for `introspection_failed`.
+    pub fn message(&self, tool_name: &str) -> String {
+        format!(
+            "the pinned Linux {tool_name} build needs glibc {} or newer; this system's glibc is \
+             too old",
+            self.required
+        )
+    }
+}
+
+/// Finds loader errors `version `GLIBC_x.y' not found` (quoted with a backtick or an apostrophe,
+/// then an apostrophe) in a tool's output, and returns the highest missing version. Usable on the
+/// output of any LEAPP spawn.
+pub fn glibc_too_old(output: &str) -> Option<GlibcTooOld> {
+    const MARK: &str = "GLIBC_";
+    let mut best: Option<(Vec<u32>, GlibcTooOld)> = None;
+    for line in output.lines() {
+        for (at, _) in line.match_indices(MARK) {
+            let before = &line[..at];
+            if !(before.ends_with("version `") || before.ends_with("version '")) {
+                continue;
+            }
+            let after = &line[at + MARK.len()..];
+            let end = after
+                .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+                .unwrap_or(after.len());
+            let version = &after[..end];
+            let parts: Option<Vec<u32>> = version.split('.').map(|p| p.parse().ok()).collect();
+            let Some(parts) = parts.filter(|parts| parts.len() >= 2) else {
+                continue;
+            };
+            if !after[end..].starts_with("' not found") {
+                continue;
+            }
+            if best.as_ref().is_none_or(|(highest, _)| parts > *highest) {
+                let found = GlibcTooOld {
+                    required: version.to_owned(),
+                    loader_line: line.trim().to_owned(),
+                };
+                best = Some((parts, found));
+            }
+        }
+    }
+    best.map(|(_, found)| found)
 }
 
 fn read_capped(path: &Path) -> io::Result<Vec<u8>> {
@@ -946,9 +1032,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn exits_are_described() {
-        let exit = |exit_code, signal, timed_out| ExitInfo {
+    fn exit(exit_code: Option<i32>, signal: Option<i32>, timed_out: bool) -> ExitInfo {
+        ExitInfo {
             exit_code,
             signal,
             exited_at: Timestamp::now(),
@@ -957,22 +1042,107 @@ mod tests {
             timed_out,
             escalated_to_kill: false,
             output_error: None,
-        };
+        }
+    }
+
+    fn logs_layout(dir: &Path) -> ProbeLayout {
+        ProbeLayout {
+            artifacts: dir.join("a"),
+            input: dir.join("i"),
+            out: dir.join("o"),
+            profile: dir.join("p"),
+            output: dir.join("probe.json"),
+            stdout: dir.join("out.log"),
+            stderr: dir.join("err.log"),
+        }
+    }
+
+    /// As printed by the pinned iLEAPP build in ubuntu:22.04 (leapp-smoke run 36170550467).
+    const LOADER_ERROR: &str = "[PYI-4965:ERROR] Failed to load Python shared library \
+        '/tmp/sdnxFSj25/cache/tmp/20260925-180054Z-ileapp-b741b8/_MEI6badXH/libpython3.14.so.1.0': \
+        /lib/x86_64-linux-gnu/libm.so.6: version `GLIBC_2.38' not found (required by \
+        /tmp/sdnxFSj25/cache/tmp/20260925-180054Z-ileapp-b741b8/_MEI6badXH/libpython3.14.so.1.0)";
+
+    #[test]
+    fn glibc_loader_errors_are_recognized() {
+        let found = glibc_too_old(LOADER_ERROR).unwrap();
+        assert_eq!(found.required, "2.38");
+        assert_eq!(found.loader_line, LOADER_ERROR);
+        assert_eq!(
+            found.message("iLEAPP"),
+            "the pinned Linux iLEAPP build needs glibc 2.38 or newer; this system's glibc is too old"
+        );
+        // The highest missing version wins, compared numerically (2.9 < 2.38 < 2.43).
+        let several = format!(
+            "noise\n{LOADER_ERROR}\n./x: /lib/libm.so.6: version 'GLIBC_2.43' not found \
+             (required by ./libmvec.so.1)\n./y: version `GLIBC_2.9' not found\n\
+             ./z: version `GLIBC_2.3.4' not found (required by ./z)"
+        );
+        let found = glibc_too_old(&several).unwrap();
+        assert_eq!(found.required, "2.43");
+        assert!(found.loader_line.contains("libmvec"), "{found:?}");
+        for text in [
+            "",
+            "GLIBC_2.38",
+            "version `GLIBC_2.38' found",
+            "needs GLIBC_2.40 not found",
+            "version `GLIBC_PRIVATE' not found (required by ./libmvec.so.1)",
+            "version `GLIBC_2' not found",
+            "version `GLIBC_2.x' not found",
+        ] {
+            assert_eq!(glibc_too_old(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_glibc_too_old_for_the_build_is_explained() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = logs_layout(dir.path());
+        fs::write(&layout.stdout, "").unwrap();
+        fs::write(&layout.stderr, format!("{LOADER_ERROR}\n")).unwrap();
+        let error = probe_not_run(
+            ToolId::Ileapp,
+            "iLEAPP",
+            &exit(Some(255), None, false),
+            &layout,
+        );
+        assert_eq!(
+            error.message,
+            "the pinned Linux iLEAPP build needs glibc 2.38 or newer; this system's glibc is too old"
+        );
+        let detail = error.detail.clone().unwrap();
+        assert!(
+            detail.starts_with(&format!(
+                "{LOADER_ERROR}\nexit code 255\n--- stdout (end) ---"
+            )),
+            "{detail}"
+        );
+        let app: AppError = error.into();
+        assert_eq!(app.code, ErrorCode::IntrospectionFailed);
+
+        // Any other failure to run the probe keeps the generic message.
+        fs::write(&layout.stderr, "Traceback (most recent call last):\n").unwrap();
+        let error = probe_not_run(
+            ToolId::Ileapp,
+            "iLEAPP",
+            &exit(Some(1), None, false),
+            &layout,
+        );
+        assert_eq!(
+            error.message,
+            "ileapp exited (exit code 1) without running the probe"
+        );
+    }
+
+    #[test]
+    fn exits_are_described() {
         assert_eq!(describe_exit(&exit(Some(2), None, false)), "exit code 2");
         assert_eq!(
             describe_exit(&exit(None, Some(9), true)),
             "killed by signal 9"
         );
         let dir = tempfile::tempdir().unwrap();
-        let layout = ProbeLayout {
-            artifacts: dir.path().join("a"),
-            input: dir.path().join("i"),
-            out: dir.path().join("o"),
-            profile: dir.path().join("p"),
-            output: dir.path().join("probe.json"),
-            stdout: dir.path().join("out.log"),
-            stderr: dir.path().join("err.log"),
-        };
+        let layout = logs_layout(dir.path());
         let long = format!("{}\nlast line\n", "x".repeat(10_000));
         fs::write(&layout.stdout, long).unwrap();
         let text = detail(&exit(None, Some(15), true), &layout);
