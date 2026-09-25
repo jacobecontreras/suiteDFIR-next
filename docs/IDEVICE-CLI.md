@@ -133,6 +133,8 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 
 **Windows paths:** the tools use ANSI file APIs (`fopen`, `mkdir`, `DeleteFile`, `GetDiskFreeSpaceEx`; ≈ 175, 221, 2315). Non-ASCII or long target paths may fail, so suiteDFIR refuses them (ARCHITECTURE §6b step 4).
 
+**Windows passwords:** the tools read `BACKUP_PASSWORD_NEW` / `BACKUP_PASSWORD` with `getenv` (1758-1768, 2167-2195). In the MinGW/UCRT build that returns the environment converted to the ANSI code page. A password with characters outside it would reach the device as other bytes (or `?`), while iLEAPP later gets the Unicode password in argv, so the encrypted backup could not be decrypted with the password the examiner typed. suiteDFIR therefore refuses, on Windows, any encryption password (enable, restore, later restore) that is not printable ASCII (0x20-0x7E), before any device change, with `invalid_input`.
+
 ## 6. How suiteDFIR decides acquisition success
 
 **Succeeded** requires all of these:

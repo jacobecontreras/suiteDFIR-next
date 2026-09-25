@@ -1223,6 +1223,44 @@ fn start_checks_create_nothing() {
     );
 }
 
+/// The Windows tools read the password in the ANSI code page: a password that is not printable
+/// ASCII is refused before any device change, for enabling and for a later restore.
+#[cfg(windows)]
+#[test]
+fn windows_refuses_passwords_the_tools_cannot_read() {
+    const NON_ASCII: &str = "Pässwört-1";
+    let lab = Lab::new("success_encrypt");
+    let case = new_case(&lab);
+    let err = acquire::start(
+        &lab.idevice,
+        request(&case, Some(NON_ASCII)),
+        context(&case),
+    )
+    .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::InvalidInput, "{err}");
+    let app: suitedfir_core::contracts::AppError = err.into();
+    assert!(app.message.contains("ANSI code page"), "{}", app.message);
+    assert!(!format!("{app:?}").contains(NON_ASCII));
+    assert_eq!(acquisitions_created(&case), 0);
+    assert!(lab.calls().is_empty(), "refused before any device command");
+
+    // A later restore of an acquisition that left encryption on.
+    let lab = Lab::new("restore_fail");
+    let (case, outcome, _) = simple(&lab, Some(PASSWORD));
+    let calls_before = lab.calls().len();
+    let err = acquire::restore_later(
+        &lab.reopen("success"),
+        &case.path,
+        &outcome.record.acq_id,
+        NON_ASCII.to_owned(),
+        &mut |_| {},
+    )
+    .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::InvalidInput, "{err}");
+    assert_eq!(lab.calls().len(), calls_before, "no device command");
+    assert!(!acq_dir(&outcome).join("encryption-restore.json").exists());
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_refuses_paths_the_tools_cannot_use() {

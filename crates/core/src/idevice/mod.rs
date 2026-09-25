@@ -66,6 +66,10 @@ pub enum IdeviceError {
     Tools(ToolsProblem),
     #[error("usbmuxd could not be reached ({0})")]
     UsbmuxdUnavailable(String),
+    /// The password has characters the tools cannot pass on intact on this OS
+    /// ([`Password::tool_problem`]). The password itself is never part of the error.
+    #[error("the backup password cannot be used with the iOS tools: {0}")]
+    PasswordNotSupported(&'static str),
     #[error("{what}: {source}")]
     Io {
         what: String,
@@ -96,6 +100,7 @@ impl IdeviceError {
                 IdeviceToolsState::Ok => ErrorCode::Internal,
             },
             Self::UsbmuxdUnavailable(_) => ErrorCode::UsbmuxdUnavailable,
+            Self::PasswordNotSupported(_) => ErrorCode::InvalidInput,
             Self::Io { source, .. } => fsutil::io_error_code(source),
         }
     }
@@ -111,6 +116,12 @@ impl IdeviceError {
             }
             Self::Tools(problem) => problem.guidance.clone(),
             Self::UsbmuxdUnavailable(_) => USBMUXD_GUIDANCE.to_owned(),
+            Self::PasswordNotSupported(_) => "On Windows, the iOS tools read the backup password \
+                 in the ANSI code page, so characters outside plain ASCII could reach the device \
+                 changed, and the backup could then not be decrypted with the password you typed. \
+                 Use only printable ASCII characters (letters A-Z and a-z, digits, spaces and \
+                 punctuation)."
+                .to_owned(),
             Self::Io { .. } => "A device command could not be run.".to_owned(),
         }
     }
@@ -148,9 +159,25 @@ impl Password {
         !self.0.is_empty() && text.as_bytes().windows(self.0.len()).any(|w| w == self.0)
     }
 
+    /// Why the tools on this OS cannot take this password intact, if they cannot. On Windows they
+    /// read `BACKUP_PASSWORD(_NEW)` with the C runtime's `getenv`, which converts the environment
+    /// to the ANSI code page: anything but printable ASCII may reach the device as other bytes (or
+    /// `?`), while iLEAPP later gets the Unicode password (IDEVICE-CLI.md §5).
+    pub fn tool_problem(&self) -> Option<&'static str> {
+        password_problem(&self.0, cfg!(windows))
+    }
+
     fn env_value(&self) -> OsString {
         OsString::from(String::from_utf8_lossy(&self.0).into_owned())
     }
+}
+
+/// [`Password::tool_problem`] for `bytes` on Windows (`windows`) or elsewhere.
+fn password_problem(bytes: &[u8], windows: bool) -> Option<&'static str> {
+    let printable_ascii = bytes.iter().all(|b| (0x20..=0x7e).contains(b));
+    (windows && !printable_ascii).then_some(
+        "on Windows the tools read it in the ANSI code page, so only printable ASCII is supported",
+    )
 }
 
 impl Drop for Password {
@@ -812,6 +839,10 @@ impl Session {
         password: &Password,
         on_line: &mut dyn FnMut(OutputLine),
     ) -> Result<CommandRun, IdeviceError> {
+        // Callers refuse such passwords before any device change; this is the last guard.
+        if let Some(problem) = password.tool_problem() {
+            return Err(IdeviceError::PasswordNotSupported(problem));
+        }
         let args = Self::udid_args(udid, &["encryption", if enable { "on" } else { "off" }]);
         let argv = self.tools.argv(ToolName::Idevicebackup2, &args);
         let (mut spec, stdout_log, stderr_log) = self.spec(ToolName::Idevicebackup2, &args);
@@ -932,6 +963,33 @@ mod tests {
         // What drop does, observed before the memory is freed.
         bytes.0.fill(0);
         assert!(bytes.0.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn windows_passwords_must_be_printable_ascii() {
+        for ok in ["hunter22", "Tr0ub4dor & 3!", " ~spaces and tildes~ "] {
+            assert_eq!(password_problem(ok.as_bytes(), true), None, "{ok:?}");
+        }
+        for bad in [
+            "pässwört",
+            "密码密码",
+            "tab\there",
+            "new\nline",
+            "euro€1234",
+        ] {
+            assert!(password_problem(bad.as_bytes(), true).is_some(), "{bad:?}");
+            // Elsewhere the tools get the bytes as they are.
+            assert_eq!(password_problem(bad.as_bytes(), false), None, "{bad:?}");
+        }
+        let password = Password::new("pässwört".to_owned());
+        assert_eq!(password.tool_problem().is_some(), cfg!(windows));
+        let err = IdeviceError::PasswordNotSupported("x");
+        assert_eq!(err.code(), ErrorCode::InvalidInput);
+        assert!(
+            err.message().contains("ANSI code page"),
+            "{}",
+            err.message()
+        );
     }
 
     #[test]

@@ -298,7 +298,8 @@ pub struct AcqContext {
     pub host: RecordHost,
 }
 
-/// `acq_start` (ARCHITECTURE.md §6b step 4): checks the password, the Windows path rule, the tools
+/// `acq_start` (ARCHITECTURE.md §6b step 4): checks the password (at least 4 characters; on Windows
+/// printable ASCII only, `invalid_input`, see [`Password::tool_problem`]), the Windows path rule, the tools
 /// (verified afresh), that the device is connected and paired, the preflight level and, when
 /// enabling encryption, that `WillEncrypt` is false; then creates the acquisition folder. A failing
 /// check creates nothing. The one-active-job rule is the shell's.
@@ -324,6 +325,11 @@ pub fn start(idevice: &Idevice, request: AcqRequest, ctx: AcqContext) -> Result<
             .is_none_or(|p| p.chars() < MIN_PASSWORD_CHARS)
     {
         return Err(AcqError::PasswordRequired);
+    }
+    // The same password turns encryption on and off again: refuse one the tools cannot take
+    // intact (Windows ANSI code page) before anything is created or changed.
+    if let Some(problem) = password.as_ref().and_then(Password::tool_problem) {
+        return Err(IdeviceError::PasswordNotSupported(problem).into());
     }
     check_tool_path(&ctx.case_dir)?;
     let tools = idevice.verify_tools().map_err(IdeviceError::Tools)?;
@@ -1244,6 +1250,9 @@ pub fn restore_later(
     }
     if password.chars() < MIN_PASSWORD_CHARS {
         return Err(AcqError::PasswordRequired);
+    }
+    if let Some(problem) = password.tool_problem() {
+        return Err(IdeviceError::PasswordNotSupported(problem).into());
     }
     let udid = &record.device.udid;
     let tools = idevice.verify_tools().map_err(IdeviceError::Tools)?;
