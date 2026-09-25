@@ -95,8 +95,9 @@ pub struct BackupFacts {
 
 /// The status and reasons (§13.3 rules 1-3). Without a short-circuit, `facts` must be present (the
 /// backup ran); each matching check adds a reason, in the order of the §13.3 table. The file checks
-/// are skipped when `backup/<udid>/` is missing, and the snapshot check when `Status.plist` was not
-/// read (their input is unavailable).
+/// are skipped when `backup/<udid>/` is missing (their input is unavailable), and the snapshot check
+/// when `Status.plist` is missing (`status_plist_missing` covers it). A `Status.plist` that exists
+/// but is unreadable, or has no `SnapshotState`, fails the snapshot check.
 pub fn evaluate(
     short: Option<&ShortCircuit>,
     facts: Option<&BackupFacts>,
@@ -203,13 +204,21 @@ pub fn evaluate(
                 "The backup has no Status.plist",
             ));
         }
-        if let Some(state) = &layout.snapshot_state
-            && state != "finished"
-        {
-            reasons.push(reason(
-                "snapshot_not_finished",
-                format!("Status.plist has SnapshotState \"{state}\", not \"finished\""),
-            ));
+        // Succeeded needs SnapshotState == "finished" (IDEVICE-CLI.md §6): a Status.plist that is
+        // unreadable or has no SnapshotState fails the check.
+        if layout.status_plist_found {
+            match layout.snapshot_state.as_deref() {
+                Some("finished") => {}
+                Some(state) => reasons.push(reason(
+                    "snapshot_not_finished",
+                    format!("Status.plist has SnapshotState \"{state}\", not \"finished\""),
+                )),
+                None => reasons.push(reason(
+                    "snapshot_not_finished",
+                    "Status.plist is unreadable or has no SnapshotState, so the snapshot cannot be \
+                     confirmed as finished",
+                )),
+            }
         }
     }
     let status = if reasons.is_empty() {
@@ -467,11 +476,33 @@ mod tests {
                     "status_plist_missing",
                 ],
             ),
+            (
+                // Everything else says success, but SnapshotState cannot be confirmed.
+                "status_plist_unreadable",
+                BackupFacts {
+                    layout: Layout {
+                        snapshot_state: None,
+                        ..good_layout()
+                    },
+                    ..success()
+                },
+                AcqStatus::Failed,
+                vec!["snapshot_not_finished"],
+            ),
         ];
         for (name, facts, status, expected) in rows {
             let (got, reasons) = evaluate(None, Some(&facts));
             assert_eq!((got, codes(&reasons)), (status, expected), "{name}");
         }
+        let unreadable = BackupFacts {
+            layout: Layout {
+                snapshot_state: None,
+                ..good_layout()
+            },
+            ..success()
+        };
+        let (_, reasons) = evaluate(None, Some(&unreadable));
+        assert!(reasons[0].message.contains("unreadable"), "{reasons:?}");
         // A device gone without an abort is not a disconnect during the backup.
         let (_, reasons) = evaluate(
             None,
@@ -515,6 +546,16 @@ mod tests {
         assert_eq!(layout.manifest_found.as_deref(), Some("Manifest.db"));
         assert!(layout.status_plist_found);
         assert_eq!(layout.snapshot_state, None, "unreadable");
+        // An unparsable Status.plist on disk fails the backup.
+        let facts = BackupFacts {
+            layout,
+            ..success()
+        };
+        let (status, reasons) = evaluate(None, Some(&facts));
+        assert_eq!(
+            (status, codes(&reasons)),
+            (AcqStatus::Failed, vec!["snapshot_not_finished"])
+        );
     }
 
     fn encryption() -> AcqEncryption {
