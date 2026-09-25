@@ -163,6 +163,8 @@ Maintained by `cargo xtask pin-leapp` (ROADMAP A1). Hand edits only for `urls` m
 
 **`recent_cases`:** deduplicated, most recent first, max 50.
 
+**`defaults`:** `examiner`, `agency` and `timezone` are strings, never `null`; an empty string means not set.
+
 ## 7. `run.json` (the audit record)
 
 ### 7.1 Final record
@@ -275,6 +277,26 @@ Maintained by `cargo xtask pin-leapp` (ROADMAP A1). Hand edits only for `urls` m
 - The keychain file, if given, is always hashed.
 
 **`tool` for dev override** (debug builds only): `asset_name` and `asset_sha256` are `null`, `entry_verified_against` is `none`, and `install_source` is `dev_override`.
+
+**Nullable fields** (written as `null`, never omitted). Every other field is never `null`.
+- Top level: `label`, plus `started_at`, `ended_at`, `recovered_at` and `duration_ms` as above.
+- `tool`: `asset_name` and `asset_sha256` (dev override).
+- `input`:
+  - `type_detected`: no type was detected;
+  - `size_bytes`: directories;
+  - `itunes_encrypted`: the input is not an iTunes backup;
+  - `acquisition_id`: see below;
+  - `hash.value`, `hash.started_at` and `hash.completed_at`.
+- `options`:
+  - `timezone`: the tool has no timezone option (aLEAPP, with `timezone_supported: false`);
+  - `keychain_path` and `keychain_sha256`: no keychain file.
+- `modules.profile_name`: the mode is not `profile`.
+- `process`: `null` until the exit is recorded. Inside it:
+  - `exit_code`: the process was killed by a signal;
+  - `signal`: the number of the signal that killed the process (integer, Unix), else `null`;
+  - `exited_at` is never `null`.
+- `leapp_result`: `null` until the output is analyzed. Inside it, `processing_status`, `leapp_version_reported` and `module_counts` are `null` when `_lava_data.lava` is missing or unparsable.
+- `output.seal`: `manifest`, `manifest_sha256`, `file_count` and `total_bytes` (no manifest was written).
 
 ### 7.2 Initial record (written at lifecycle step 2) and recovery
 
@@ -427,7 +449,7 @@ All commands are `async`. Each takes at most one argument named `req` (an object
 | `app_info` | none | `{app_version, platform: PlatformKey\|null, os, arch, dev_override: boolean, paths:{app_data, app_config, app_cache, app_log, tools_dir}}` | |
 | `licenses_get` | none | `string` | Embedded `THIRD-PARTY-NOTICES.md`. |
 | `settings_get` | none | `Settings` | |
-| `settings_update` | `{cases_root?, defaults?, tools_dir?}` | `Settings` | Omitted = unchanged. `tools_dir: null` = reset to default. |
+| `settings_update` | `{cases_root?, defaults?, tools_dir?}` | `Settings` | Omitted = unchanged. `defaults` replaces all three defaults. `tools_dir: null` = reset to default. |
 | `tools_status` | none | `ToolStatus[]` | Cheap: no entry hashing (the state is `installed_unverified` until verified this session). |
 | `tool_verify` | `{tool}` | `ToolStatus` | Re-hashes the entry. |
 | `tool_install` | `{tool}` + `on_event: InstallEvent` | `ToolStatus` | Download → verify → extract → verify entry → introspect. |
@@ -436,7 +458,7 @@ All commands are `async`. Each takes at most one argument named `req` (an object
 | `cases_list` | none | `CaseSummary[]` | From `recent_cases`. |
 | `case_create` | `{name, case_number, examiner, agency, description, default_timezone, parent_dir: string\|null}` | `CaseDetail` | `parent_dir: null` → `cases_root`. Becomes known and most recent. |
 | `case_open` | `{path}` | `CaseDetail` | Becomes known and most recent; runs recovery. |
-| `case_update` | `{path, fields}` | `CaseDetail` | `fields` = editable fields from §6. |
+| `case_update` | `{path, fields}` | `CaseDetail` | `fields` = all editable fields from §6 (`name`, `case_number`, `examiner`, `agency`, `description`, `default_timezone`), each required; `default_timezone` may be `null`. |
 | `case_forget` | `{path}` | none | Removes from `recent_cases` only. |
 | `run_get` | `{case_path, run_id}` | `RunRecord` | |
 | `input_inspect` | `{tool, path, case_path}` | `InputInspection` | Read-only. Overlap violations are returned as `input_overlaps_case`. |
@@ -600,6 +622,28 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 - **`device-info.plist`:** holds the full post-pairing `ideviceinfo -x` output. Its hash is in `device.info_file_sha256`, and it is covered by no other manifest.
 - **Exit codes:** `idevicebackup2` exits with a truncated negative code (Unix `(-N) & 0xFF`, so 0 is possible on failure; Windows sees a negative value). Status therefore relies on messages and layout, never on the numeric value alone.
 
+**Nullable fields** (written as `null`, never omitted). Every other field is never `null`.
+- Top level: `label`, `started_at`, `ended_at`, `recovered_at` and `duration_ms`, as in §7.1.
+- `device`: every field except `udid` is `null` when unknown (the device info could not be captured, or it lacks the key).
+- `pairing`:
+  - `paired_by_app_at`: the app did not pair the device in this app session;
+  - `host_id` and `system_buid`: unreadable.
+- `tools.version`: the pinned version for bundled tools; `null` when unknown (system tools).
+- `encryption`:
+  - `will_encrypt_before`, `will_encrypt_after_enable` and `will_encrypt_after_restore`: not read (the step was not attempted) or unreadable;
+  - `password_channel`: `"env"` when a password was supplied, else `null`.
+- `commands[]`:
+  - `exit_code`: the command is still running, or was killed by a signal;
+  - `exited_at`: the command is still running.
+- `process`: `null` until the backup command has exited. Inside it, `exit_code` and `signal` follow §7.1.
+- `backup_result`: `null` until the backup is validated. Inside it:
+  - `final_message`: none of the final messages was seen;
+  - `manifest_found`: neither `Manifest.db` nor `Manifest.mbdb` exists;
+  - `snapshot_state`: `Status.plist` is missing or unreadable;
+  - `last_progress_percent`: no `NN% Finished` line was seen;
+  - `free_bytes_after`: unreadable.
+- `output.seal`: as in §7.1.
+
 **Status rules** (same structure as §7.3):
 
 1. **Short-circuits** (only this reason is recorded; restore still runs per ARCHITECTURE §6b):
@@ -645,6 +689,9 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 - pending hash and seal statuses become `interrupted`.
 
 **Later restore:** `acq_restore_encryption` writes `encryption-restore.json` (`schema_version`, `acq_id`, `at`, `argv` without the password, `exit_code`, `will_encrypt_after`, `restored`, `tools`) and marks it read-only. `acquisition.json` is not modified.
+- `exit_code` is `null` when the process was killed by a signal.
+- `will_encrypt_after` is `null` when `WillEncrypt` was unreadable.
+- `tools` has the same shape as in `acquisition.json`.
 
 ### 13.4 Expected outcomes for fake-idevice scenarios (normative for tests)
 
