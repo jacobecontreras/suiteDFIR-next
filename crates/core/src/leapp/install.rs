@@ -247,7 +247,8 @@ fn stage(
     )))?;
 
     on_event(stage_event(InstallStage::Hashing));
-    let entry = staging.join(&entry_path);
+    // Native separators: this path is what introspection runs.
+    let entry = join_parts(staging, &entry_path.split('/').collect::<Vec<_>>());
     let entry_sha256 =
         sha256_file(&entry).map_err(InstallError::io(format!("hashing {}", entry.display())))?;
     if let Some(expected) = &asset.entry_sha256
@@ -667,25 +668,33 @@ fn commit(staging: &Path, version_dir: &Path) -> Result<(), InstallError> {
 }
 
 fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
-    let deadline = std::time::Instant::now().checked_add(RENAME_RETRY);
-    loop {
-        match fs::rename(from, to) {
-            Ok(()) => return Ok(()),
-            Err(e)
-                if cfg!(windows)
-                    && e.kind() == io::ErrorKind::PermissionDenied
-                    && deadline.is_some_and(|d| std::time::Instant::now() < d) =>
-            {
-                std::thread::sleep(RENAME_INTERVAL);
-            }
-            Err(e) => return Err(e),
-        }
-    }
+    retry_transient(|| fs::rename(from, to))
 }
 
 /// Removes a directory tree without following symlinks.
 fn remove_tree(path: &Path) -> io::Result<()> {
-    fs::remove_dir_all(path)
+    retry_transient(|| fs::remove_dir_all(path))
+}
+
+/// Runs `op`, retrying for up to 5 s while it fails with a transient Windows error: a file of the
+/// tree is still open for a moment (just run or being scanned). Elsewhere `op` runs once.
+fn retry_transient(mut op: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+    // Win32 ERROR_ACCESS_DENIED and ERROR_SHARING_VIOLATION.
+    const TRANSIENT: [i32; 2] = [5, 32];
+    let deadline = std::time::Instant::now().checked_add(RENAME_RETRY);
+    loop {
+        match op() {
+            Err(e)
+                if cfg!(windows)
+                    && e.raw_os_error()
+                        .is_some_and(|code| TRANSIENT.contains(&code))
+                    && deadline.is_some_and(|d| std::time::Instant::now() < d) =>
+            {
+                std::thread::sleep(RENAME_INTERVAL);
+            }
+            result => return result,
+        }
+    }
 }
 
 fn random_hex() -> Result<String, InstallError> {
