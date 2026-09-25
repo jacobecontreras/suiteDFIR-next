@@ -1,9 +1,11 @@
 //! iOS devices and acquisitions (CONTRACTS.md §13.5).
 
+use std::panic::{self, AssertUnwindSafe};
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
-use suitedfir_core::acquire::{self, AcqContext};
+use suitedfir_core::acquire::{self, AcqContext, DiscoveredAcq};
 use suitedfir_core::contracts::{
     AcqCancelRequest, AcqEvent, AcqFile, AcqPreflight, AcqPreflightRequest, AcqRef, AcqRequest,
     AcqRestoreEncryptionRequest, AcqRestoreEncryptionResult, AcqStarted, AcquisitionRecord,
@@ -13,15 +15,17 @@ use suitedfir_core::contracts::{
 
 use super::app_error;
 use crate::policy;
-use crate::state::{AppState, Job, JobEventLog, JobHandle, Stream, Subscriber, job_already_active};
+use crate::state::{AppState, Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber};
 
 impl AppState {
-    /// The device of the active job, which polling must not query.
+    /// The device of the active job, or of an acquisition being started, which polling must not
+    /// query.
     fn busy_udid(&self) -> Option<String> {
-        self.jobs
-            .lock()
+        let slot = self.jobs.lock();
+        slot.job
             .as_ref()
             .and_then(|job| job.udid().map(str::to_owned))
+            .or_else(|| slot.starting.as_ref().and_then(|s| s.udid.clone()))
     }
 
     /// `devices_list`: never pairs and never fails for tool or usbmuxd problems (reported in
@@ -49,22 +53,20 @@ impl AppState {
         Ok(acquire::preflight(&self.idevice(), &case_dir, &req.udid)?)
     }
 
-    /// `acq_start`: refused while any job is active; `acquire::start` does the checks of
-    /// ARCHITECTURE.md §6b step 4 and creates the acquisition folder. The acquisition goes on on
-    /// its own thread.
+    /// `acq_start`: refused while any job is active or being started; `acquire::start` does the
+    /// checks of ARCHITECTURE.md §6b step 4 (with device queries) and creates the acquisition
+    /// folder, with the slot reserved but not locked (polling reports the device busy meanwhile).
+    /// The acquisition goes on on its own thread.
     pub fn acq_start(
         self: &Arc<Self>,
         req: AcqRequest,
         subscriber: Subscriber<AcqEvent>,
     ) -> Result<AcqStarted, AppError> {
-        let mut slot = self.jobs.lock();
-        if slot.is_some() {
-            return Err(job_already_active());
-        }
+        let reservation = self.jobs.reserve(Some(req.udid.clone()))?;
         let (case_dir, case) = policy::known_case(&self.settings(), &req.case_path)?;
         let case_path = req.case_path.clone();
         let ctx = AcqContext {
-            case_dir,
+            case_dir: case_dir.clone(),
             case,
             host: self.host.clone(),
         };
@@ -75,7 +77,7 @@ impl AppState {
             acq_dir: job.acq_dir().to_string_lossy().into_owned(),
         };
         let stream = Arc::new(Stream::new(subscriber));
-        *slot = Some(Job {
+        reservation.activate(Job {
             id: id.clone(),
             case_path,
             created_at: job.created_at(),
@@ -85,43 +87,58 @@ impl AppState {
                 stream: Arc::clone(&stream),
             },
         });
-        drop(slot);
         log::info!("acquisition {id} started (device {})", job.udid());
-        let state = Arc::clone(self);
+        let guard = JobGuard::new(Arc::clone(self), id.clone());
         let thread_id = id.clone();
         let spawned = thread::Builder::new()
             .name(format!("acq-{id}"))
             .spawn(move || {
-                let mut freed = false;
-                let outcome = job.run(&mut |event: AcqEvent| {
-                    // The slot is free before the UI hears `finished`.
-                    if event.is_finished() && !freed {
-                        state.jobs.finish(&thread_id);
-                        freed = true;
+                let ran = panic::catch_unwind(AssertUnwindSafe(|| {
+                    job.run(&mut |event: AcqEvent| {
+                        // The slot is free before the UI hears `finished`.
+                        if event.is_finished() {
+                            guard.free();
+                        }
+                        stream.emit(&event);
+                    })
+                }));
+                match ran {
+                    Ok(outcome) => {
+                        let codes: Vec<&str> = outcome
+                            .record
+                            .status_reasons
+                            .iter()
+                            .map(|r| r.code.as_str())
+                            .collect();
+                        log::info!(
+                            "acquisition {thread_id} finished: {} {codes:?}",
+                            outcome.summary.status
+                        );
+                        if let Some(e) = &outcome.write_error {
+                            log::error!(
+                                "acquisition {thread_id}: the final acquisition.json was not \
+                                 written: {e}"
+                            );
+                        }
                     }
-                    stream.emit(&event);
-                });
-                let codes: Vec<&str> = outcome
-                    .record
-                    .status_reasons
-                    .iter()
-                    .map(|r| r.code.as_str())
-                    .collect();
-                log::info!(
-                    "acquisition {thread_id} finished: {} {codes:?}",
-                    outcome.summary.status
-                );
-                if let Some(e) = &outcome.write_error {
-                    log::error!(
-                        "acquisition {thread_id}: the final acquisition.json was not written: {e}"
-                    );
+                    Err(_) => {
+                        log::error!("acquisition {thread_id}: its thread panicked");
+                        // Recovered while the slot is still held, then the slot is freed and
+                        // the UI hears `finished`.
+                        let finished = (!guard.is_freed())
+                            .then(|| panicked_acq_finished(&case_dir, &thread_id))
+                            .flatten();
+                        guard.free();
+                        if let Some(event) = finished {
+                            stream.emit(&event);
+                        }
+                    }
                 }
                 // Once only: by now another job (e.g. its later restore) may hold the slot.
-                if !freed {
-                    state.jobs.finish(&thread_id);
-                }
+                drop(guard);
             });
         if let Err(e) = spawned {
+            // Dropping the closure dropped its guard too; this only clears a slot still ours.
             self.jobs.finish(&id);
             log::error!("acquisition {id}: cannot start its thread: {e}");
             return Err(app_error(
@@ -137,7 +154,7 @@ impl AppState {
     /// `acq_not_found` if that acquisition is not the active job.
     pub fn acq_cancel(&self, req: &AcqCancelRequest) -> Result<(), AppError> {
         let slot = self.jobs.lock();
-        match slot.as_ref() {
+        match slot.job.as_ref() {
             Some(Job {
                 id,
                 handle: JobHandle::Acquisition { control, .. },
@@ -163,25 +180,20 @@ impl AppState {
     /// `acq_restore_encryption`: a later restore, which counts as a job (refused while another
     /// runs, and blocks others while it runs). The password is dropped with the request.
     pub fn acq_restore_encryption(
-        &self,
+        self: &Arc<Self>,
         req: AcqRestoreEncryptionRequest,
     ) -> Result<AcqRestoreEncryptionResult, AppError> {
         let (case_dir, _) = policy::known_case(&self.settings(), &req.case_path)?;
         let record = acquire::load(&case_dir, &req.acq_id)?;
-        {
-            let mut slot = self.jobs.lock();
-            if slot.is_some() {
-                return Err(job_already_active());
-            }
-            *slot = Some(Job {
-                id: req.acq_id.clone(),
-                case_path: req.case_path.clone(),
-                created_at: Timestamp::now(),
-                handle: JobHandle::Restore {
-                    udid: record.device.udid.clone(),
-                },
-            });
-        }
+        let udid = record.device.udid.clone();
+        self.jobs.reserve(Some(udid.clone()))?.activate(Job {
+            id: req.acq_id.clone(),
+            case_path: req.case_path.clone(),
+            created_at: Timestamp::now(),
+            handle: JobHandle::Restore { udid },
+        });
+        // Frees the slot when the restore ends, also if it panics.
+        let guard = JobGuard::new(Arc::clone(self), req.acq_id.clone());
         let AcqRestoreEncryptionRequest {
             acq_id, password, ..
         } = req;
@@ -194,7 +206,7 @@ impl AppState {
             // Prompt lines are for the device's owner; they are never logged.
             &mut |_line| {},
         );
-        self.jobs.finish(&acq_id);
+        drop(guard);
         match &result {
             Ok(outcome) => log::info!(
                 "acquisition {acq_id}: later restore restored={} will_encrypt_after={:?}",
@@ -225,4 +237,26 @@ impl AppState {
         }
         self.open(&file)
     }
+}
+
+/// After an acquisition thread panicked: its record is recovered as `interrupted` (with the
+/// encryption warnings, as the next case open would; ARCHITECTURE.md §6b), and `finished`
+/// reports it. `None` (logged) if the record cannot be read or recovered.
+pub(super) fn panicked_acq_finished(case_dir: &Path, acq_id: &str) -> Option<AcqEvent> {
+    if let Err(e) = acquire::recover_case(case_dir, None, Timestamp::now()) {
+        log::error!("acquisition {acq_id}: recovering its record failed: {e}");
+    }
+    let record = acquire::load(case_dir, acq_id)
+        .map_err(|e| log::error!("acquisition {acq_id}: its record cannot be read: {e}"))
+        .ok()?;
+    let summary = acquire::summary(&DiscoveredAcq {
+        dir: case_dir.join(acquire::ACQUISITIONS_DIR).join(acq_id),
+        record: record.clone(),
+    });
+    Some(AcqEvent::Finished {
+        status: record.status,
+        reasons: record.status_reasons,
+        warnings: record.warnings,
+        summary: Box::new(summary),
+    })
 }

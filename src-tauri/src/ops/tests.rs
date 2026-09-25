@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +22,7 @@ use suitedfir_core::runner::RunControl;
 
 use super::AttachSubscriber;
 use crate::opener::testing::Opened;
-use crate::state::{Job, JobHandle, Stream, Subscriber};
+use crate::state::{Job, JobGuard, JobHandle, Stream, Subscriber, TmpUsers};
 use crate::testing::{Lab, UDID, lab_state};
 
 const WAIT: Duration = Duration::from_secs(90);
@@ -209,7 +210,7 @@ fn one_active_job_app_wide() {
     }
 
     // A later restore counts as a job.
-    *state.jobs.lock() = Some(Job {
+    state.jobs.lock().job = Some(Job {
         id: acq.acq_id.clone(),
         case_path: case.to_string_lossy().into_owned(),
         created_at: Timestamp::now(),
@@ -261,10 +262,151 @@ fn temp_cleanup_waits_for_installs_and_device_commands() {
     let op = state.device_op();
     assert_eq!(code(state.temp_cleanup()), ErrorCode::RunAlreadyActive);
     drop(op);
+    // A job being started (its checks run without the slot's lock) holds the slot too.
+    let reservation = state.jobs.reserve(None).unwrap();
+    assert_eq!(code(state.temp_cleanup()), ErrorCode::RunAlreadyActive);
+    drop(reservation);
     assert!(leftover.exists());
     let result = state.temp_cleanup().unwrap();
     assert_eq!(result.freed_bytes, 100);
     assert!(!leftover.exists());
+}
+
+/// N3: a sweep and the other users of `<app_cache>/tmp` exclude each other without a race: a
+/// device command or install that starts during a sweep waits for it to end.
+#[test]
+fn a_sweep_holds_back_new_tmp_users() {
+    let users = TmpUsers::default();
+    let entered = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        users
+            .clean(|| {
+                scope.spawn(|| {
+                    let _user = users.enter();
+                    entered.store(true, Ordering::SeqCst);
+                });
+                std::thread::sleep(Duration::from_millis(100));
+                assert!(
+                    !entered.load(Ordering::SeqCst),
+                    "a new user waits for the sweep"
+                );
+            })
+            .unwrap();
+    });
+    assert!(entered.load(Ordering::SeqCst));
+    let user = users.enter();
+    assert!(users.clean(|| ()).is_none(), "no sweep while one runs");
+    drop(user);
+    assert!(users.clean(|| ()).is_some());
+}
+
+/// N2: while a job is being started, the slot is taken but not locked: other starts are refused,
+/// and polling reports an acquisition's device busy.
+#[test]
+fn a_job_being_started_takes_the_slot_without_locking_it() {
+    let lab = lab_state();
+    let state = &lab.state;
+    let case = new_case(&lab);
+    let input = evidence(&lab);
+    let reservation = state.jobs.reserve(Some(UDID.to_owned())).unwrap();
+    let (other, _) = collector::<RunEvent>();
+    assert_eq!(
+        code(state.run_start(run_request(&case, &input), other)),
+        ErrorCode::RunAlreadyActive
+    );
+    let (acq_subscriber, _) = collector::<AcqEvent>();
+    assert_eq!(
+        code(state.acq_start(acq_request(&case), acq_subscriber)),
+        ErrorCode::RunAlreadyActive
+    );
+    assert_eq!(state.job_active(), None);
+    let devices = state.devices_list();
+    assert!(
+        devices.devices.iter().any(|d| d.udid == UDID && d.busy),
+        "{devices:?}"
+    );
+    // A failed start gives the slot back.
+    drop(reservation);
+    assert!(state.jobs.wait_idle(Some(Duration::from_millis(10))));
+    assert_eq!(
+        fs::read_dir(case.join("runs"))
+            .map(|d| d.count())
+            .unwrap_or(0),
+        0
+    );
+}
+
+/// N4: a job thread that panics does not leave a phantom active job: its guard frees the slot,
+/// and its record is recovered as `interrupted` for the `finished` event.
+#[test]
+fn a_job_that_panics_frees_the_slot_and_ends_interrupted() {
+    let lab = lab_state();
+    let state = &lab.state;
+    let case = new_case(&lab);
+    let run_id = "20260924-183005Z-ileapp-3f9a1c";
+    let dir = case.join("runs").join(run_id);
+    fs::create_dir_all(&dir).unwrap();
+    let mut record = examples::run_record_initial();
+    record.run_id = run_id.to_owned();
+    fs::write(dir.join("run.json"), serde_json::to_vec(&record).unwrap()).unwrap();
+    let (subscriber, _) = collector::<RunEvent>();
+    state.jobs.reserve(None).unwrap().activate(Job {
+        id: run_id.to_owned(),
+        case_path: case.to_string_lossy().into_owned(),
+        created_at: Timestamp::now(),
+        handle: JobHandle::Run {
+            tool: ToolId::Ileapp,
+            control: Arc::new(RunControl::default()),
+            stream: Arc::new(Stream::new(subscriber)),
+        },
+    });
+    let guard = JobGuard::new(Arc::clone(state), run_id.to_owned());
+    let panicked = std::thread::spawn(move || {
+        let _guard = guard;
+        panic!("a bug in the job thread");
+    })
+    .join();
+    assert!(panicked.is_err());
+    assert!(state.jobs.wait_idle(Some(Duration::from_millis(10))));
+    assert_eq!(state.job_active(), None);
+    // The `finished` event a panicked run thread sends.
+    match super::jobs::panicked_run_finished(&case, run_id) {
+        Some(RunEvent::Finished {
+            status,
+            reasons,
+            summary,
+            ..
+        }) => {
+            assert_eq!(status, RunStatus::Interrupted);
+            assert_eq!(reasons[0].code, "app_interrupted");
+            assert_eq!(summary.run_id, run_id);
+            assert_eq!(summary.status, RunStatus::Interrupted);
+        }
+        other => panic!("{other:?}"),
+    }
+    // And for an acquisition.
+    let acq_id = "20260924-171200Z-ios-9c01de";
+    let acq = case.join("acquisitions").join(acq_id);
+    fs::create_dir_all(&acq).unwrap();
+    let mut record = examples::acquisition_record();
+    record.status = AcqStatus::Running;
+    record.ended_at = None;
+    record.duration_ms = None;
+    record.output.seal.status = suitedfir_core::contracts::SealStatus::Pending;
+    fs::write(
+        acq.join("acquisition.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+    match super::devices::panicked_acq_finished(&case, acq_id) {
+        Some(AcqEvent::Finished {
+            status, summary, ..
+        }) => {
+            assert_eq!(status, AcqStatus::Interrupted);
+            assert_eq!(summary.acq_id, acq_id);
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]
@@ -300,7 +442,7 @@ fn case_open_lists_acquisitions_and_recovers_all_but_the_active_job() {
     .unwrap();
     // The second run is this process's active job: it is left alone.
     let (subscriber, _) = collector::<RunEvent>();
-    *state.jobs.lock() = Some(Job {
+    state.jobs.lock().job = Some(Job {
         id: runs[1].to_owned(),
         case_path: case.to_string_lossy().into_owned(),
         created_at: Timestamp::now(),
@@ -700,6 +842,72 @@ fn tools_without_the_dev_override_are_not_installed() {
         "{error:?}"
     );
     assert!(!case.join("runs").exists());
+}
+
+/// S3: a tool installed through the real pipeline, whose entry is changed afterwards, is refused
+/// right before a run (`tool_verification_failed`, ARCHITECTURE.md §6 step 1), and nothing is
+/// created: no run folder, no temp dir.
+#[test]
+fn a_tampered_tool_is_refused_before_a_run_and_nothing_is_created() {
+    let placeholder = tempfile::Builder::new().prefix("sdr").tempdir().unwrap();
+    let stand_in = crate::testing::aleapp_stand_in(placeholder.path());
+    let lab = crate::testing::lab(crate::testing::LabOptions {
+        leapp_override: vec![ToolId::Ileapp],
+        manifest: stand_in.manifest,
+        download_from: Some(stand_in.zip.clone()),
+        ..Default::default()
+    });
+    let state = &lab.state;
+    let status = state
+        .tool_install(ToolId::Aleapp, super::InstallFrom::Download, &mut |_| {})
+        .unwrap();
+    assert_eq!(status.state, ToolState::Verified, "{status:?}");
+    let entry = PathBuf::from(status.install_dir.unwrap())
+        .join("bin")
+        .join(format!("fake-leapp-probe{}", crate::testing::EXE));
+    let case = new_case(&lab);
+    let input = evidence(&lab);
+    let request = || RunRequest {
+        tool: ToolId::Aleapp,
+        timezone: None,
+        ..run_request(&case, &input)
+    };
+    // The verified tool runs.
+    let (subscriber, events) = collector::<RunEvent>();
+    state.run_start(request(), subscriber).unwrap();
+    assert!(state.jobs.wait_idle(Some(WAIT)));
+    wait_finished(&events, run_finished);
+    let runs_before = fs::read_dir(case.join("runs")).unwrap().count();
+    // One byte appended to the installed entry.
+    let mut file = fs::OpenOptions::new().append(true).open(&entry).unwrap();
+    std::io::Write::write_all(&mut file, b"\0").unwrap();
+    drop(file);
+    let (subscriber, _) = collector::<RunEvent>();
+    let error = state.run_start(request(), subscriber).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ToolVerificationFailed, "{error:?}");
+    assert_eq!(
+        fs::read_dir(case.join("runs")).unwrap().count(),
+        runs_before
+    );
+    let temp_dirs = fs::read_dir(state.paths.temp_root())
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert_eq!(temp_dirs, 0, "no temp dir is left or created");
+    assert_eq!(state.job_active(), None);
+    // No longer shown as verified; `tool_verify` reports the failure.
+    let aleapp = state
+        .tools_status()
+        .unwrap()
+        .into_iter()
+        .find(|s| s.tool == ToolId::Aleapp)
+        .unwrap();
+    assert_eq!(aleapp.state, ToolState::InstalledUnverified, "{aleapp:?}");
+    let verified = state.tool_status(ToolId::Aleapp, true).unwrap();
+    assert_eq!(
+        verified.state,
+        ToolState::VerificationFailed,
+        "{verified:?}"
+    );
 }
 
 #[test]

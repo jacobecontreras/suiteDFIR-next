@@ -1,6 +1,8 @@
 //! The machine a record is written on (`run.json` / `acquisition.json` `host`, CONTRACTS.md §7.1),
 //! detected once at startup without FFI: the OS and CPU from std, the OS version and host name
-//! from the OS's own files and tools. A value that cannot be read is recorded as `unknown`.
+//! from the OS's own files and tools (on Windows `cmd.exe` by its absolute system path). A value
+//! that cannot be read is recorded as `unknown`. (This per-OS code lives outside the platform files of
+//! DEVELOPMENT.md §4.5 as a documented exception: it has no `unsafe` and no FFI.)
 
 use std::process::{Command, Stdio};
 
@@ -46,9 +48,20 @@ fn hostname() -> Option<String> {
         .or_else(|| tool_output("/bin/hostname", &[]))
 }
 
+/// `ver` of `%SystemRoot%\System32\cmd.exe`, by its absolute path: a bare `cmd.exe` would be
+/// looked up in the app's own folder first.
 #[cfg(windows)]
 fn os_version() -> Option<String> {
-    windows_version(&tool_output("cmd.exe", &["/D", "/C", "ver"])?)
+    let cmd = system_cmd()?;
+    windows_version(&tool_output(&cmd.to_string_lossy(), &["/D", "/C", "ver"])?)
+}
+
+/// `%SystemRoot%\System32\cmd.exe` (or `%windir%`), if that is an existing file.
+#[cfg(windows)]
+fn system_cmd() -> Option<std::path::PathBuf> {
+    let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("windir"))?;
+    let cmd = std::path::Path::new(&root).join("System32").join("cmd.exe");
+    (cmd.is_absolute() && cmd.is_file()).then_some(cmd)
 }
 
 /// `Microsoft Windows [Version 10.0.26100.4652]` → `10.0.26100.4652`.

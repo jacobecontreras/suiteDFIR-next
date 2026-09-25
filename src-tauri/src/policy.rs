@@ -5,10 +5,11 @@
 //! | `case_create.parent_dir`, `settings_update.cases_root` | existing writable dir, not inside the tools dir or app dirs | [`cases_parent`] |
 //! | `settings_update.tools_dir` | existing writable dir, not inside any known case folder | [`tools_dir`] |
 //! | `case_open.path` | any dir with a valid `case.json` (it becomes known) | `case::open` |
-//! | `case_update`, `case_forget`, `run_get`, `open_report`, `open_text_file` | a known case folder; a valid, existing `run_id` | [`known_case`], [`run_dir`] |
+//! | `case_update`, `run_get`, `open_report`, `open_text_file` | a known case folder; a valid, existing `run_id` | [`known_case`], [`run_dir`] |
+//! | `case_forget.path` | a path in the recent list, also if its folder is gone (nothing is read or written there) | `settings::is_recent` |
 //! | `input_inspect.path`, `run_start.input_path`, `run_start.keychain_path` | any readable path, subject to the overlap rule | `inspect`, `runner::start` |
 //! | `tool_import.archive_path`, `profile_import.path` | any readable regular file (read-only) | [`readable_file`] |
-//! | `profile_export.dest_path` | not inside a known case folder's `runs/` | [`export_dest`] |
+//! | `profile_export.dest_path` | not inside a known case folder's `runs/` or `acquisitions/` | [`export_dest`] |
 //! | `reveal_path.path` | inside a known case folder or the app dirs only | [`revealable`] |
 //! | `acq_*`, `open_acq_file` | a known case folder; a valid, existing `acq_id` | [`known_case`], [`acq_dir`] |
 //! | `devices_list`, `device_pair`, any `udid` | no path; the UDID format | [`udid`] |
@@ -182,13 +183,18 @@ pub fn readable_file(path: &Path) -> Result<PathBuf, AppError> {
 /// `profile_export.dest_path` (from the save dialog): not inside a known case folder's `runs/`.
 pub fn export_dest(dest: &Path, settings: &Settings) -> Result<PathBuf, AppError> {
     for case in &settings.recent_cases {
-        let runs = Path::new(case).join(RUNS_DIR);
-        if within(dest, &runs) {
-            return Err(error(
-                ErrorCode::PathNotAllowed,
-                "Profiles cannot be exported into a case's runs folder",
-                dest,
-            ));
+        // Run output and acquisitions (evidence, often a later run's input) stay untouched.
+        for (dir, what) in [
+            (RUNS_DIR, "runs"),
+            (acquire::ACQUISITIONS_DIR, "acquisitions"),
+        ] {
+            if within(dest, &Path::new(case).join(dir)) {
+                return Err(error(
+                    ErrorCode::PathNotAllowed,
+                    &format!("Profiles cannot be exported into a case's {what} folder"),
+                    dest,
+                ));
+            }
         }
     }
     Ok(dest.to_path_buf())
@@ -460,6 +466,17 @@ mod tests {
         let in_runs = lab.case.join("runs").join(&lab.run_id).join("x.alprofile");
         assert_eq!(
             code(export_dest(&in_runs, &lab.settings)),
+            ErrorCode::PathNotAllowed
+        );
+        // Nor into its acquisitions (a backup there is evidence), even before the folder exists.
+        let in_acquisitions = lab
+            .case
+            .join("acquisitions")
+            .join("20260924-171200Z-ios-9c01de")
+            .join("backup")
+            .join("x.alprofile");
+        assert_eq!(
+            code(export_dest(&in_acquisitions, &lab.settings)),
             ErrorCode::PathNotAllowed
         );
     }

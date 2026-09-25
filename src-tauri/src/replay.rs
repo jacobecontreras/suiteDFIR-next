@@ -20,80 +20,21 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use suitedfir_core::contracts::{
     AcqEvent, AcqPreflight, AcqRestoreEncryptionResult, AcqStarted, AcqStatus, AcquisitionRecord,
-    ActiveJob, AppInfo, ArchiveKind, CaseDetail, CaseSummary, DeviceSummary, DevicesResult,
-    InputInspection, InstallEvent, InstallSource, IosBackup, JobBacklog, PairState, PlatformAsset,
-    ProfileInfo, RunEvent, RunRecord, RunStarted, RunStatus, Settings, TempCleanupResult, ToolId,
-    ToolModules, ToolState, ToolStatus,
+    ActiveJob, AppInfo, CaseDetail, CaseSummary, DeviceSummary, DevicesResult, InputInspection,
+    InstallEvent, InstallSource, IosBackup, JobBacklog, PairState, ProfileInfo, RunEvent,
+    RunRecord, RunStarted, RunStatus, Settings, TempCleanupResult, ToolId, ToolModules, ToolState,
+    ToolStatus,
 };
-use suitedfir_core::{hashing, manifest};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
 use tauri::test::{INVOKE_KEY, get_ipc_response, mock_builder, mock_context, noop_assets};
 use tauri::webview::InvokeRequest;
 
 use crate::opener::testing::Opened;
-use crate::testing::{EXE, LabOptions, UDID, core_binary, lab};
+use crate::testing::{LabOptions, UDID, aleapp_stand_in, lab};
 
 const RECORDED: &str = include_str!("../../tests/ui/recorded-invokes.json");
 const CONTRACTS: &str = include_str!("../../docs/CONTRACTS.md");
 const WAIT: Duration = Duration::from_secs(120);
-
-// ---- a stored zip of the aLEAPP stand-in ----
-
-fn crc32(data: &[u8]) -> u32 {
-    let mut crc = 0xFFFF_FFFFu32;
-    for &byte in data {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
-        }
-    }
-    !crc
-}
-
-/// A zip with one stored (uncompressed) entry.
-fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {
-    let crc = crc32(data);
-    let size = u32::try_from(data.len()).unwrap();
-    let name_len = u16::try_from(name.len()).unwrap();
-    let mut zip = Vec::new();
-    let header = |zip: &mut Vec<u8>| {
-        zip.extend(20u16.to_le_bytes()); // version needed
-        zip.extend(0u16.to_le_bytes()); // flags
-        zip.extend(0u16.to_le_bytes()); // stored
-        zip.extend(0u16.to_le_bytes()); // time
-        zip.extend(0x21u16.to_le_bytes()); // date: 1980-01-01
-        zip.extend(crc.to_le_bytes());
-        zip.extend(size.to_le_bytes());
-        zip.extend(size.to_le_bytes());
-        zip.extend(name_len.to_le_bytes());
-        zip.extend(0u16.to_le_bytes()); // extra
-    };
-    zip.extend(0x0403_4b50u32.to_le_bytes());
-    header(&mut zip);
-    zip.extend(name.as_bytes());
-    zip.extend(data);
-    let directory = u32::try_from(zip.len()).unwrap();
-    zip.extend(0x0201_4b50u32.to_le_bytes());
-    zip.extend(20u16.to_le_bytes()); // version made by
-    header(&mut zip);
-    zip.extend(0u16.to_le_bytes()); // comment
-    zip.extend(0u16.to_le_bytes()); // disk
-    zip.extend(0u16.to_le_bytes()); // internal attributes
-    zip.extend(0u32.to_le_bytes()); // external attributes
-    zip.extend(0u32.to_le_bytes()); // local header offset
-    zip.extend(name.as_bytes());
-    let directory_size = u32::try_from(zip.len()).unwrap() - directory;
-    zip.extend(0x0605_4b50u32.to_le_bytes());
-    zip.extend(0u16.to_le_bytes());
-    zip.extend(0u16.to_le_bytes());
-    zip.extend(1u16.to_le_bytes());
-    zip.extend(1u16.to_le_bytes());
-    zip.extend(directory_size.to_le_bytes());
-    zip.extend(directory.to_le_bytes());
-    zip.extend(0u16.to_le_bytes());
-    zip
-}
 
 // ---- placeholders ----
 
@@ -203,35 +144,12 @@ fn wait_for_finished(sent: &Sent, channels: &[u32]) {
 #[test]
 fn every_recorded_invoke_succeeds_through_the_real_handlers() {
     // The aLEAPP stand-in: a probe-answering fake-leapp copy, pinned by a test manifest.
-    let platform = manifest::host_platform().expect("this host has a platform key");
-    let fake_path = core_binary("fake-leapp");
-    let fake = fs::read(&fake_path).unwrap();
-    let entry = format!("fake-leapp-probe{EXE}");
-    let archive = stored_zip(&entry, &fake);
     let placeholder = tempfile::Builder::new().prefix("sdr").tempdir().unwrap();
-    let zip_path = placeholder.path().join("aleapp-replay.zip");
-    fs::write(&zip_path, &archive).unwrap();
-    let mut pinned = manifest::embedded().unwrap().clone();
-    pinned
-        .tools
-        .get_mut(&ToolId::Aleapp)
-        .unwrap()
-        .platforms
-        .insert(
-            platform,
-            PlatformAsset {
-                asset_name: "aleapp-replay.zip".to_owned(),
-                asset_size: archive.len() as u64,
-                asset_sha256: hashing::sha256_file(&zip_path).unwrap(),
-                archive_kind: ArchiveKind::Zip,
-                entry: entry.clone(),
-                entry_sha256: Some(hashing::sha256_file(&fake_path).unwrap()),
-                urls: vec!["https://example.invalid/aleapp-replay.zip".to_owned()],
-            },
-        );
+    let stand_in = aleapp_stand_in(placeholder.path());
+    let zip_path = stand_in.zip.clone();
     let lab = lab(LabOptions {
         leapp_override: vec![ToolId::Ileapp],
-        manifest: pinned,
+        manifest: stand_in.manifest,
         download_from: Some(zip_path.clone()),
         idevice_scenario: "not_paired".to_owned(),
     });

@@ -88,12 +88,13 @@ impl AppState {
 
     /// `case_open`: any folder with a valid `case.json`, which becomes known and most recent. Runs
     /// and acquisitions left `running` by a crash are marked `interrupted` (all but this
-    /// process's active job), with the job slot held so no job of the case starts meanwhile.
+    /// process's active job), with the job slot locked so no job of the case starts meanwhile
+    /// (after any start under way has settled: its new record is never taken for a crash's).
     pub fn case_open(&self, req: &PathRequest) -> Result<CaseDetail, AppError> {
         let dir = PathBuf::from(&req.path);
         let (_, case) = self.update_settings(|next| Ok(case::open(&dir, next)?))?;
-        let jobs = self.jobs.lock();
-        let (active_run, active_acq) = match jobs.as_ref().map(|job| (&job.handle, &job.id)) {
+        let jobs = self.jobs.lock_settled();
+        let (active_run, active_acq) = match jobs.job.as_ref().map(|job| (&job.handle, &job.id)) {
             Some((JobHandle::Run { .. }, id)) => (Some(id.as_str()), None),
             Some((JobHandle::Acquisition { .. }, id)) => (None, Some(id.as_str())),
             _ => (None, None),

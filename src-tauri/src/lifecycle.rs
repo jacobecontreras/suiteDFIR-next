@@ -15,13 +15,14 @@
 //!   acquisition is finalized. Quitting anyway leaves its record to be marked `interrupted` (with
 //!   the encryption warnings) on the next open;
 //! - a later encryption restore: it cannot be cancelled, so only the "finishing safely…" dialog;
+//!   after "Wait", the next close shows that dialog again;
 //! - a tool install: its cancel flag is set and the app exits once it has cleaned up (at most
-//!   10 s).
+//!   10 s);
+//! - a job being started: the close is requested again once the start has settled (a moment).
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -237,6 +238,8 @@ pub enum QuitPlan {
     Now,
     /// Only tool installs run: cancel them, wait for their cleanup, quit.
     Installs,
+    /// A job is being started (its checks run for a moment): ask again once it has settled.
+    Starting,
     /// A run is active (its id).
     Run(String),
     /// An acquisition is active.
@@ -247,19 +250,88 @@ pub enum QuitPlan {
 
 pub fn quit_plan(state: &AppState) -> QuitPlan {
     let slot = state.jobs.lock();
-    match slot.as_ref() {
+    match slot.job.as_ref() {
         Some(job) => match &job.handle {
             JobHandle::Run { .. } => QuitPlan::Run(job.id.clone()),
             JobHandle::Acquisition { .. } => QuitPlan::Acquisition(job.id.clone()),
             JobHandle::Restore { .. } => QuitPlan::Restore(job.id.clone()),
         },
+        None if slot.starting.is_some() => QuitPlan::Starting,
         None if state.installs.is_active() => QuitPlan::Installs,
         None => QuitPlan::Now,
     }
 }
 
-/// A quit flow is under way (one dialog at a time).
-static QUITTING: AtomicBool = AtomicBool::new(false);
+/// Where the quit flow is. One dialog at a time; a close while the app finishes an acquisition or
+/// later restore shows "finishing safely…" again, so "Quit anyway" stays reachable after "Wait".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuitState {
+    /// No quit flow.
+    Idle,
+    /// A quit dialog is open.
+    Asking,
+    /// A cancelled run or the installs are being stopped: the app exits by itself shortly.
+    Exiting,
+    /// An acquisition or later restore is finishing; the app exits by itself once it has.
+    Finishing,
+}
+
+/// What a close or quit request does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CloseAction {
+    /// Let it through.
+    Allow,
+    /// Hold it; a dialog is open or the app exits by itself soon.
+    Hold,
+    /// Hold it and start the quit flow for this plan.
+    Start(QuitPlan),
+    /// Hold it and show "finishing safely…" again for this job.
+    ShowFinishing(String),
+    /// Hold it and request the close again once the job being started has settled.
+    Retry,
+}
+
+/// The quit flow's state (see [`QuitState`]).
+pub struct QuitFlow(Mutex<QuitState>);
+
+impl QuitFlow {
+    pub const fn new() -> Self {
+        Self(Mutex::new(QuitState::Idle))
+    }
+
+    #[cfg(test)]
+    pub fn state(&self) -> QuitState {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn set(&self, state: QuitState) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = state;
+    }
+
+    /// A close or quit request with `plan`: what to do, and the next state.
+    pub fn on_close(&self, plan: QuitPlan) -> CloseAction {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let (next, action) = match (*state, plan) {
+            (current, QuitPlan::Now) => (current, CloseAction::Allow),
+            (QuitState::Idle, QuitPlan::Starting) => (QuitState::Idle, CloseAction::Retry),
+            (QuitState::Idle, plan) => (QuitState::Asking, CloseAction::Start(plan)),
+            (QuitState::Finishing, QuitPlan::Acquisition(id) | QuitPlan::Restore(id)) => {
+                (QuitState::Asking, CloseAction::ShowFinishing(id))
+            }
+            (current, _) => (current, CloseAction::Hold),
+        };
+        *state = next;
+        action
+    }
+}
+
+impl Default for QuitFlow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+static QUIT: QuitFlow = QuitFlow::new();
 
 /// The app's run-event handler: the quit guard.
 pub fn on_run_event(app: &AppHandle, event: RunEvent) {
@@ -276,27 +348,60 @@ pub fn on_run_event(app: &AppHandle, event: RunEvent) {
     }
 }
 
-/// True when quitting must wait; then the quit flow starts (once).
+/// True when quitting must wait; then the quit flow goes on (see [`QuitFlow::on_close`]).
 fn hold_quit(app: &AppHandle) -> bool {
     let Some(state) = app.try_state::<Shared>() else {
         return false;
     };
     let state = Arc::clone(&state);
-    let plan = quit_plan(&state);
-    if plan == QuitPlan::Now {
-        return false;
+    match QUIT.on_close(quit_plan(&state)) {
+        CloseAction::Allow => false,
+        CloseAction::Hold => true,
+        CloseAction::Start(plan) => {
+            start_quit(app, state, plan);
+            true
+        }
+        CloseAction::ShowFinishing(id) => {
+            ask_finishing(app, id);
+            true
+        }
+        CloseAction::Retry => {
+            retry_close_when_settled(app, state);
+            true
+        }
     }
-    if !QUITTING.swap(true, Ordering::SeqCst) {
-        start_quit(app, state, plan);
+}
+
+/// A job is being started: once it has settled (a moment), the close is requested again, and
+/// then goes by the job it started (or quits if none).
+fn retry_close_when_settled(app: &AppHandle, state: Shared) {
+    let app = app.clone();
+    let spawned = thread::Builder::new()
+        .name("quit-retry".to_owned())
+        .spawn(move || {
+            state.jobs.wait_settled(RUN_QUIT_WAIT);
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    if let Err(e) = window.close() {
+                        log::warn!("quit: cannot request the close again: {e}");
+                    }
+                }
+                None => app.exit(0),
+            }
+        });
+    if let Err(e) = spawned {
+        log::error!("quit: cannot wait for the job being started: {e}");
     }
-    true
 }
 
 fn start_quit(app: &AppHandle, state: Shared, plan: QuitPlan) {
     match plan {
         QuitPlan::Now => app.exit(0),
+        // `on_close` never starts these.
+        QuitPlan::Starting => QUIT.set(QuitState::Idle),
         QuitPlan::Installs => {
             log::info!("quit during a tool install: cancelling it");
+            QUIT.set(QuitState::Exiting);
             exit_when(app, move || {
                 state.installs.cancel_all();
                 state.installs.wait_idle(INSTALL_QUIT_WAIT);
@@ -312,10 +417,11 @@ fn start_quit(app: &AppHandle, state: Shared, plan: QuitPlan) {
                 "Keep running",
                 move |yes| {
                     if !yes {
-                        QUITTING.store(false, Ordering::SeqCst);
+                        QUIT.set(QuitState::Idle);
                         return;
                     }
                     log::info!("quit: cancelling run {id}");
+                    QUIT.set(QuitState::Exiting);
                     cancel_active(&state, &id);
                     exit_when(&app, move || {
                         state.installs.cancel_all();
@@ -338,7 +444,7 @@ fn start_quit(app: &AppHandle, state: Shared, plan: QuitPlan) {
                 "Keep running",
                 move |yes| {
                     if !yes {
-                        QUITTING.store(false, Ordering::SeqCst);
+                        QUIT.set(QuitState::Idle);
                         return;
                     }
                     log::info!("quit: cancelling acquisition {id}");
@@ -354,7 +460,7 @@ fn start_quit(app: &AppHandle, state: Shared, plan: QuitPlan) {
 /// Cancels the active job if it is still `id`.
 fn cancel_active(state: &AppState, id: &str) {
     let slot = state.jobs.lock();
-    if let Some(job) = slot.as_ref().filter(|job| job.id == id) {
+    if let Some(job) = slot.job.as_ref().filter(|job| job.id == id) {
         match &job.handle {
             JobHandle::Run { control, .. } => control.cancel(),
             JobHandle::Acquisition { control, .. } => control.cancel(),
@@ -372,6 +478,11 @@ fn finish_safely(app: &AppHandle, state: Shared, id: String) {
         waiter.jobs.wait_idle(None);
         waiter.installs.wait_idle(INSTALL_QUIT_WAIT);
     });
+    ask_finishing(app, id);
+}
+
+/// "Finishing safely…" with "Quit anyway". After "Wait", the next close shows it again.
+fn ask_finishing(app: &AppHandle, id: String) {
     let quit = app.clone();
     ask(
         app,
@@ -385,6 +496,8 @@ fn finish_safely(app: &AppHandle, state: Shared, id: String) {
             if yes {
                 log::warn!("quit anyway while {id} was finishing");
                 quit.exit(0);
+            } else {
+                QUIT.set(QuitState::Finishing);
             }
         },
     );
@@ -428,6 +541,8 @@ fn exit_when(app: &AppHandle, wait: impl FnOnce() + Send + 'static) {
 mod tests {
     use super::*;
 
+    use std::sync::atomic::Ordering;
+
     use crate::state::{Job, JobHandle};
     use crate::testing::lab_state;
     use suitedfir_core::contracts::{Timestamp, ToolId};
@@ -444,7 +559,7 @@ mod tests {
         assert!(install.cancel.load(Ordering::SeqCst));
         drop(install);
         assert!(state.installs.wait_idle(Duration::from_millis(10)));
-        *state.jobs.lock() = Some(Job {
+        state.jobs.lock().job = Some(Job {
             id: "20260924-171200Z-ios-9c01de".to_owned(),
             case_path: "/case".to_owned(),
             created_at: Timestamp::now(),
@@ -461,5 +576,71 @@ mod tests {
         state.jobs.finish("20260924-171200Z-ios-9c01de");
         assert!(state.jobs.wait_idle(Some(Duration::from_millis(20))));
         assert_eq!(quit_plan(state), QuitPlan::Now);
+        // A job being started: ask again once it has settled.
+        let reservation = state.jobs.reserve(None).unwrap();
+        assert_eq!(quit_plan(state), QuitPlan::Starting);
+        assert!(!state.jobs.wait_settled(Duration::from_millis(20)));
+        drop(reservation);
+        assert!(state.jobs.wait_settled(Duration::from_millis(20)));
+        assert_eq!(quit_plan(state), QuitPlan::Now);
+    }
+
+    const ACQ: &str = "20260924-171200Z-ios-9c01de";
+
+    #[test]
+    fn after_wait_the_next_close_shows_finishing_safely_again() {
+        let flow = QuitFlow::new();
+        let acquisition = || QuitPlan::Acquisition(ACQ.to_owned());
+        // The first close asks "cancel and quit?"; a second close meanwhile is held.
+        assert_eq!(
+            flow.on_close(acquisition()),
+            CloseAction::Start(acquisition())
+        );
+        assert_eq!(flow.on_close(acquisition()), CloseAction::Hold);
+        // "Cancel and quit", then "finishing safely…" is open (Asking); "Wait":
+        flow.set(QuitState::Finishing);
+        // The next close shows it again, so "Quit anyway" stays reachable, once per close.
+        assert_eq!(
+            flow.on_close(acquisition()),
+            CloseAction::ShowFinishing(ACQ.to_owned())
+        );
+        assert_eq!(flow.state(), QuitState::Asking);
+        assert_eq!(flow.on_close(acquisition()), CloseAction::Hold);
+        flow.set(QuitState::Finishing);
+        assert_eq!(
+            flow.on_close(acquisition()),
+            CloseAction::ShowFinishing(ACQ.to_owned())
+        );
+        // A later restore behaves the same.
+        flow.set(QuitState::Finishing);
+        assert_eq!(
+            flow.on_close(QuitPlan::Restore(ACQ.to_owned())),
+            CloseAction::ShowFinishing(ACQ.to_owned())
+        );
+        // Once the job has finished, a close goes through (the app is exiting anyway).
+        flow.set(QuitState::Finishing);
+        assert_eq!(flow.on_close(QuitPlan::Now), CloseAction::Allow);
+    }
+
+    #[test]
+    fn keep_running_ends_the_quit_flow_and_a_stopping_run_holds_closes() {
+        let flow = QuitFlow::new();
+        let run = || QuitPlan::Run("20260924-183005Z-ileapp-3f9a1c".to_owned());
+        assert_eq!(flow.on_close(run()), CloseAction::Start(run()));
+        // "Keep running": the next close asks again.
+        flow.set(QuitState::Idle);
+        assert_eq!(flow.on_close(run()), CloseAction::Start(run()));
+        // "Cancel run and quit": the app exits within 30 s; closes meanwhile are held.
+        flow.set(QuitState::Exiting);
+        assert_eq!(flow.on_close(run()), CloseAction::Hold);
+        assert_eq!(flow.on_close(QuitPlan::Installs), CloseAction::Hold);
+        // Nothing runs: quit at once, in any state.
+        assert_eq!(flow.on_close(QuitPlan::Now), CloseAction::Allow);
+        let idle = QuitFlow::new();
+        assert_eq!(idle.on_close(QuitPlan::Now), CloseAction::Allow);
+        assert_eq!(idle.state(), QuitState::Idle);
+        // A job being started: retried once it settled, without a dialog.
+        assert_eq!(idle.on_close(QuitPlan::Starting), CloseAction::Retry);
+        assert_eq!(idle.state(), QuitState::Idle);
     }
 }

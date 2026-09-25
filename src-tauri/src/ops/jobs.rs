@@ -1,25 +1,25 @@
 //! Runs and the one active job (CONTRACTS.md §10): `run_start`, `run_cancel`, `job_active`,
 //! `job_attach`, the open/reveal commands and `temp_cleanup`.
 
+use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
+use suitedfir_core::case;
 use suitedfir_core::contracts::{
     ActiveJob, AppError, ErrorCode, JobAttachRequest, JobBacklog, JobKind, OpenTextFileRequest,
     PathRequest, RunCancelRequest, RunEvent, RunFile, RunRef, RunRequest, RunStarted,
-    TempCleanupResult,
+    TempCleanupResult, Timestamp,
 };
 use suitedfir_core::process;
-use suitedfir_core::run::record::{REPORT_DIR, REPORT_MANIFEST, STDERR_LOG, STDOUT_LOG};
+use suitedfir_core::run::record::{self, REPORT_DIR, REPORT_MANIFEST, STDERR_LOG, STDOUT_LOG};
 use suitedfir_core::run::status::INDEX_HTML;
 use suitedfir_core::runner::{self, RunContext};
 
 use super::app_error;
 use crate::policy;
-use crate::state::{
-    AppState, Job, JobEventLog, JobHandle, Stream, Subscriber, job_already_active, lock,
-};
+use crate::state::{AppState, Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber, lock};
 
 /// The event subscriber of `job_attach`, for either kind of job.
 pub enum AttachSubscriber {
@@ -28,19 +28,17 @@ pub enum AttachSubscriber {
 }
 
 impl AppState {
-    /// `run_start`: refused while any job is active (`run_already_active`). The case must be
-    /// known; the tool is verified right before the run; `runner::start` does every other check
-    /// of ARCHITECTURE.md §6 step 1 and creates the run folder. The run itself goes on on its own
-    /// thread, its events to `subscriber` (and later subscribers of `job_attach`).
+    /// `run_start`: refused while any job is active or being started (`run_already_active`). The
+    /// case must be known; the tool is verified right before the run; `runner::start` does every
+    /// other check of ARCHITECTURE.md §6 step 1 and creates the run folder. The slot is reserved
+    /// meanwhile, without holding its lock. The run itself goes on on its own thread, its events
+    /// to `subscriber` (and later subscribers of `job_attach`).
     pub fn run_start(
         self: &Arc<Self>,
         req: RunRequest,
         subscriber: Subscriber<RunEvent>,
     ) -> Result<RunStarted, AppError> {
-        let mut slot = self.jobs.lock();
-        if slot.is_some() {
-            return Err(job_already_active());
-        }
+        let reservation = self.jobs.reserve(None)?;
         let settings = self.settings();
         let (case_dir, case) = policy::known_case(&settings, &req.case_path)?;
         let tool = req.tool;
@@ -63,7 +61,8 @@ impl AppState {
             run_dir: job.run_dir().to_string_lossy().into_owned(),
         };
         let stream = Arc::new(Stream::new(subscriber));
-        *slot = Some(Job {
+        let case_dir = job.case_dir().to_path_buf();
+        reservation.activate(Job {
             id: id.clone(),
             case_path,
             created_at: job.created_at(),
@@ -73,41 +72,57 @@ impl AppState {
                 stream: Arc::clone(&stream),
             },
         });
-        drop(slot);
-        log::info!("run {id} started ({tool}) in {}", job.case_dir().display());
-        let state = Arc::clone(self);
+        log::info!("run {id} started ({tool}) in {}", case_dir.display());
+        let guard = JobGuard::new(Arc::clone(self), id.clone());
         let thread_id = id.clone();
         let spawned = thread::Builder::new()
             .name(format!("run-{id}"))
             .spawn(move || {
-                let mut freed = false;
-                let outcome = job.run(&mut |event: RunEvent| {
-                    // The slot is free before the UI hears `finished` (ARCHITECTURE.md §6 step 10).
-                    if event.is_finished() && !freed {
-                        state.jobs.finish(&thread_id);
-                        freed = true;
+                let ran = panic::catch_unwind(AssertUnwindSafe(|| {
+                    job.run(&mut |event: RunEvent| {
+                        // The slot is free before the UI hears `finished` (ARCHITECTURE.md §6
+                        // step 10).
+                        if event.is_finished() {
+                            guard.free();
+                        }
+                        stream.emit(&event);
+                    })
+                }));
+                match ran {
+                    Ok(outcome) => {
+                        let codes: Vec<&str> = outcome
+                            .record
+                            .status_reasons
+                            .iter()
+                            .map(|r| r.code.as_str())
+                            .collect();
+                        log::info!(
+                            "run {thread_id} finished: {} {codes:?}",
+                            outcome.summary.status
+                        );
+                        if let Some(e) = &outcome.write_error {
+                            log::error!("run {thread_id}: the final run.json was not written: {e}");
+                        }
                     }
-                    stream.emit(&event);
-                });
-                let codes: Vec<&str> = outcome
-                    .record
-                    .status_reasons
-                    .iter()
-                    .map(|r| r.code.as_str())
-                    .collect();
-                log::info!(
-                    "run {thread_id} finished: {} {codes:?}",
-                    outcome.summary.status
-                );
-                if let Some(e) = &outcome.write_error {
-                    log::error!("run {thread_id}: the final run.json was not written: {e}");
+                    Err(_) => {
+                        log::error!("run {thread_id}: its thread panicked");
+                        // Recovered while the slot is still held, so no new job's record is
+                        // touched; then the slot is freed and the UI hears `finished`.
+                        let finished = (!guard.is_freed())
+                            .then(|| panicked_run_finished(&case_dir, &thread_id))
+                            .flatten();
+                        guard.free();
+                        if let Some(event) = finished {
+                            stream.emit(&event);
+                        }
+                    }
                 }
-                // Once only: by now another job may hold the slot.
-                if !freed {
-                    state.jobs.finish(&thread_id);
-                }
+                // Dropping the guard frees the slot if nothing did (once only: by now another
+                // job may hold it).
+                drop(guard);
             });
         if let Err(e) = spawned {
+            // Dropping the closure dropped its guard too; this only clears a slot still ours.
             self.jobs.finish(&id);
             log::error!("run {id}: cannot start its thread: {e}");
             return Err(app_error(
@@ -122,7 +137,7 @@ impl AppState {
     /// `run_cancel`: idempotent; `run_not_found` if that run is not the active job.
     pub fn run_cancel(&self, req: &RunCancelRequest) -> Result<(), AppError> {
         let slot = self.jobs.lock();
-        match slot.as_ref() {
+        match slot.job.as_ref() {
             Some(Job {
                 id,
                 handle: JobHandle::Run { control, .. },
@@ -141,7 +156,7 @@ impl AppState {
     }
 
     pub fn job_active(&self) -> Option<ActiveJob> {
-        self.jobs.lock().as_ref().and_then(Job::active)
+        self.jobs.lock().job.as_ref().and_then(Job::active)
     }
 
     /// `job_attach`: the active job's log backlog; its events now go to `subscriber` (replacing
@@ -153,7 +168,7 @@ impl AppState {
     ) -> Result<JobBacklog, AppError> {
         let stream = {
             let slot = self.jobs.lock();
-            match (slot.as_ref(), req.kind) {
+            match (slot.job.as_ref(), req.kind) {
                 (
                     Some(Job {
                         id,
@@ -262,24 +277,34 @@ impl AppState {
 
     /// `temp_cleanup`: removes leftover per-job temp dirs. Refused while any job, tool install
     /// (with its introspection) or device command runs, since those use `<app_cache>/tmp`.
+    ///
+    /// No lock is held during the sweep: the job slot is reserved (no job starts meanwhile), and
+    /// installs and device commands wait for the sweep to end before they start (`TmpUsers`).
     pub fn temp_cleanup(&self) -> Result<TempCleanupResult, AppError> {
-        let slot = self.jobs.lock();
-        if slot.is_some() || self.installs.is_active() || self.device_ops_running() {
-            return Err(app_error(
+        let busy = || {
+            app_error(
                 ErrorCode::RunAlreadyActive,
                 "Temporary files cannot be cleaned while a job, a parser installation or a \
                  device command is running",
                 None,
-            ));
+            )
+        };
+        let reservation = self.jobs.reserve(None).map_err(|_| busy())?;
+        if self.installs.is_active() {
+            return Err(busy());
         }
-        let sweep = process::sweep_stale_temp(&self.paths.app_cache).map_err(|e| {
+        let sweep = self
+            .tmp
+            .clean(|| process::sweep_stale_temp(&self.paths.app_cache))
+            .ok_or_else(busy)?;
+        drop(reservation);
+        let sweep = sweep.map_err(|e| {
             app_error(
                 suitedfir_core::fsutil::io_error_code(&e),
                 "The temporary files could not be cleaned",
                 Some(e.to_string()),
             )
         })?;
-        drop(slot);
         log::info!(
             "temp cleanup removed {} dir(s), {} bytes; {} could not be removed",
             sweep.removed,
@@ -290,6 +315,28 @@ impl AppState {
             freed_bytes: sweep.freed_bytes,
         })
     }
+}
+
+/// After a run thread panicked: the run's record is recovered as `interrupted` (as the next case
+/// open would; CONTRACTS.md §7.2), and `finished` reports it. `None` (logged) if the record
+/// cannot be read or recovered.
+pub(super) fn panicked_run_finished(case_dir: &Path, run_id: &str) -> Option<RunEvent> {
+    if let Err(e) = record::recover_case(case_dir, None, Timestamp::now()) {
+        log::error!("run {run_id}: recovering its record failed: {e}");
+    }
+    let runs = case::discover_runs(case_dir)
+        .map_err(|e| log::error!("run {run_id}: its record cannot be read: {e}"))
+        .ok()?;
+    let Some(run) = runs.into_iter().find(|run| run.record.run_id == run_id) else {
+        log::error!("run {run_id}: its record was not found");
+        return None;
+    };
+    Some(RunEvent::Finished {
+        status: run.record.status,
+        reasons: run.record.status_reasons.clone(),
+        warnings: run.record.warnings.clone(),
+        summary: Box::new(case::run_summary(&run)),
+    })
 }
 
 enum StreamRef {

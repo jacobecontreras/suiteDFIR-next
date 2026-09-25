@@ -5,8 +5,10 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ffi::OsString;
+// Only the debug-build dev override and the tests use it.
+#[cfg(any(debug_assertions, test))]
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
@@ -70,9 +72,9 @@ pub struct AppState {
     pub(crate) verified: Mutex<BTreeSet<ToolId>>,
     pub(crate) jobs: Jobs,
     pub(crate) installs: Installs,
-    /// Device commands in flight (`devices_list`, `device_pair`, `acq_preflight`): their scratch
-    /// dirs live in `<app_cache>/tmp`, so `temp_cleanup` waits for none to run.
-    device_ops: AtomicUsize,
+    /// Tool installs and device commands (`devices_list`, `device_pair`, `acq_preflight`) in
+    /// flight: their scratch dirs live in `<app_cache>/tmp` (see [`TmpUsers`]).
+    pub(crate) tmp: TmpUsers,
 }
 
 impl AppState {
@@ -96,7 +98,7 @@ impl AppState {
             verified: Mutex::new(BTreeSet::new()),
             jobs: Jobs::default(),
             installs: Installs::default(),
-            device_ops: AtomicUsize::new(0),
+            tmp: TmpUsers::default(),
         }
     }
 
@@ -164,23 +166,9 @@ impl AppState {
         }
     }
 
-    /// Counts a device command while it runs (see `device_ops`).
-    pub(crate) fn device_op(&self) -> DeviceOp<'_> {
-        self.device_ops.fetch_add(1, Ordering::SeqCst);
-        DeviceOp(&self.device_ops)
-    }
-
-    pub(crate) fn device_ops_running(&self) -> bool {
-        self.device_ops.load(Ordering::SeqCst) > 0
-    }
-}
-
-/// Holds one count of `device_ops` until dropped.
-pub(crate) struct DeviceOp<'a>(&'a AtomicUsize);
-
-impl Drop for DeviceOp<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+    /// Registers a device command while it runs (see `tmp`).
+    pub(crate) fn device_op(&self) -> TmpUse<'_> {
+        self.tmp.enter()
     }
 }
 
@@ -325,11 +313,38 @@ impl Job {
     }
 }
 
-/// The one active job slot, app-wide (D25).
+/// The one active job slot, app-wide (D25). The lock is only ever held briefly: a job being
+/// started first reserves the slot ([`Jobs::reserve`]), does its slow checks (the tool's entry
+/// hash, device queries) without the lock, then becomes the active job
+/// ([`Reservation::activate`]) or gives the slot back. So the quit guard (on the main thread) and
+/// device polling never wait for a start.
 #[derive(Default)]
 pub struct Jobs {
-    slot: Mutex<Option<Job>>,
-    ended: Condvar,
+    slot: Mutex<Slot>,
+    changed: Condvar,
+}
+
+/// What the job slot holds.
+#[derive(Default)]
+pub struct Slot {
+    /// The active job.
+    pub job: Option<Job>,
+    /// A job being started (or `temp_cleanup` sweeping): the slot is taken, but no job is
+    /// active yet.
+    pub starting: Option<Starting>,
+}
+
+impl Slot {
+    /// A job is active or being started.
+    pub fn is_taken(&self) -> bool {
+        self.job.is_some() || self.starting.is_some()
+    }
+}
+
+/// A reservation of the job slot.
+pub struct Starting {
+    /// The device the job will use (an acquisition): polling reports it busy from now on.
+    pub udid: Option<String>,
 }
 
 pub fn job_already_active() -> AppError {
@@ -341,29 +356,67 @@ pub fn job_already_active() -> AppError {
 }
 
 impl Jobs {
-    pub fn lock(&self) -> MutexGuard<'_, Option<Job>> {
+    pub fn lock(&self) -> MutexGuard<'_, Slot> {
         lock(&self.slot)
+    }
+
+    /// Takes the slot for a job about to start (`run_already_active` if a job is active or being
+    /// started). Dropping the reservation without [`Reservation::activate`] frees the slot again,
+    /// also when the start fails or panics.
+    pub fn reserve(&self, udid: Option<String>) -> Result<Reservation<'_>, AppError> {
+        let mut slot = self.lock();
+        if slot.is_taken() {
+            return Err(job_already_active());
+        }
+        slot.starting = Some(Starting { udid });
+        Ok(Reservation {
+            jobs: self,
+            active: false,
+        })
+    }
+
+    /// The slot, once no job is being started (a start takes seconds at most). Recovery on
+    /// `case_open` uses this, so it never marks the record of a job that is just starting.
+    pub fn lock_settled(&self) -> MutexGuard<'_, Slot> {
+        let mut slot = self.lock();
+        while slot.starting.is_some() {
+            slot = self
+                .changed
+                .wait(slot)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        slot
     }
 
     /// Clears the slot if it still holds job `id`, and wakes whoever waits for the job to end.
     pub fn finish(&self, id: &str) {
         let mut slot = self.lock();
-        if slot.as_ref().is_some_and(|job| job.id == id) {
-            *slot = None;
+        if slot.job.as_ref().is_some_and(|job| job.id == id) {
+            slot.job = None;
         }
         drop(slot);
-        self.ended.notify_all();
+        self.changed.notify_all();
     }
 
-    /// Waits until no job is active; `false` if one still is after `timeout` (`None`: no limit).
+    /// Waits until no job is active or being started; `false` if one still is after `timeout`
+    /// (`None`: no limit).
     pub fn wait_idle(&self, timeout: Option<Duration>) -> bool {
+        self.wait_until(timeout, |slot| !slot.is_taken())
+    }
+
+    /// Waits until no job is being started (one may be active); `false` after `timeout`.
+    pub fn wait_settled(&self, timeout: Duration) -> bool {
+        self.wait_until(Some(timeout), |slot| slot.starting.is_none())
+    }
+
+    fn wait_until(&self, timeout: Option<Duration>, done: impl Fn(&Slot) -> bool) -> bool {
         let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
         let mut slot = self.lock();
-        while slot.is_some() {
+        while !done(&slot) {
             match deadline {
                 None => {
                     slot = self
-                        .ended
+                        .changed
                         .wait(slot)
                         .unwrap_or_else(PoisonError::into_inner)
                 }
@@ -373,7 +426,7 @@ impl Jobs {
                         return false;
                     }
                     slot = self
-                        .ended
+                        .changed
                         .wait_timeout(slot, deadline - now)
                         .unwrap_or_else(PoisonError::into_inner)
                         .0;
@@ -381,6 +434,133 @@ impl Jobs {
             }
         }
         true
+    }
+}
+
+/// The job slot, reserved for a job being started (see [`Jobs::reserve`]).
+pub struct Reservation<'a> {
+    jobs: &'a Jobs,
+    active: bool,
+}
+
+impl Reservation<'_> {
+    /// The started job becomes the active job.
+    pub fn activate(mut self, job: Job) {
+        let mut slot = self.jobs.lock();
+        slot.starting = None;
+        slot.job = Some(job);
+        self.active = true;
+        drop(slot);
+        self.jobs.changed.notify_all();
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        if !self.active {
+            self.jobs.lock().starting = None;
+            self.jobs.changed.notify_all();
+        }
+    }
+}
+
+/// Frees the slot of job `id` when dropped, unless already freed: a job thread that panics does
+/// not leave a phantom active job. [`JobGuard::free`] frees it earlier (just before `finished`).
+pub struct JobGuard {
+    state: Arc<AppState>,
+    id: String,
+    freed: AtomicBool,
+}
+
+impl JobGuard {
+    pub fn new(state: Arc<AppState>, id: String) -> Self {
+        Self {
+            state,
+            id,
+            freed: AtomicBool::new(false),
+        }
+    }
+
+    /// Frees the slot once (by now another job may hold it: then it is left alone).
+    pub fn free(&self) {
+        if !self.freed.swap(true, Ordering::SeqCst) {
+            self.state.jobs.finish(&self.id);
+        }
+    }
+
+    pub fn is_freed(&self) -> bool {
+        self.freed.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for JobGuard {
+    fn drop(&mut self) {
+        self.free();
+    }
+}
+
+// ---- other users of `<app_cache>/tmp` ----
+
+/// Tool installs (with their introspection) and device commands keep scratch dirs in
+/// `<app_cache>/tmp`. `temp_cleanup` sweeps only while none runs, and none starts during the
+/// sweep (it waits for the sweep to end).
+#[derive(Default)]
+pub struct TmpUsers {
+    state: Mutex<TmpState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct TmpState {
+    users: usize,
+    cleaning: bool,
+}
+
+/// One user of `<app_cache>/tmp`, until dropped.
+pub struct TmpUse<'a>(&'a TmpUsers);
+
+impl Drop for TmpUse<'_> {
+    fn drop(&mut self) {
+        lock(&self.0.state).users -= 1;
+        self.0.changed.notify_all();
+    }
+}
+
+/// Ends a sweep when dropped (also if the sweep panics).
+struct Cleaning<'a>(&'a TmpUsers);
+
+impl Drop for Cleaning<'_> {
+    fn drop(&mut self) {
+        lock(&self.0.state).cleaning = false;
+        self.0.changed.notify_all();
+    }
+}
+
+impl TmpUsers {
+    /// Registers a user; waits while a sweep runs.
+    pub fn enter(&self) -> TmpUse<'_> {
+        let mut state = lock(&self.state);
+        while state.cleaning {
+            state = self
+                .changed
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        state.users += 1;
+        TmpUse(self)
+    }
+
+    /// Runs `sweep` with no user and none starting meanwhile; `None` (not run) while one runs.
+    pub fn clean<T>(&self, sweep: impl FnOnce() -> T) -> Option<T> {
+        {
+            let mut state = lock(&self.state);
+            if state.users > 0 || state.cleaning {
+                return None;
+            }
+            state.cleaning = true;
+        }
+        let _cleaning = Cleaning(self);
+        Some(sweep())
     }
 }
 

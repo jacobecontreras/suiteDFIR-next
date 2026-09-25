@@ -208,6 +208,8 @@ impl AppState {
     ) -> Result<ToolStatus, AppError> {
         let manifest = self.tool_manifest(tool)?;
         let slot = self.installs.begin(tool, &manifest.display_name)?;
+        // Introspection keeps a temp dir in `<app_cache>/tmp` (this waits out a running sweep).
+        let _tmp = self.tmp.enter();
         lock(&self.verified).remove(&tool);
         let settings = self.settings();
         let app_cache = self.paths.app_cache.clone();
