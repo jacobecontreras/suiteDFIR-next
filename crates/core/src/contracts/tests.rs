@@ -244,6 +244,49 @@ fn settings_update_tools_dir_is_tri_state() {
     assert_eq!(defaults.tools_dir, ToolsDirUpdate::Unchanged);
 }
 
+#[test]
+fn settings_update_rejects_null_except_for_tools_dir() {
+    let parse = |text: &str| serde_json::from_str::<SettingsUpdateRequest>(text);
+    assert_eq!(parse("{}").unwrap().cases_root, None);
+    assert_eq!(
+        parse(r#"{"cases_root": "/cases"}"#).unwrap().cases_root,
+        Some("/cases".into())
+    );
+    for text in [
+        r#"{"cases_root": null}"#,
+        r#"{"defaults": null}"#,
+        r#"{"cases_root": null, "tools_dir": null}"#,
+    ] {
+        assert!(parse(text).is_err(), "{text}");
+    }
+}
+
+#[test]
+fn case_update_default_timezone_is_required_but_nullable() {
+    let parse = |timezone: &str| {
+        let text = format!(
+            r#"{{"path": "/c", "fields": {{"name": "N", "case_number": "1", "examiner": "E",
+                "agency": "A", "description": ""{timezone}}}}}"#
+        );
+        serde_json::from_str::<CaseUpdateRequest>(&text)
+    };
+    assert!(parse("").is_err(), "a missing default_timezone is an error");
+    assert_eq!(
+        parse(r#", "default_timezone": null"#)
+            .unwrap()
+            .fields
+            .default_timezone,
+        None
+    );
+    assert_eq!(
+        parse(r#", "default_timezone": "UTC""#)
+            .unwrap()
+            .fields
+            .default_timezone,
+        Some("UTC".into())
+    );
+}
+
 // ---- the placeholder idevice-tools.json ----
 
 #[test]

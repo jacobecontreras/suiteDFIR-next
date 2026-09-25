@@ -225,16 +225,35 @@ pub struct AppInfoPaths {
     pub tools_dir: String,
 }
 
-/// `settings_update` request. An omitted field is left unchanged.
+/// `settings_update` request. An omitted field is left unchanged. Only `tools_dir` may be `null`
+/// (reset); `null` for `cases_root` or `defaults` is rejected.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsUpdateRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_not_null",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cases_root: Option<String>,
     /// Replaces all three defaults.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_not_null",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub defaults: Option<SettingsDefaults>,
     #[serde(default, skip_serializing_if = "ToolsDirUpdate::is_unchanged")]
     pub tools_dir: ToolsDirUpdate,
+}
+
+/// For an optional field where omitted = unchanged but `null` is not allowed: called only when the
+/// field is present, which must then hold a `T`.
+fn present_not_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 /// `settings_update` `tools_dir`: omitted = unchanged, `null` = reset to the default, a string =
@@ -315,7 +334,8 @@ pub struct CaseUpdateRequest {
     pub fields: CaseFields,
 }
 
-/// The editable fields of `case.json` (§6). The folder is not renamed when `name` changes.
+/// The editable fields of `case.json` (§6), all required. The folder is not renamed when `name`
+/// changes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaseFields {
     pub name: String,
@@ -323,6 +343,8 @@ pub struct CaseFields {
     pub examiner: String,
     pub agency: String,
     pub description: String,
+    /// Required but nullable: `null` = fall back to settings; a missing key is an error.
+    #[serde(deserialize_with = "Option::deserialize")]
     pub default_timezone: Option<String>,
 }
 

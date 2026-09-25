@@ -206,7 +206,7 @@ jobs:
       # cargo step it uses the job's default (unprivileged builder) shell.
       - name: contracts-drift
         run: |
-          cargo xtask contracts
+          cargo --locked xtask contracts
           if ! git diff --exit-code -- ui-dev/fixtures/contracts; then
             echo "::error::ui-dev/fixtures/contracts is stale: run 'cargo xtask contracts' and commit the result"
             exit 1

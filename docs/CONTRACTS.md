@@ -449,7 +449,7 @@ All commands are `async`. Each takes at most one argument named `req` (an object
 | `app_info` | none | `{app_version, platform: PlatformKey\|null, os, arch, dev_override: boolean, paths:{app_data, app_config, app_cache, app_log, tools_dir}}` | |
 | `licenses_get` | none | `string` | Embedded `THIRD-PARTY-NOTICES.md`. |
 | `settings_get` | none | `Settings` | |
-| `settings_update` | `{cases_root?, defaults?, tools_dir?}` | `Settings` | Omitted = unchanged. `defaults` replaces all three defaults. `tools_dir: null` = reset to default. |
+| `settings_update` | `{cases_root?, defaults?, tools_dir?}` | `Settings` | Omitted = unchanged. `cases_root` and `defaults` may not be `null`; `defaults` replaces all three defaults. `tools_dir: null` = reset to default. |
 | `tools_status` | none | `ToolStatus[]` | Cheap: no entry hashing (the state is `installed_unverified` until verified this session). |
 | `tool_verify` | `{tool}` | `ToolStatus` | Re-hashes the entry. |
 | `tool_install` | `{tool}` + `on_event: InstallEvent` | `ToolStatus` | Download → verify → extract → verify entry → introspect. |

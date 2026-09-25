@@ -8,8 +8,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+/// Clears the write bits only, so the read bits stay as they were (0600 becomes 0400).
 pub(super) fn set_read_only(path: &Path) -> io::Result<()> {
-    fs::set_permissions(path, fs::Permissions::from_mode(0o444))
+    let mode = fs::metadata(path)?.permissions().mode();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode & !0o222))
 }
 
 pub(super) fn free_space(path: &Path) -> io::Result<u64> {
@@ -37,4 +39,26 @@ pub(crate) fn make_writable(path: &Path) {
 #[cfg(test)]
 pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_read_only_clears_only_the_write_bits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.json");
+        fs::write(&path, "sealed").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        set_read_only(&path).unwrap();
+        // Not widened to world-readable.
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o400
+        );
+        assert!(fs::OpenOptions::new().append(true).open(&path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "sealed");
+        make_writable(&path);
+    }
 }

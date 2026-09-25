@@ -31,7 +31,7 @@ npm test                                 # node --test "tests/ui/**/*.test.js"
 node scripts/serve-ui.mjs [--port 5173]  # serve ui/ + ui-dev/ (at /dev/) with the app's CSP header
                                          # open http://127.0.0.1:5173/?mock for browser mock mode
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
-cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/*.json
+cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
 cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
 scripts/build-idevice-tools.sh           # build pinned libimobiledevice tools locally (macOS; Windows via per-user MSYS2)
 cargo xtask fetch-idevice-tools          # fetch + verify the pinned tool bundle into src-tauri/binaries/ (release builds)
@@ -165,7 +165,7 @@ Anything else needs a PR labelled `new-dependency` that explains why std or an a
   - State in `lib/store.js` (tiny pub/sub).
 - **API boundary:**
   - `api/ipc.js` is the only module calling into `window.__TAURI__`. `api/index.js` may only test for its existence.
-  - `ui-dev/mock.js` implements the same interface from `ui-dev/fixtures/contracts/*.json` and simulates runs: streaming logs, cancel, every final status, chosen by an input-path suffix such as `…/fail-invalid`.
+  - `ui-dev/mock.js` implements the same interface from the contract fixtures (it imports the generated `ui-dev/fixtures/contracts/index.js`, the same data as the `*.json` files) and simulates runs: streaming logs, cancel, every final status, chosen by an input-path suffix such as `…/fail-invalid`.
 - **Errors:** every command failure is shown through one `AppError` display component (code, message, expandable detail).
 - **Dialogs:** in-DOM `<dialog>` elements; never `window.alert`/`confirm`.
 - **Accessibility:** semantic elements, labelled controls, visible focus, full keyboard operation. The latest log line goes to an `aria-live="polite"` region, throttled to at most 1 update/s.
@@ -175,7 +175,7 @@ Anything else needs a PR labelled `new-dependency` that explains why std or an a
 
 ### 4.7 Contracts
 
-The Rust types in `crates/core/src/contracts/` are the source of truth. `cargo xtask contracts` regenerates `ui-dev/fixtures/contracts/*.json`, and CI fails if the regenerated files differ from the committed ones.
+The Rust types in `crates/core/src/contracts/` are the source of truth. `cargo xtask contracts` regenerates `ui-dev/fixtures/contracts/`: one `*.json` example per type, plus the generated `index.js` (the same data as an ES module, which `mock.js` imports and `npm run typecheck` checks against `ui/types.d.ts`). CI fails if the regenerated files differ from the committed ones.
 
 A contract change updates all of these in one PR:
 - the Rust types;

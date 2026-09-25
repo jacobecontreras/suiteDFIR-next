@@ -101,6 +101,8 @@ pub enum ContractError {
     },
     #[error("invalid timestamp {0:?}: expected RFC 3339 UTC with Z at second precision")]
     InvalidTimestamp(String),
+    #[error("timestamp {0} is outside the years 0000-9999 that RFC 3339 can represent")]
+    TimestampOutOfRange(String),
 }
 
 /// Parses a top-level file. A missing or unknown `schema_version` is rejected before any other

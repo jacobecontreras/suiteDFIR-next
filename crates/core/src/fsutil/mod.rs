@@ -21,6 +21,10 @@ use windows as sys;
 /// Writes `value` as pretty JSON (with a trailing newline) to `path` atomically (CONTRACTS.md
 /// §1): `<name>.tmp-<rand>` in the same directory, flush and `sync_all`, then rename over `path`.
 /// A crash leaves the old or the new file, never a truncated one (at worst a stray temp file).
+///
+/// A read-only target (a finalized record) is never replaced, on any OS: that fails with
+/// `PermissionDenied` and leaves the target untouched. (A Unix rename would otherwise succeed,
+/// because it needs write access to the directory, not the file.)
 pub fn write_json_atomic<T: Serialize + ?Sized>(path: &Path, value: &T) -> io::Result<()> {
     let mut bytes = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
     bytes.push(b'\n');
@@ -40,6 +44,17 @@ fn write_atomic(
             format!("{} has no file name", path.display()),
         )
     })?;
+    match fs::metadata(path) {
+        Ok(meta) if meta.permissions().readonly() => {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("{} is read-only; refusing to replace it", path.display()),
+            ));
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let mut random = [0u8; 8];
     getrandom::fill(&mut random).map_err(io::Error::other)?;
     let mut tmp_name = name.to_os_string();
@@ -63,7 +78,8 @@ fn write_new_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.sync_all()
 }
 
-/// Makes a file read-only: mode 0444 on Unix, the readonly attribute on Windows.
+/// Makes a file read-only: clears the write bits on Unix (0644 becomes 0444, 0600 becomes 0400),
+/// sets the readonly attribute on Windows.
 pub fn set_read_only(path: &Path) -> io::Result<()> {
     sys::set_read_only(path)
 }
@@ -171,6 +187,26 @@ mod tests {
         assert_eq!(result.unwrap_err().to_string(), "simulated crash");
         assert_eq!(fs::read_to_string(&path).unwrap(), "old complete record\n");
         assert!(!seen_tmp.unwrap().exists(), "the temp file is cleaned up");
+    }
+
+    #[test]
+    fn write_json_atomic_never_replaces_a_read_only_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.json");
+        write_json_atomic(&path, &serde_json::json!({"status": "succeeded"})).unwrap();
+        set_read_only(&path).unwrap();
+        let sealed = fs::read(&path).unwrap();
+
+        let err = write_json_atomic(&path, &serde_json::json!({"status": "tampered"})).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(fs::read(&path).unwrap(), sealed, "byte-identical");
+        assert!(fs::metadata(&path).unwrap().permissions().readonly());
+        let names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["run.json"], "no temp file left behind");
+        test_support::make_writable(&path);
     }
 
     #[test]

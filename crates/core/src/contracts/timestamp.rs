@@ -19,6 +19,19 @@ impl Timestamp {
         Self::truncate(OffsetDateTime::now_utc())
     }
 
+    /// Converts any `time` value to UTC and truncates it to whole seconds. Fails for years outside
+    /// 0000–9999, which RFC 3339 cannot represent.
+    pub fn from_offset_date_time(value: OffsetDateTime) -> Result<Self, ContractError> {
+        let out_of_range = || ContractError::TimestampOutOfRange(value.to_string());
+        let utc = value
+            .checked_to_offset(UtcOffset::UTC)
+            .ok_or_else(out_of_range)?;
+        if !(0..=9999).contains(&utc.year()) {
+            return Err(out_of_range());
+        }
+        Ok(Self::truncate(utc))
+    }
+
     /// Parses exactly `YYYY-MM-DDTHH:MM:SSZ`. Other RFC 3339 spellings (offsets, fractional
     /// seconds, a space or lowercase separators) are rejected.
     pub fn parse(text: &str) -> Result<Self, ContractError> {
@@ -94,6 +107,34 @@ mod tests {
         let text = now.to_string();
         assert_eq!(text.len(), 20, "{text}");
         assert!(text.ends_with('Z'), "{text}");
+    }
+
+    #[test]
+    fn from_offset_date_time_converts_to_utc_whole_seconds() {
+        let base = Timestamp::parse("2026-09-24T18:30:05Z").unwrap();
+        let plus_two = UtcOffset::from_hms(2, 0, 0).unwrap();
+        let local = (base.as_datetime() + time::Duration::milliseconds(750)).to_offset(plus_two);
+        assert_eq!(local.hour(), 20);
+        let ts = Timestamp::from_offset_date_time(local).unwrap();
+        assert_eq!(ts, base);
+        assert_eq!(ts.to_string(), "2026-09-24T18:30:05Z");
+    }
+
+    #[test]
+    fn from_offset_date_time_accepts_only_rfc3339_years() {
+        // 0000-01-01T00:00:00Z and 9999-12-31T23:59:59Z are the bounds.
+        for (secs, ok) in [
+            (-62_167_219_200, true),
+            (-62_167_219_201, false),
+            (253_402_300_799, true),
+        ] {
+            let value = OffsetDateTime::from_unix_timestamp(secs).unwrap();
+            let result = Timestamp::from_offset_date_time(value);
+            assert_eq!(result.is_ok(), ok, "{secs}: {result:?}");
+            if let Ok(ts) = result {
+                assert_eq!(Timestamp::parse(&ts.to_string()).unwrap(), ts);
+            }
+        }
     }
 
     #[test]
