@@ -25,6 +25,7 @@ import { chromium } from "playwright";
 const USAGE = "usage: node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens <name,name,...>]";
 const NIGHTJAR = "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar";
 const MISSING = "/Volumes/Archive/suiteDFIR Cases/Riverside 2025";
+const HARBOR = "/Users/examiner/Documents/suiteDFIR Cases/Harbor Lights";
 const PERF_BUDGET_MS = 100;
 
 /**
@@ -165,6 +166,44 @@ const SCREENS = [
     hash: caseHash(NIGHTJAR),
     setup: async (page) => {
       await page.locator(".runs-table").waitFor();
+    },
+  },
+  {
+    // UTC shown on keyboard focus (Tab from the last column header to the first row's time).
+    name: "case-runs-utc-focus",
+    query: "?mock",
+    hash: caseHash(NIGHTJAR),
+    element: ".table-wrap",
+    setup: async (page) => {
+      await page.locator(".runs-table").waitFor();
+      await page.getByRole("button", { name: /^Duration/ }).press("Tab");
+      await page.locator(".runs-table time:focus").waitFor();
+    },
+  },
+  {
+    name: "case-empty-runs",
+    query: "?mock",
+    hash: caseHash(HARBOR),
+    setup: async (page) => {
+      await page.getByText("No runs yet.").waitFor();
+    },
+  },
+  {
+    // A run whose app "crashes" (…/interrupt) is marked interrupted when the case is opened again.
+    name: "case-recovered-notice",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await newRunReady(page);
+      await pickInput(page, "Choose folder…", "Evidence/interrupt");
+      await page.locator(".ready-text").waitFor();
+      await page.getByRole("button", { name: "Start run" }).click();
+      await page.locator(".runs-table .badge-running").waitFor();
+      await page.locator(".job-indicator").waitFor({ state: "detached", timeout: 15000 });
+      await page.getByRole("link", { name: "Cases", exact: true }).first().click();
+      await page.locator(".case-list").waitFor();
+      await page.getByRole("link", { name: "Operation Nightjar" }).click();
+      await page.locator(".banner-info").waitFor();
     },
   },
   {
@@ -427,23 +466,29 @@ const CHECKS = [
       await page.locator(".picker").waitFor();
       await page.locator(".picker-group").nth(0).locator(".picker-group-label input").check();
       await page.locator(".ready-text").waitFor();
+      /** @param {string} field */
+      const assertNoRun = async (field) => {
+        await page.waitForTimeout(800);
+        const state = await page.evaluate(() => ({
+          hash: location.hash,
+          indicator: document.querySelector(".job-indicator") !== null,
+          ready: document.querySelector(".ready-text") !== null,
+        }));
+        if (!state.hash.startsWith("#/new-run") || state.indicator) {
+          throw new Error(`Enter in the ${field} field started a run: ${JSON.stringify(state)}`);
+        }
+        if (!state.ready) throw new Error(`the form was not ready, so the check proves nothing: ${JSON.stringify(state)}`);
+      };
       const search = page.getByRole("searchbox", { name: "Search modules" });
       await search.fill("call");
       await search.press("Enter");
+      await assertNoRun("module search");
       const label = page.getByLabel("Label");
       await label.fill("Enter must not start a run");
       await label.press("Enter");
+      await assertNoRun("label");
       await password.press("Enter");
-      await page.waitForTimeout(1500);
-      const state = await page.evaluate(() => ({
-        hash: location.hash,
-        indicator: document.querySelector(".job-indicator") !== null,
-        ready: document.querySelector(".ready-text") !== null,
-      }));
-      if (!state.ready) throw new Error(`the form was not ready, so the check proves nothing: ${JSON.stringify(state)}`);
-      if (!state.hash.startsWith("#/new-run") || state.indicator) {
-        throw new Error(`pressing Enter in a field started a run: ${JSON.stringify(state)}`);
-      }
+      await assertNoRun("password");
       // Explicit keyboard activation of Start run does start the run.
       await page.getByRole("button", { name: "Start run" }).press("Enter");
       await page.locator(".runs-table .badge-running").waitFor();
