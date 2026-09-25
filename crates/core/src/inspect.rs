@@ -101,10 +101,16 @@ pub struct OverlapContext<'a> {
     pub temp_root: &'a Path,
 }
 
-/// The overlap rule, via [`fsutil::path_within`] (so `..` and symlinks are resolved):
-/// - the case folder (and so the would-be run folder) and the temp folder must not equal or lie
-///   inside `input`;
+/// The overlap rule, via [`fsutil::path_within`] (so `..`, symlinks and junctions are resolved, and
+/// folders that do not exist yet resolve through their existing ancestors):
+/// - the case folder, the would-be run folder and the temp folder must not equal or lie inside
+///   `input`;
 /// - `input` must not lie inside any case's `runs/` or the app's folders.
+///
+/// The run folder `<case>/runs/<run_id>` does not exist yet, so it is checked through `runs/`: it
+/// lands inside the input exactly when `runs/` resolves there (e.g. `runs/` is a link into the
+/// evidence) or the input lies inside `runs/` (refused by the second rule). The per-run temp folder
+/// is checked the same way through the temp root.
 ///
 /// Inputs inside a case's `acquisitions/` are allowed: that is how acquired backups are parsed. Use
 /// it for the keychain path too.
@@ -119,6 +125,13 @@ pub fn check_overlap(input: &Path, ctx: &OverlapContext<'_>) -> Result<(), Inspe
         return Err(overlap(format!(
             "the case folder {} would lie inside the input",
             ctx.case_dir.display()
+        )));
+    }
+    let case_runs = ctx.case_dir.join(RUNS_DIR);
+    if within(&case_runs, input)? {
+        return Err(overlap(format!(
+            "the run folder would be created inside the input ({} resolves there)",
+            case_runs.display()
         )));
     }
     if within(ctx.temp_root, input)? {
@@ -303,6 +316,13 @@ mod tests {
 
     use crate::contracts::{ToolId, examples};
 
+    /// `base` joined with a `/`-separated relative path, one component at a time, so the result
+    /// is spelled with the OS separator (as `std::path::absolute` returns it on Windows).
+    fn p(base: &Path, rel: &str) -> PathBuf {
+        rel.split('/')
+            .fold(base.to_path_buf(), |path, part| path.join(part))
+    }
+
     fn input_types(tool: ToolId) -> Vec<InputType> {
         examples::leapp_manifest().tools[&tool].input_types.clone()
     }
@@ -325,16 +345,16 @@ mod tests {
             let case = root.join("cases").join("A");
             let other_case = root.join("cases").join("B");
             for dir in [
-                case.join("runs/r1/report"),
-                case.join("acquisitions/q1/backup/udid"),
+                p(&case, "runs/r1/report"),
+                p(&case, "acquisitions/q1/backup/udid"),
                 case.join("notes"),
-                other_case.join("runs/r2"),
-                root.join("app/data/leapp"),
-                root.join("app/config"),
-                root.join("app/cache/tmp"),
-                root.join("app/log"),
+                p(&other_case, "runs/r2"),
+                p(&root, "app/data/leapp"),
+                p(&root, "app/config"),
+                p(&root, "app/cache/tmp"),
+                p(&root, "app/log"),
                 root.join("approved-tools"),
-                root.join("evidence/dir"),
+                p(&root, "evidence/dir"),
             ] {
                 fs::create_dir_all(dir).unwrap();
             }
@@ -349,7 +369,7 @@ mod tests {
             .to_vec();
             Self {
                 known: vec![case.clone(), other_case.clone()],
-                temp_root: root.join("app/cache/tmp"),
+                temp_root: p(&root, "app/cache/tmp"),
                 app_dirs,
                 case,
                 other_case,
@@ -372,7 +392,7 @@ mod tests {
         }
 
         fn file(&self, rel: &str) -> PathBuf {
-            let path = self.root.join("evidence").join(rel);
+            let path = p(&self.root.join("evidence"), rel);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, b"data").unwrap();
             path
@@ -420,11 +440,11 @@ mod tests {
             ("cases/Arch", false),
             ("cases/A2/runs", false),
         ] {
-            assert_eq!(overlaps(&lab, &r.join(rel)), expected, "{rel}");
+            assert_eq!(overlaps(&lab, &p(r, rel)), expected, "{rel}");
         }
         // Spellings with `..` resolve first.
-        assert!(overlaps(&lab, &r.join("evidence/../cases/A/runs/r1")));
-        assert!(!overlaps(&lab, &r.join("cases/A/runs/../acquisitions/q1")));
+        assert!(overlaps(&lab, &p(r, "evidence/../cases/A/runs/r1")));
+        assert!(!overlaps(&lab, &p(r, "cases/A/runs/../acquisitions/q1")));
         // The other case's folder contains only its own runs, not this case.
         assert!(!overlaps(&lab, &lab.other_case));
     }
@@ -432,7 +452,7 @@ mod tests {
     #[test]
     fn temp_root_rule_on_its_own() {
         let lab = Lab::new();
-        let temp = lab.root.join("elsewhere/tmp");
+        let temp = p(&lab.root, "elsewhere/tmp");
         fs::create_dir_all(&temp).unwrap();
         let ctx = OverlapContext {
             case_dir: &lab.case,
@@ -446,30 +466,87 @@ mod tests {
         assert!(check_overlap(&lab.root.join("evidence"), &ctx).is_ok());
     }
 
+    /// Creates a directory symlink, or returns false (with a message) where the OS does not allow
+    /// it: Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
+    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
+        match fsutil::test_support::symlink_dir(target, link) {
+            Ok(()) => true,
+            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
+                eprintln!(
+                    "SKIPPED symlink overlap checks: creating symlinks needs Developer Mode or \
+                     admin (ERROR_PRIVILEGE_NOT_HELD)"
+                );
+                false
+            }
+            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
+        }
+    }
+
+    #[test]
+    fn overlap_catches_a_linked_runs_folder() {
+        // `<case>/runs` was moved elsewhere and linked back; the input contains the link's target.
+        let lab = Lab::new();
+        let evidence = lab.root.join("evidence");
+        let target = p(&evidence, "sub");
+        fs::create_dir_all(&target).unwrap();
+        let case = p(&lab.root, "cases/Linked");
+        fs::create_dir_all(&case).unwrap();
+        if !try_symlink_dir(&target, &case.join("runs")) {
+            return;
+        }
+        let ctx = OverlapContext {
+            case_dir: &case,
+            known_cases: &[],
+            app_dirs: &lab.app_dirs,
+            temp_root: &lab.temp_root,
+        };
+        // A run folder created now would land in the evidence; the case folder itself would not.
+        let would_be = case.join("runs").join("20260924-183005Z-ileapp-3f9a1c");
+        assert!(fsutil::path_within(&would_be, &evidence).unwrap());
+        assert!(!fsutil::path_within(&case, &evidence).unwrap());
+        for input in [&evidence, &target] {
+            let err = check_overlap(input, &ctx).unwrap_err();
+            assert_eq!(err.code(), ErrorCode::InputOverlapsCase, "{input:?}");
+            assert!(err.to_string().contains("run folder"), "{err}");
+        }
+        // Evidence elsewhere is fine.
+        assert!(check_overlap(&p(&evidence, "dir"), &ctx).is_ok());
+    }
+
+    #[test]
+    fn overlap_catches_linked_case_and_temp_folders() {
+        let lab = Lab::new();
+        let evidence = lab.root.join("evidence");
+        fs::create_dir_all(p(&evidence, "case-home")).unwrap();
+        fs::create_dir_all(p(&evidence, "temp-home")).unwrap();
+        let case = p(&lab.root, "cases/LinkedCase");
+        let temp = p(&lab.root, "app/linked-tmp");
+        if !try_symlink_dir(&p(&evidence, "case-home"), &case) {
+            return;
+        }
+        assert!(try_symlink_dir(&p(&evidence, "temp-home"), &temp));
+        let with = |case_dir: &Path, temp_root: &Path| {
+            let ctx = OverlapContext {
+                case_dir,
+                known_cases: &[],
+                app_dirs: &[],
+                temp_root,
+            };
+            check_overlap(&evidence, &ctx)
+        };
+        let err = with(&case, &lab.temp_root).unwrap_err();
+        assert!(err.to_string().contains("case folder"), "{err}");
+        let err = with(&lab.case, &temp).unwrap_err();
+        assert!(err.to_string().contains("temp folder"), "{err}");
+        assert!(with(&lab.case, &lab.temp_root).is_ok());
+    }
+
     #[test]
     fn overlap_follows_symlinks() {
         let lab = Lab::new();
-        let link = lab.root.join("evidence/link-to-runs");
-        let made = {
-            #[cfg(unix)]
-            {
-                std::os::unix::fs::symlink(lab.case.join("runs"), &link)
-            }
-            #[cfg(windows)]
-            {
-                std::os::windows::fs::symlink_dir(lab.case.join("runs"), &link)
-            }
-        };
-        match made {
-            Ok(()) => {}
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED symlink overlap check: creating symlinks needs Developer Mode or \
-                     admin (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                return;
-            }
-            Err(e) => panic!("{e}"),
+        let link = p(&lab.root, "evidence/link-to-runs");
+        if !try_symlink_dir(&lab.case.join("runs"), &link) {
+            return;
         }
         assert!(overlaps(&lab, &link));
         assert!(overlaps(&lab, &link.join("r1")));
@@ -481,7 +558,7 @@ mod tests {
     fn inspect_reports_overlap_as_input_overlaps_case() {
         let lab = Lab::new();
         let err = lab
-            .inspect(&lab.case.join("runs/r1/report"), ToolId::Ileapp)
+            .inspect(&p(&lab.case, "runs/r1/report"), ToolId::Ileapp)
             .unwrap_err();
         assert_eq!(err.code(), ErrorCode::InputOverlapsCase);
         let app: AppError = err.into();
@@ -566,9 +643,9 @@ mod tests {
     #[test]
     fn folder_detection_table() {
         let lab = Lab::new();
-        let plain = lab.root.join("evidence/dir");
-        let with_db = lab.root.join("evidence/backup-db");
-        let with_plist = lab.root.join("evidence/backup-plist");
+        let plain = p(&lab.root, "evidence/dir");
+        let with_db = p(&lab.root, "evidence/backup-db");
+        let with_plist = p(&lab.root, "evidence/backup-plist");
         fs::create_dir_all(&with_db).unwrap();
         fs::create_dir_all(&with_plist).unwrap();
         fs::write(with_db.join("Manifest.db"), b"SQLite format 3\0").unwrap();
@@ -650,7 +727,7 @@ mod tests {
     #[test]
     fn is_encrypted_from_manifest_plist() {
         let lab = Lab::new();
-        let dir = lab.root.join("evidence/00008101-000A1B2C3D4E");
+        let dir = p(&lab.root, "evidence/00008101-000A1B2C3D4E");
         fs::create_dir_all(&dir).unwrap();
         for (encrypted, binary) in [(true, false), (false, false), (true, true), (false, true)] {
             write_manifest_plist(&dir, Some(encrypted), binary);
@@ -693,7 +770,7 @@ mod tests {
     #[test]
     fn inspection_never_writes() {
         let lab = Lab::new();
-        let dir = lab.root.join("evidence/backup");
+        let dir = p(&lab.root, "evidence/backup");
         fs::create_dir_all(&dir).unwrap();
         write_manifest_plist(&dir, Some(true), false);
         let file = lab.file("dump.zip");
@@ -728,7 +805,7 @@ mod tests {
     fn missing_inputs_are_invalid() {
         let lab = Lab::new();
         let err = lab
-            .inspect(&lab.root.join("evidence/missing"), ToolId::Ileapp)
+            .inspect(&p(&lab.root, "evidence/missing"), ToolId::Ileapp)
             .unwrap_err();
         assert!(matches!(err, InspectError::NotFound { .. }), "{err:?}");
         assert_eq!(err.code(), ErrorCode::InvalidInput);
@@ -739,11 +816,11 @@ mod tests {
     fn permission_errors_are_permission_denied() {
         use std::os::unix::fs::PermissionsExt;
         let lab = Lab::new();
-        let locked_dir = lab.root.join("evidence/locked-dir");
+        let locked_dir = p(&lab.root, "evidence/locked-dir");
         fs::create_dir_all(&locked_dir).unwrap();
         let locked_file = lab.file("locked.zip");
         let hidden = lab.file("sealed/inner.zip");
-        let backup = lab.root.join("evidence/locked-backup");
+        let backup = p(&lab.root, "evidence/locked-backup");
         fs::create_dir_all(&backup).unwrap();
         write_manifest_plist(&backup, Some(true), false);
         let mode = |path: &Path, mode| {
