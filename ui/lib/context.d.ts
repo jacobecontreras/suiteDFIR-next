@@ -14,8 +14,8 @@ export type AppState = {
   tools: ToolStatus[] | null;
   /** The one active job, app-wide; polled with `job_active` while non-null. */
   activeJob: ActiveJob | null;
-  /** The session's timezone list (lib/timezones.js), loaded on first use. */
-  timezones: string[] | null;
+  /** iLEAPP's own zone list for its installed version (lib/timezones.js); fallbacks are never cached. */
+  timezones: { version: string; list: string[] } | null;
 };
 
 export type ScreenContext = {

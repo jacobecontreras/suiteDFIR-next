@@ -4,9 +4,63 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { editableFields, folderLabel, validateCaseFields } from "../../ui/lib/cases.js";
-import { FALLBACK_TIMEZONES, pickTimezone, timezoneList } from "../../ui/lib/timezones.js";
+import { createStore } from "../../ui/lib/store.js";
+import { FALLBACK_TIMEZONES, loadTimezones, pickTimezone, timezoneList } from "../../ui/lib/timezones.js";
 import { installedTools } from "../../ui/lib/tools.js";
-import { CaseFile, ToolStatus } from "../../ui-dev/fixtures/contracts/index.js";
+import { CaseFile, ToolModules, ToolStatus } from "../../ui-dev/fixtures/contracts/index.js";
+
+/** @typedef {import("../../ui/lib/context").AppState} AppState */
+/** @typedef {import("../../ui/types").ToolStatus} Status */
+
+/** @param {Status[]} tools */
+const tzStore = (tools) =>
+  createStore(/** @type {AppState} */ ({ mode: "mock", appInfo: null, settings: null, tools, activeJob: null, timezones: null }));
+
+/**
+ * A fake API whose tool_modules fails while `state.fail` is set; counts its calls.
+ * @param {{ fail: boolean, calls: number }} state
+ * @returns {any}
+ */
+const tzApi = (state) => ({
+  tool_modules: async () => {
+    state.calls += 1;
+    if (state.fail) throw { code: "io", message: "temporarily unreadable", detail: null };
+    return structuredClone(ToolModules);
+  },
+});
+
+test("loadTimezones without iLEAPP uses the fallback and does not cache it", async () => {
+  const store = tzStore([{ ...ToolStatus, state: "not_installed", installed_version: null }]);
+  const state = { fail: false, calls: 0 };
+  const list = await loadTimezones(tzApi(state), store);
+  assert.ok(list.includes("UTC"));
+  assert.equal(state.calls, 0);
+  assert.equal(store.get().timezones, null);
+});
+
+test("loadTimezones never caches a fallback, so iLEAPP's list is used once it loads", async () => {
+  const store = tzStore([{ ...ToolStatus }]);
+  const state = { fail: true, calls: 0 };
+  const api = tzApi(state);
+  const fallback = await loadTimezones(api, store);
+  assert.notDeepEqual(fallback, ToolModules.timezones);
+  assert.equal(store.get().timezones, null);
+  state.fail = false;
+  assert.deepEqual(await loadTimezones(api, store), ToolModules.timezones);
+  assert.deepEqual(store.get().timezones, { version: ToolModules.version, list: ToolModules.timezones });
+  assert.deepEqual(await loadTimezones(api, store), ToolModules.timezones);
+  assert.equal(state.calls, 2, "the cached iLEAPP list is reused");
+});
+
+test("loadTimezones reloads iLEAPP's list when its installed version changes", async () => {
+  const store = tzStore([{ ...ToolStatus }]);
+  const state = { fail: false, calls: 0 };
+  const api = tzApi(state);
+  await loadTimezones(api, store);
+  store.set({ tools: [{ ...ToolStatus, installed_version: "v2026.9.9" }] });
+  await loadTimezones(api, store);
+  assert.equal(state.calls, 2);
+});
 
 test("case name validation: required, at most 120 characters, trimmed", () => {
   assert.deepEqual(validateCaseFields({ name: "Operation Nightjar" }), {});

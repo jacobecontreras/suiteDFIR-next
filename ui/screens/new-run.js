@@ -19,7 +19,7 @@ import { routeHref } from "../lib/router.js";
 import { jobKey, setActiveJob } from "../lib/jobs.js";
 import { unknownNames } from "../lib/selection.js";
 import { watch } from "../lib/store.js";
-import { loadTimezones, pickTimezone } from "../lib/timezones.js";
+import { pickTimezone, rememberToolTimezones, timezoneList } from "../lib/timezones.js";
 import { TOOL_FEATURES, installedTools } from "../lib/tools.js";
 import { icon, inputTypeLabel, sizeText, toolName, uid } from "../lib/view.js";
 
@@ -204,11 +204,6 @@ export function newRunScreen(ctx) {
       installed = installedTools(tools);
       f.toolsInstalled = installed.length > 0;
       f.tool = installed.find((t) => t.tool === "ileapp")?.tool ?? installed[0]?.tool ?? null;
-      timezones = await loadTimezones(api, store);
-      if (disposed) return;
-      f.timezone = pickTimezone(timezones, [caseFile.default_timezone, store.get().settings?.defaults.timezone, "UTC"]);
-      tzSelect.replaceChildren(...timezones.map((z) => h("option", { value: z }, z)));
-      tzSelect.value = f.timezone ?? "";
       body.replaceChildren(form);
       renderTool();
       renderInput();
@@ -244,12 +239,31 @@ export function newRunScreen(ctx) {
       toolModules = mods;
       profiles = profs;
       f.modulesLoaded = true;
+      if (TOOL_FEATURES[tool].timezone) {
+        // The timezone must be one iLEAPP itself accepts (D19), so use its own list.
+        rememberToolTimezones(store, mods.version, mods.timezones);
+        applyTimezones(timezoneList(mods.timezones));
+      }
     } catch (err) {
       if (disposed || f.tool !== tool) return;
       modulesError = err;
     }
+    renderOptions();
     renderModules();
     refresh();
+  }
+
+  /**
+   * Shows `list` in the timezone select. Keeps the examiner's choice if it is still in the list;
+   * otherwise picks the case's zone, then the app's, then UTC.
+   * @param {string[]} list
+   */
+  function applyTimezones(list) {
+    timezones = list;
+    const kept = f.timezone && list.includes(f.timezone) ? f.timezone : null;
+    f.timezone = kept ?? pickTimezone(list, [caseFile?.default_timezone, store.get().settings?.defaults.timezone, "UTC"]);
+    tzSelect.replaceChildren(...list.map((z) => h("option", { value: z }, z)));
+    tzSelect.value = f.timezone ?? "";
   }
 
   // ---- 1. Tool ----
@@ -427,7 +441,15 @@ export function newRunScreen(ctx) {
     const features = f.tool ? TOOL_FEATURES[f.tool] : null;
     /** @type {Node[]} */
     const parts = [];
-    if (features?.timezone) {
+    if (features?.timezone && timezones.length === 0) {
+      parts.push(
+        h(
+          "p",
+          { class: "muted small", role: "status" },
+          modulesError ? `${toolName(f.tool ?? "ileapp")}'s timezone list could not be loaded (see Modules).` : `Loading ${toolName(f.tool ?? "ileapp")}'s timezone list…`,
+        ),
+      );
+    } else if (features?.timezone) {
       parts.push(
         field({
           label: "Timezone",

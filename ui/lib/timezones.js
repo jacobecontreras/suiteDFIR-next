@@ -66,24 +66,36 @@ export function pickTimezone(list, candidates) {
 }
 
 /**
- * The session's timezone list, cached in the store. Uses iLEAPP's list when it is installed.
+ * Caches iLEAPP's own zone list (from `tool_modules("ileapp")`) for its installed version.
+ * Only a tool list is cached; Intl and the embedded list are never cached, so a later call can
+ * still get iLEAPP's list.
+ * @param {import("./store.js").Store<AppState>} store
+ * @param {string} version the `ToolModules.version` the list came from
+ * @param {readonly string[] | null} zones
+ */
+export function rememberToolTimezones(store, version, zones) {
+  if (zones && zones.length > 0) store.set({ timezones: { version, list: [...zones] } });
+}
+
+/**
+ * The timezone list for forms: iLEAPP's own list when iLEAPP is installed (cached per installed
+ * version), otherwise `Intl`, otherwise the embedded list (both uncached).
  * @param {Api} api
  * @param {import("./store.js").Store<AppState>} store
  * @returns {Promise<string[]>}
  */
 export async function loadTimezones(api, store) {
+  const ileapp = installedTools(store.get().tools).find((t) => t.tool === "ileapp");
   const cached = store.get().timezones;
-  if (cached) return cached;
-  /** @type {string[] | null} */
-  let zones = null;
-  if (installedTools(store.get().tools).some((t) => t.tool === "ileapp")) {
+  if (ileapp && cached && cached.version === ileapp.installed_version) return [...cached.list];
+  if (ileapp) {
     try {
-      zones = (await api.tool_modules({ tool: "ileapp" })).timezones;
+      const mods = await api.tool_modules({ tool: "ileapp" });
+      rememberToolTimezones(store, mods.version, mods.timezones);
+      if (mods.timezones && mods.timezones.length > 0) return [...mods.timezones];
     } catch {
-      zones = null;
+      // Fall through to the uncached fallback; the next call tries iLEAPP again.
     }
   }
-  const list = timezoneList(zones);
-  store.set({ timezones: list });
-  return list;
+  return timezoneList(null);
 }
