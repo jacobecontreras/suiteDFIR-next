@@ -53,7 +53,7 @@ Tracks A–D and X run in parallel after M0.3 (contract freeze), at most 4 imple
   - `ui-dev/` (empty `mock.js`), `tests/ui/dom.test.js`.
   - `package.json`: private; `engines.node` `>=22`; devDependencies = exact `typescript`; scripts `typecheck` (`tsc -p .`) and `test` (`node --test "tests/ui/**/*.test.js"`, glob **quoted**). `.node-version` = 22.
   - `package-lock.json`; `tsconfig.json` (`allowJs`, `checkJs`, `strict`, `noEmit`, include `ui`, `ui-dev`, `tests/ui`).
-  - `scripts/serve-ui.mjs`: node:http, zero deps; serves `ui/` at `/` and `ui-dev/` at `/dev/`; sends the `tauri.conf.json` CSP as a `Content-Security-Policy` header; `--port` flag.
+  - `scripts/serve-ui.mjs`: node:http, zero deps; serves `ui/` at `/` and `ui-dev/` at `/dev/` (relative to `--root`, default the repo root); sends the `tauri.conf.json` CSP as a `Content-Security-Policy` header; `--port <n>`, where `--port 0` picks a free port and prints `listening on <port>` as its first stdout line.
 - **Legal and docs:**
   - `LICENSE` (Apache-2.0), `NOTICE`, `THIRD-PARTY-NOTICES.md` (placeholder with the LEAPP MIT notice).
   - Record the exact Tauri CLI version in DEVELOPMENT §1.
@@ -250,7 +250,10 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 - **API layer:** `api/index.js` with the activation rule from ARCHITECTURE §5.3, and `api/ipc.js`.
 - **Mock:** `ui-dev/mock.js` implements **every** command in CONTRACTS §10 and §13.5, with simulated runs and acquisitions reaching every final status.
 - **Chrome:** the `AppError` component; MOCK DATA / DEV OVERRIDE banners; light/dark tokens.
-- **Playwright script:** kept under `tests/ui/e2e/shots.mjs` and run on a machine with a browser (not in `npm test`). It loads mock mode via `serve-ui.mjs`, captures screenshots, and **fails on any console CSP violation**.
+- **Playwright script:** `tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens <list>]`, run on a machine with a browser (not in `npm test`).
+  - It **starts `scripts/serve-ui.mjs --port 0` itself**, reads the port, loads mock mode, and captures light and dark screenshots.
+  - It **fails on any console CSP violation**.
+  - It kills the server in `finally`. Background servers do not survive a separate ssh session.
 
 **Accept:**
 - Node parity test (identical exports in `ipc.js` and `mock.js`); typecheck clean.
