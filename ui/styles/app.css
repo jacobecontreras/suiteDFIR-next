@@ -1535,6 +1535,12 @@ input[type="radio"] {
   font-size: 13px;
 }
 
+/* A wrapper that keeps a part of a card in place for its own updates, while its children lay out
+   as the card's own (screens/acquire.js result). */
+.slot-contents {
+  display: contents;
+}
+
 .reason-list-reasons li code {
   color: var(--danger);
 }

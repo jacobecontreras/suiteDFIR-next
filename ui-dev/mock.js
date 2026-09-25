@@ -11,7 +11,8 @@
 //   `dev_override`, `active_run` (a slow run is already active at load), `install_fail`,
 //   `no_devices`, `idevice_missing`, `usbmuxd_unavailable`, `idevice_verification_failed`,
 //   `idevice_unsupported`, `preflight_warn`, `preflight_block`, `tool_verification_failed` (iLEAPP
-//   fails verification), `tool_unsupported` (no aLEAPP build for the platform).
+//   fails verification), `tool_unsupported` (no aLEAPP build for the platform), `windows`
+//   (`app_info` reports Windows x64: backup passwords must be printable ASCII).
 //   `hold_<phase>` (e.g. `hold_analyzing`, `hold_sealing_report`, `hold_enabling_encryption`,
 //   `hold_backing_up`): a run or acquisition stops in that phase (after its device prompt, if any)
 //   until it is cancelled, so every phase can be screenshotted. With `active_run` / `active_acq`, a
@@ -696,6 +697,7 @@ function profileInfo(tool, name) {
 /** @type {Api["app_info"]} */
 export const app_info = async () => {
   const info = { ...clone(fx.AppInfo), dev_override: has("dev_override") };
+  if (has("windows")) Object.assign(info, { platform: "windows-x86_64", os: "windows", arch: "x86_64" });
   // `paths.tools_dir` is the folder in effect: the override, else the default.
   info.paths.tools_dir = settings.tools_dir ?? LEAPP_DIR;
   return info;

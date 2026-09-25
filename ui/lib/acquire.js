@@ -239,6 +239,8 @@ export function encryptionOption(d) {
  * @property {string} password2
  * @property {boolean} restoreEncryption
  * @property {boolean} jobActive
+ * @property {boolean} windows The app runs on Windows (`app_info.os`), where the iOS tools take
+ *   only printable ASCII passwords.
  */
 
 /**
@@ -250,12 +252,27 @@ export function enablesEncryption(f) {
 }
 
 /**
+ * Why the iOS tools cannot take this backup password here, or null. On Windows they read it in
+ * the ANSI code page, so the core refuses anything but printable ASCII (`invalid_input`); this is
+ * the same rule, checked before anything is sent.
+ * @param {string} password
+ * @param {boolean} windows
+ * @returns {string | null}
+ */
+export function toolPasswordProblem(password, windows) {
+  if (!windows || /^[\x20-\x7e]*$/.test(password)) return null;
+  return "On Windows the iOS tools can only use a password of plain ASCII letters, digits, spaces and punctuation.";
+}
+
+/**
  * The problem with the two password fields, or null.
- * @param {Pick<AcqForm, "password" | "password2">} f
+ * @param {Pick<AcqForm, "password" | "password2"> & { windows?: boolean }} f
  * @returns {string | null}
  */
 export function passwordProblem(f) {
   if (f.password.length < MIN_PASSWORD_LENGTH) return `Enter a backup password of at least ${MIN_PASSWORD_LENGTH} characters.`;
+  const tool = toolPasswordProblem(f.password, f.windows === true);
+  if (tool) return tool;
   if (f.password !== f.password2) return "Enter the same password in both fields.";
   return null;
 }

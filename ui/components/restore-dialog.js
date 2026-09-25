@@ -11,6 +11,7 @@
  *   turned encryption off, the core refuses further attempts (`restore_not_applicable`), and the
  *   screens hide the action because the re-read `AcqSummary.warnings` no longer ask for it.
  */
+import { toolPasswordProblem } from "../lib/acquire.js";
 import { h } from "../lib/dom.js";
 import { field } from "../lib/form.js";
 import { icon } from "../lib/view.js";
@@ -27,6 +28,8 @@ import { modal } from "./dialog.js";
  * @param {{ acq_id: string, label: string | null, device_name: string | null, udid: string }} spec.acq
  * @param {(result: AcqRestoreEncryptionResult | null) => void} [spec.onSettled] After every attempt:
  *   its result, or null when the command failed. The screens re-read the case's `AcqSummary`.
+ * @param {boolean} [spec.windows] The app runs on Windows: the iOS tools take only printable ASCII
+ *   passwords, so another one is refused inline before anything is sent.
  * @returns {Modal}
  */
 export function restoreEncryptionDialog(spec) {
@@ -48,8 +51,11 @@ export function restoreEncryptionDialog(spec) {
   const close = /** @type {HTMLButtonElement} */ (h("button", { class: "btn", type: "button", onClick: () => dialog.close() }, "Cancel"));
   const device = acq.device_name ?? "the device";
 
+  /** The password cannot be sent: empty, or one the iOS tools cannot take here. */
+  const unusable = () => password.value === "" || toolPasswordProblem(password.value, spec.windows === true) !== null;
   password.addEventListener("input", () => {
-    confirm.disabled = running || done || password.value === "";
+    pwField.setError(toolPasswordProblem(password.value, spec.windows === true));
+    confirm.disabled = running || done || unusable();
   });
 
   const dialog = modal({
@@ -97,7 +103,7 @@ export function restoreEncryptionDialog(spec) {
   });
 
   async function run() {
-    if (running || done || password.value === "") return;
+    if (running || done || unusable()) return;
     const secret = password.value;
     password.value = "";
     running = true;
@@ -138,7 +144,7 @@ export function restoreEncryptionDialog(spec) {
       close.textContent = done ? "Close" : "Cancel";
       confirm.hidden = done;
       confirm.textContent = "Turn encryption off";
-      confirm.disabled = done || password.value === "";
+      confirm.disabled = done || unusable();
     }
     spec.onSettled?.(outcome);
   }

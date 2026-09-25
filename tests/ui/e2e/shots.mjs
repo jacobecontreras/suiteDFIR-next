@@ -881,6 +881,19 @@ const SCREENS = [
     },
   },
   {
+    // On Windows the iOS tools take only printable ASCII passwords: the form says so at once.
+    name: "acquire-password-not-ascii",
+    query: "?mock&scenario=windows",
+    hash: acquireHash(NIGHTJAR),
+    element: ".acquire-screen",
+    setup: async (page) => {
+      await acquireReady(page);
+      await enableEncryption(page, "Prüfer-2026", "Prüfer-2026");
+      await page.getByText("On Windows the iOS tools can only use a password of plain ASCII").first().waitFor();
+      if (!(await page.getByRole("button", { name: "Start acquisition" }).isDisabled())) throw new Error("Start is enabled with a non-ASCII password on Windows");
+    },
+  },
+  {
     name: "acquire-encryption-unknown",
     query: "?mock&scenario=pair_states",
     hash: acquireHash(NIGHTJAR),
@@ -1366,6 +1379,52 @@ const CHECKS = [
       await dialog.getByRole("button", { name: "Close" }).click();
       // The rows are re-read: once a restore succeeded, the core's AcqSummary no longer asks for it.
       await turnOff.waitFor({ state: "detached" });
+    },
+  },
+  {
+    // The encryption alert of a result is inserted once (not again when the final record
+    // arrives), and a result shown again after a later restore from the Case screen is re-read:
+    // it no longer offers "Turn backup encryption off" (K5 review SF1, N-b).
+    name: "check-acquire-result-reread",
+    hash: acquireHash(NIGHTJAR),
+    run: async (page) => {
+      await acquireReady(page);
+      await page.evaluate(() => {
+        const w = /** @type {any} */ (window);
+        w.__alerts = 0;
+        new MutationObserver((records) => {
+          for (const r of records) {
+            for (const n of r.addedNodes) {
+              if (n instanceof Element && (n.matches(".banner-danger[role=alert]") || n.querySelector(".banner-danger[role=alert]"))) w.__alerts += 1;
+            }
+          }
+        }).observe(document.body, { childList: true, subtree: true });
+      });
+      await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
+      await acqResult(page, "Succeeded");
+      await page.getByText("Backup encryption may still be on for this device.").waitFor();
+      // The final acquisition.json is read after `finished`: its seal row appears.
+      await page.locator(".result-card dt", { hasText: "Seal" }).waitFor();
+      await page.waitForTimeout(1000);
+      const alerts = await page.evaluate(() => /** @type {any} */ (window).__alerts);
+      if (alerts !== 1) throw new Error(`the encryption alert was inserted ${alerts} times`);
+      // Turn it off from the Case screen, then open Acquire again.
+      await page.locator(".acquire-screen").getByRole("link", { name: "Operation Nightjar" }).first().click();
+      const turnOff = page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" }).first();
+      await turnOff.click();
+      const dialog = page.locator("dialog");
+      await dialog.getByLabel("Backup password").fill("examiner-pw");
+      await dialog.getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is off.").waitFor();
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await page.evaluate((hash) => {
+        window.location.hash = hash;
+      }, acquireHash(NIGHTJAR));
+      await acqResult(page, "Succeeded");
+      await page.getByText("Backup encryption was turned off after this acquisition.").waitFor();
+      if (await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).count()) {
+        throw new Error("the reopened result still offers Turn backup encryption off");
+      }
     },
   },
   {
