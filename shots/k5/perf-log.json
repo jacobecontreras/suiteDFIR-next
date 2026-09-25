@@ -2,21 +2,21 @@
   "budget_ms": 100,
   "lines": 100076,
   "row_elements": 40,
-  "stream_ms": 1571,
+  "stream_ms": 1572,
   "stream_long_tasks": {
     "count": 0,
     "max_ms": 0
   },
   "jump_ms": {
     "runs": 50,
-    "median": 33.1,
-    "max": 35.1
+    "median": 33.4,
+    "max": 34.1
   },
   "jump_wrong_rows": 0,
   "scroll_frame_ms": {
     "frames": 120,
-    "median": 16.7,
-    "max": 18.6
+    "median": 16.6,
+    "max": 18.1
   },
   "scroll_long_tasks": {
     "count": 0,
