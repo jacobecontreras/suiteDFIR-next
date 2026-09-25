@@ -31,6 +31,8 @@ npm test                                 # node --test "tests/ui/**/*.test.js"
 node scripts/serve-ui.mjs [--port 5173]  # serve ui/ + ui-dev/ (at /dev/) with the app's CSP header
                                          # open http://127.0.0.1:5173/?mock for browser mock mode
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
+                                         # (~350 MB per tool, downloaded to the OS temp dir or
+                                         # --download-dir <dir> and deleted after checking)
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
 cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
 scripts/build-idevice-tools.sh <platform-key>  # build a pinned libimobiledevice tool bundle: macos-aarch64 / macos-x86_64
