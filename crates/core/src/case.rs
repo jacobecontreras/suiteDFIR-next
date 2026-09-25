@@ -173,11 +173,8 @@ pub struct CreatedCase {
 /// Creates a case folder in `parent` (an existing directory) and writes its `case.json`. The folder
 /// name is [`sanitize_name`] of `name`; if it is taken, ` (2)`, ` (3)`, … is appended. The folder is
 /// created with a plain `create_dir`, so two creations can never share a folder.
-pub fn create(
-    parent: &Path,
-    fields: &CaseFields,
-    app_version: &str,
-) -> Result<CreatedCase, CaseError> {
+/// `created_by_app_version` is this build's version, as in run records.
+pub fn create(parent: &Path, fields: &CaseFields) -> Result<CreatedCase, CaseError> {
     validate_fields(fields)?;
     let case_id = new_case_id().map_err(|e| CaseError::io(parent, e))?;
     let path = create_unique_dir(parent, &sanitize_name(&fields.name))?;
@@ -193,7 +190,7 @@ pub fn create(
         default_timezone: fields.default_timezone.clone(),
         created_at: now,
         updated_at: now,
-        created_by_app_version: app_version.to_owned(),
+        created_by_app_version: crate::run::record::record_app().version,
     };
     if let Err(e) = fsutil::write_json_atomic(&path.join(CASE_FILE), &case) {
         // The folder is ours and empty (the atomic write removes its temp file): don't leave a
@@ -513,7 +510,7 @@ mod tests {
     #[test]
     fn create_writes_case_json() {
         let dir = tempfile::tempdir().unwrap();
-        let created = create(dir.path(), &examples::case_fields(), "0.2.0").unwrap();
+        let created = create(dir.path(), &examples::case_fields()).unwrap();
         assert_eq!(created.path, dir.path().join("Operation Nightjar"));
         let case = &created.case;
         assert_eq!(case.schema_version, 1);
@@ -526,7 +523,7 @@ mod tests {
         assert_eq!(case.created_by_app_version, "0.2.0");
         assert_eq!(load(&created.path).unwrap(), *case);
         // Two cases never share an id.
-        let other = create(dir.path(), &examples::case_fields(), "0.2.0").unwrap();
+        let other = create(dir.path(), &examples::case_fields()).unwrap();
         assert_ne!(other.case.case_id, case.case_id);
     }
 
@@ -541,16 +538,16 @@ mod tests {
                 .to_string_lossy()
                 .into_owned()
         };
-        let first = create(dir.path(), &fields("Case: A/B."), "0.2.0").unwrap();
+        let first = create(dir.path(), &fields("Case: A/B.")).unwrap();
         assert_eq!(name_of(&first), "Case_ A_B");
         assert_eq!(first.case.name, "Case: A/B.", "the name itself is kept");
-        let second = create(dir.path(), &fields("Case: A/B"), "0.2.0").unwrap();
+        let second = create(dir.path(), &fields("Case: A/B")).unwrap();
         assert_eq!(name_of(&second), "Case_ A_B (2)");
-        let third = create(dir.path(), &fields("Case? A|B"), "0.2.0").unwrap();
+        let third = create(dir.path(), &fields("Case? A|B")).unwrap();
         assert_eq!(name_of(&third), "Case_ A_B (3)");
         // An existing plain file also blocks the name.
         fs::write(dir.path().join("CON_"), "").unwrap();
-        let reserved = create(dir.path(), &fields("con"), "0.2.0").unwrap();
+        let reserved = create(dir.path(), &fields("con")).unwrap();
         assert_eq!(name_of(&reserved), "con_ (2)");
     }
 
@@ -559,11 +556,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let too_long = "x".repeat(121);
         for name in ["", "   ", too_long.as_str()] {
-            let err = create(dir.path(), &fields(name), "0.2.0").unwrap_err();
+            let err = create(dir.path(), &fields(name)).unwrap_err();
             assert_eq!(err.code(), ErrorCode::InvalidCase, "{name:?}");
         }
-        assert!(create(dir.path(), &fields(&"é".repeat(120)), "0.2.0").is_ok());
-        let err = create(&dir.path().join("missing"), &fields("A"), "0.2.0").unwrap_err();
+        assert!(create(dir.path(), &fields(&"é".repeat(120))).is_ok());
+        let err = create(&dir.path().join("missing"), &fields("A")).unwrap_err();
         assert_eq!(err.code(), ErrorCode::Io);
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
@@ -571,7 +568,7 @@ mod tests {
     #[test]
     fn open_marks_known_and_validates() {
         let dir = tempfile::tempdir().unwrap();
-        let created = create(dir.path(), &examples::case_fields(), "0.2.0").unwrap();
+        let created = create(dir.path(), &examples::case_fields()).unwrap();
         let path = created.path.to_string_lossy().into_owned();
         let mut settings = crate::settings::defaults(dir.path());
         settings.recent_cases = vec!["/elsewhere".to_owned()];
@@ -664,7 +661,7 @@ mod tests {
     #[test]
     fn update_changes_editable_fields_only() {
         let dir = tempfile::tempdir().unwrap();
-        let created = create(dir.path(), &examples::case_fields(), "0.2.0").unwrap();
+        let created = create(dir.path(), &examples::case_fields()).unwrap();
         let new_fields = CaseFields {
             name: "Renamed".to_owned(),
             case_number: "2026-0999".to_owned(),
@@ -697,7 +694,7 @@ mod tests {
     #[test]
     fn update_leaves_no_temp_files() {
         let dir = tempfile::tempdir().unwrap();
-        let created = create(dir.path(), &examples::case_fields(), "0.2.0").unwrap();
+        let created = create(dir.path(), &examples::case_fields()).unwrap();
         update(&created.path, &fields("Again")).unwrap();
         let names: Vec<_> = fs::read_dir(&created.path)
             .unwrap()
@@ -709,7 +706,7 @@ mod tests {
     #[test]
     fn a_crash_between_write_and_rename_never_truncates_case_json() {
         let dir = tempfile::tempdir().unwrap();
-        let created = create(dir.path(), &examples::case_fields(), "0.2.0").unwrap();
+        let created = create(dir.path(), &examples::case_fields()).unwrap();
         let file = created.path.join(CASE_FILE);
         let before = fs::read(&file).unwrap();
         let mut changed = created.case.clone();
@@ -822,7 +819,7 @@ mod tests {
     #[test]
     fn list_summarizes_recent_cases() {
         let dir = tempfile::tempdir().unwrap();
-        let created = create(dir.path(), &examples::case_fields(), "0.2.0").unwrap();
+        let created = create(dir.path(), &examples::case_fields()).unwrap();
         write_run(
             &created.path,
             "20260924-183005Z-ileapp-3f9a1c",
@@ -835,7 +832,7 @@ mod tests {
         );
         let broken = dir.path().join("broken");
         write_case_json(&broken, &serde_json::json!({"schema_version": 1}));
-        let empty = create(dir.path(), &fields("Empty"), "0.2.0").unwrap();
+        let empty = create(dir.path(), &fields("Empty")).unwrap();
 
         let mut settings = crate::settings::defaults(dir.path());
         for path in [
