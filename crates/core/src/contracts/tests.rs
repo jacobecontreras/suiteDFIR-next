@@ -287,10 +287,10 @@ fn case_update_default_timezone_is_required_but_nullable() {
     );
 }
 
-// ---- the placeholder idevice-tools.json ----
+// ---- the committed idevice-tools.json ----
 
 #[test]
-fn idevice_tools_placeholder_parses() {
+fn idevice_tools_manifest_parses() {
     let manifest: IdeviceToolsManifest =
         parse_versioned(include_bytes!("../../../../idevice-tools.json")).unwrap();
     assert_eq!(manifest.version, "1.4.0");
@@ -319,7 +319,16 @@ fn idevice_tools_placeholder_parses() {
             source.name
         );
     }
-    assert!(manifest.platforms.is_empty());
+    // X1 pins the bundled platforms; `cargo xtask fetch-idevice-tools` checks each entry's shape.
+    let platforms: Vec<_> = manifest.platforms.keys().copied().collect();
+    assert_eq!(
+        platforms,
+        [
+            PlatformKey::MacosAarch64,
+            PlatformKey::MacosX86_64,
+            PlatformKey::WindowsX86_64
+        ]
+    );
     assert_eq!(
         manifest.system_platforms,
         [PlatformKey::LinuxX86_64, PlatformKey::LinuxAarch64]

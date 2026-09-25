@@ -4724,6 +4724,9 @@ version = "0.2.0"
 dependencies = [
  "serde_json",
  "suitedfir-core",
+ "tempfile",
+ "ureq",
+ "zip",
 ]
 
 [[package]]

@@ -6,20 +6,34 @@ Facts about the libimobiledevice command-line tools that suiteDFIR uses for iOS 
 
 ## 1. Pinned sources and licenses
 
-The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256 in `idevice-tools.json`.
+The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256 in `idevice-tools.json`. On 2026-09-25 every hash was checked against the GitHub release asset digest, except libplist's: its asset has no digest, and the computed hash matches the Homebrew formula's.
 
 | Project | Version | Asset |
 |---|---|---|
-| libplist | 2.7.0 | `libplist-2.7.0.tar.bz2` (no GitHub digest; X1 computes one) |
+| libplist | 2.7.0 | `libplist-2.7.0.tar.bz2` |
 | libimobiledevice-glue | 1.3.2 | `libimobiledevice-glue-1.3.2.tar.bz2` |
 | libusbmuxd | 2.1.1 | `libusbmuxd-2.1.1.tar.bz2` |
 | libtatsu | 1.0.5 | `libtatsu-1.0.5.tar.bz2` (requires libcurl, `configure.ac:39`) |
-| mbedtls | 3.6.x (pin exact) | upstream release tarball (TLS backend via `--with-mbedtls`) |
+| mbedtls | 3.6.7 | `mbedtls-3.6.7.tar.bz2` (the newest 3.6 LTS release; TLS backend via `--with-mbedtls`) |
 | libimobiledevice | 1.4.0 | `libimobiledevice-1.4.0.tar.bz2` (`--with-mbedtls` and `--without-cython` are valid, `configure.ac:130/176`) |
+
+**Build** (`scripts/build-idevice-tools.sh <platform-key>`):
+- **Platforms:** `macos-aarch64` and `macos-x86_64` on the Mac (minimum macOS 11.0; x86_64 is cross-built with `-arch x86_64`), and `windows-x86_64` in a per-user MSYS2 UCRT64 install.
+- **Static:** every library is built with `--enable-static --disable-shared` and `pkg-config --static`, so the tools link only system libraries; the script fails otherwise.
+  - macOS: `libSystem`, `CoreFoundation` and `SystemConfiguration`.
+  - Windows: system DLLs only, so `files` lists no DLL.
+- **Only the four tools are built.** `ideviceimagemounter`, the only tool that links libtatsu, is not. libtatsu is still built because libimobiledevice's `configure` requires it; on macOS it compiles against the system libcurl.
+- **Upstream build files are used unchanged** (no `autoreconf`, no source patches). Two static-build quirks are handled on the command line:
+  - `3rd_party/libsrp6a-sha512` reads `$(mbedtls_CFLAGS)`, which `configure` never sets, so the script passes it to `make`.
+  - libimobiledevice-glue initializes itself in a constructor in `glue.o` (on Windows it calls `WSAStartup`). The tools reference nothing else in that object, so a static link drops it, and on Windows every usbmuxd connection then fails. The tools are linked with `-u libimobiledevice_glue_version` (`_libimobiledevice_glue_version` on macOS) to pull it in, and the script checks that the constructor is present.
+- **Publishing:** the bundles are assets of the prerelease `idevice-tools-1.4.0`. Each zip holds the tools, `BUILDINFO.json` (sources, toolchain, flags, date, linked libraries) and the notices listed below. `cargo xtask fetch-idevice-tools` checks `bundle_sha256` and every file hash before it installs the tools as Tauri sidecars.
 
 **Licenses:**
 - The source headers and README say LGPL-2.1-or-later. The repo also ships a GPL-2 `COPYING`.
 - **Ship both texts** (`COPYING`, `COPYING.LESSER`), plus the `3rd_party/` notices and the mbedtls (Apache-2.0) notice.
+- The release tarball omits the `3rd_party/*/LICENSE` files (ed25519: zlib; libsrp6a-sha512: Stanford SRP, BSD-style). The build takes them from the `1.4.0` tag, pinned by SHA-256; they match that tag's blobs.
+- libplist compiles in MIT-licensed code (`src/jsmn.c`, `src/time64.c`). The bundles carry those notices in `libplist-embedded-notices.txt`.
+- The Windows tools link the MinGW-w64 runtime statically, and its license requires its notices in binary distributions: `mingw-w64/COPYING.MinGW-w64-runtime.txt` in the Windows bundle.
 - The source obligation is met by attaching the exact source tarballs and the build script to each app release (ROADMAP F1/F2). A link to upstream is not enough.
 
 **Runtime service (usbmuxd):**
@@ -130,6 +144,11 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 2. Exact on-device prompts (passcode for backup / encryption) per iOS version, and their console lines.
 3. Real-device progress output cadence (bursts, `Finished` lines).
 4. Windows: the tools reach Apple Mobile Device Service without extra configuration; the exact error when it is missing.
+   - **Recorded by X1** on 2026-09-25 (Windows 11 build 26200, the published `windows-x86_64` bundle):
+     - With nothing listening on the usbmuxd port, `idevice_id -l` prints `ERROR: Unable to retrieve device list!` to stderr, nothing to stdout, and exits with code -1.
+     - The test machine has the service installed, and a non-admin account cannot stop it. The missing service was therefore simulated with `USBMUXD_SOCKET_ADDRESS=127.0.0.1:27016` (a closed port), which takes the same connect path in libusbmuxd as the default `127.0.0.1:27015`.
+     - With the service running and no device attached, `idevice_id -l` printed nothing and exited 0, with no extra configuration.
+   - **Still open:** talking to a real device through the service.
 5. Linux: minimum distro package version that supports current iOS.
 6. Graceful abort time after SIGTERM on a large backup (grace = 30 s).
 7. `ideviceinfo -s` field subset on current iOS for an unpaired device.

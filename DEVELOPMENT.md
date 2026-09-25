@@ -33,8 +33,10 @@ node scripts/serve-ui.mjs [--port 5173]  # serve ui/ + ui-dev/ (at /dev/) with t
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
 cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
-scripts/build-idevice-tools.sh           # build pinned libimobiledevice tools locally (macOS; Windows via per-user MSYS2)
-cargo xtask fetch-idevice-tools          # fetch + verify the pinned tool bundle into src-tauri/binaries/ (release builds)
+scripts/build-idevice-tools.sh <platform-key>  # build a pinned libimobiledevice tool bundle: macos-aarch64 / macos-x86_64
+                                         # on the Mac, windows-x86_64 in a per-user MSYS2 UCRT64 shell (X1)
+cargo xtask fetch-idevice-tools [--target <triple>]  # fetch + verify the pinned tool bundle into src-tauri/binaries/
+                                         # (release builds; token: GH_TOKEN, else `gh auth token [--user $SUITEDFIR_GH_USER]`)
 cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1   # real LEAPP
 cargo xtask fetch-idevice-tools && cargo tauri build --config src-tauri/tauri.release.conf.json   # release bundle (host)
 ```
@@ -67,14 +69,14 @@ crates/core/                  suitedfir-core: all logic, no Tauri dependency
   tests/{process.rs, runner.rs, acquire.rs, leapp_smoke.rs}
 src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.json (externalBin overlay),
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
-xtask/                        pin-leapp, contracts, notices
+xtask/                        pin-leapp, contracts, notices, fetch-idevice-tools
 ui/                           SHIPPED frontend (frontendDist): index.html app.js styles/ lib/ api/ screens/ components/ types.d.ts
 ui-dev/                       NOT shipped: mock.js, fixtures/contracts/{*.json, index.js} (generated)
 tests/ui/                     node --test files for ui/ modules
 fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <RUN_DIR>, <INPUT>)
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
-scripts/build-idevice-tools.sh  reproducible libimobiledevice build from pinned tarballs (X1)
+scripts/build-idevice-tools.sh  scripted (not bit-reproducible) libimobiledevice build from pinned tarballs (X1)
 .github/workflows/            ci-rust.yml, ci-js.yml, leapp-smoke.yml, release.yml
 docs/                         ARCHITECTURE, CONTRACTS, LEAPP-CLI, IDEVICE-CLI, ROADMAP, USER-GUIDE, QA-CHECKLIST
 ```
@@ -96,7 +98,7 @@ Build only what [ARCHITECTURE.md §2](docs/ARCHITECTURE.md#2-scope) lists. The o
 | `tauri-plugin-opener` 2.x | **free functions only** (`open_path`, `reveal_item_in_dir`); never `.plugin(...)` | src-tauri |
 | `serde` (derive), `serde_json` | | all |
 | `sha2` | | core |
-| `zip` | `default-features = false, features = ["deflate-flate2-zlib-rs"]` | core |
+| `zip` | `default-features = false, features = ["deflate-flate2-zlib-rs"]` | core, xtask |
 | `ureq` 3 | `default-features = false, features = ["rustls"]`; `https_only(true)`; size cap via `body_mut().with_config().limit(n)` | core, xtask |
 | `plist` | `Value::from_reader` (XML and binary) | core |
 | `time` | `formatting`, `parsing` | core |
