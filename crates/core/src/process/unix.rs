@@ -114,6 +114,11 @@ impl Watch {
     }
 }
 
+/// A real directory, not a symlink to one (`metadata` is from `symlink_metadata`).
+pub(super) fn is_plain_dir(metadata: &std::fs::Metadata) -> bool {
+    metadata.file_type().is_dir()
+}
+
 /// Nothing to retry on Unix: removal errors are not transient.
 pub(super) fn is_transient_removal_error(_error: &io::Error) -> bool {
     false

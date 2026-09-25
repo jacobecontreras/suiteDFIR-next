@@ -297,7 +297,7 @@ App directories come from Tauri path APIs (identifier `com.suitedfir.desktop`):
 <app_data>/instance.lock
 <app_data>/leapp/<tool>/<version>/{install.json, modules.json, bin/<entry> | squashfs-root/…}
 <app_data>/profiles/<tool>/<name>.<ilprofile|alprofile>
-<app_cache>/tmp/<run_id>/            per-run TMPDIR, deleted after the run
+<app_cache>/tmp/<run_id|acq_id>/     per-job TMPDIR, deleted after the job (tmp/ must be a plain dir)
 <app_log>/suitedfir.log              app log, truncated at 5 MB, never contains secrets
 ```
 

@@ -18,16 +18,19 @@
 //! **Output.** stdout and stderr are read by two threads that write them to the spec's log files
 //! and pass every chunk to the optional callback. stdin is null.
 //!
-//! **Temp dirs.** [`create_temp_dir`] makes `<app_cache>/tmp/<id>/`; a spec's `temp_dir` points
-//! `TMPDIR`, `TEMP` and `TMP` at it; [`remove_temp_dir`] removes it after the job (retrying
-//! Windows sharing violations for up to 5 s); [`sweep_stale_temp`] removes leftovers.
+//! **Temp dirs.** [`create_temp_dir`] makes `<app_cache>/tmp/<id>/`, where `id` is a run or
+//! acquisition id; a spec's `temp_dir` points `TMPDIR`, `TEMP` and `TMP` at it;
+//! [`remove_temp_dir`] removes it after the job (retrying Windows sharing violations for up to
+//! 5 s); [`sweep_stale_temp`] removes leftovers. All three refuse to work unless
+//! `<app_cache>/tmp` is a plain directory (not a symlink, junction or other reparse point), so
+//! they never delete anything outside the app cache.
 
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::panic::{self, AssertUnwindSafe};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -672,49 +675,112 @@ fn call(callback: &Mutex<Option<OutputCallback>>, stream: StdStream, chunk: &[u8
 /// What [`sweep_stale_temp`] did.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TempSweep {
-    /// Entries of `<app_cache>/tmp/` removed.
+    /// Temp dirs of `<app_cache>/tmp/` removed.
     pub removed: u64,
-    /// Bytes of the removed entries.
+    /// Bytes of the removed dirs.
     pub freed_bytes: u64,
-    /// Entries that could not be removed (each is logged).
+    /// Temp dirs that could not be removed (each is logged).
     pub failed: Vec<PathBuf>,
 }
 
-/// `<app_cache>/tmp/<id>`, the temp dir of job `id` (a run or acquisition id). `id` must be a
-/// single plain path component.
+/// Whether `name` is a job id, the only names temp dirs may have: a run id
+/// (`YYYYMMDD-HHMMSSZ-<ileapp|aleapp>-<6 hex>`) or an acquisition id (`…-ios-<6 hex>`),
+/// CONTRACTS.md §7.1 and §13.3.
+fn is_job_id(name: &str) -> bool {
+    let digits =
+        |text: &str, count: usize| text.len() == count && text.bytes().all(|b| b.is_ascii_digit());
+    let mut parts = name.split('-');
+    let (Some(date), Some(time), Some(kind), Some(suffix), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return false;
+    };
+    let known_kind = kind == "ios"
+        || crate::contracts::ToolId::ALL
+            .iter()
+            .any(|t| t.as_str() == kind);
+    digits(date, 8)
+        && time.strip_suffix('Z').is_some_and(|time| digits(time, 6))
+        && known_kind
+        && suffix.len() == 6
+        && suffix.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// `<app_cache>/tmp/<id>`, the temp dir of job `id`. `id` must be a run or acquisition id.
 pub fn temp_dir_path(app_cache: &Path, id: &str) -> io::Result<PathBuf> {
-    let mut components = Path::new(id).components();
-    match (components.next(), components.next()) {
-        (Some(Component::Normal(_)), None) if !id.contains(['/', '\\']) => {
-            Ok(app_cache.join("tmp").join(id))
-        }
-        _ => Err(io::Error::new(
+    if !is_job_id(id) {
+        return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("{id:?} is not a valid temp dir name"),
-        )),
+            format!("{id:?} is not a run or acquisition id"),
+        ));
+    }
+    Ok(app_cache.join("tmp").join(id))
+}
+
+/// Checks that `<app_cache>/tmp` is a plain directory: never a symlink, a Windows junction or
+/// another reparse point, which would make the removals below act outside the app cache.
+/// `Ok(false)` if it does not exist.
+fn verify_temp_root(root: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(root) {
+        Ok(metadata) if sys::is_plain_dir(&metadata) => Ok(true),
+        Ok(_) => Err(io::Error::other(format!(
+            "{} is not a plain directory (a link or reparse point?); refusing to use it",
+            root.display()
+        ))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
     }
 }
 
-/// Creates the temp dir of job `id` ([`temp_dir_path`]); it must not exist yet.
+/// Creates the temp dir of job `id` ([`temp_dir_path`]), and `<app_cache>/tmp` if needed. It must
+/// not exist yet, and `<app_cache>/tmp` must be a plain directory.
 pub fn create_temp_dir(app_cache: &Path, id: &str) -> io::Result<PathBuf> {
     let dir = temp_dir_path(app_cache, id)?;
-    if let Some(parent) = dir.parent() {
-        fs::create_dir_all(parent)?;
+    let root = app_cache.join("tmp");
+    if !verify_temp_root(&root)? {
+        fs::create_dir_all(app_cache)?;
+        match fs::create_dir(&root) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+        if !verify_temp_root(&root)? {
+            return Err(io::Error::other(format!(
+                "{} vanished while being created",
+                root.display()
+            )));
+        }
     }
     fs::create_dir(&dir)?;
     Ok(dir)
 }
 
-/// Removes a temp dir and everything in it without following symlinks. A missing dir is fine.
-/// On Windows, sharing violations and similar transient errors (files of a just-terminated
-/// process) are retried for up to 5 s.
-pub fn remove_temp_dir(dir: &Path) -> io::Result<()> {
-    let deadline = Instant::now() + TEMP_REMOVE_RETRY;
+/// Removes the temp dir of job `id` and everything in it, without following symlinks. A missing
+/// dir is fine; `<app_cache>/tmp` must be a plain directory. On Windows, sharing violations and
+/// similar transient errors (files of a just-terminated process) are retried for up to 5 s.
+pub fn remove_temp_dir(app_cache: &Path, id: &str) -> io::Result<()> {
+    let dir = temp_dir_path(app_cache, id)?;
+    if !verify_temp_root(&app_cache.join("tmp"))? {
+        return Ok(());
+    }
+    remove_with_retry(&dir)
+}
+
+fn remove_with_retry(path: &Path) -> io::Result<()> {
+    // No deadline if the clock cannot represent one: then there is no retry either.
+    let deadline = Instant::now().checked_add(TEMP_REMOVE_RETRY);
     loop {
-        match remove_entry(dir) {
+        match remove_entry(path) {
             Ok(()) => return Ok(()),
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(e) if sys::is_transient_removal_error(&e) && Instant::now() < deadline => {
+            Err(e)
+                if sys::is_transient_removal_error(&e)
+                    && deadline.is_some_and(|deadline| Instant::now() < deadline) =>
+            {
                 thread::sleep(TEMP_REMOVE_INTERVAL);
             }
             Err(e) => return Err(e),
@@ -733,27 +799,31 @@ fn remove_entry(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Removes every entry of `<app_cache>/tmp/`: temp dirs left by hard kills or crashes. Call it
-/// only when no job is running (at startup, after the instance lock is held, or from
-/// `temp_cleanup`).
+/// Removes the temp dirs left in `<app_cache>/tmp/` by hard kills or crashes: every entry named
+/// like a job id. Other entries are left alone (and logged). Refuses to work if
+/// `<app_cache>/tmp` is not a plain directory. Call it only when no job is running (at startup,
+/// after the instance lock is held, or from `temp_cleanup`).
 pub fn sweep_stale_temp(app_cache: &Path) -> io::Result<TempSweep> {
     let root = app_cache.join("tmp");
-    let entries = match fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(TempSweep::default()),
-        Err(e) => return Err(e),
-    };
+    if !verify_temp_root(&root)? {
+        return Ok(TempSweep::default());
+    }
     let mut sweep = TempSweep::default();
-    for entry in entries {
-        let path = entry?.path();
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !entry.file_name().to_str().is_some_and(is_job_id) {
+            log::warn!("leaving unexpected temp entry {}", path.display());
+            continue;
+        }
         let size = tree_size(&path);
-        match remove_temp_dir(&path) {
+        match remove_with_retry(&path) {
             Ok(()) => {
                 sweep.removed += 1;
                 sweep.freed_bytes = sweep.freed_bytes.saturating_add(size);
             }
             Err(e) => {
-                log::warn!("cannot remove stale temp entry {}: {e}", path.display());
+                log::warn!("cannot remove stale temp dir {}: {e}", path.display());
                 sweep.failed.push(path);
             }
         }
@@ -785,14 +855,35 @@ fn tree_size(path: &Path) -> u64 {
 mod tests {
     use super::*;
 
+    const RUN: &str = "20260924-183005Z-ileapp-3f9a1c";
+    const ACQ: &str = "20260924-171200Z-ios-9c01de";
+
     #[test]
-    fn temp_dir_names_are_single_components() {
+    fn temp_dirs_are_named_by_job_id() {
         let cache = Path::new("cache");
         assert_eq!(
-            temp_dir_path(cache, "20260924-183005Z-ileapp-3f9a1c").unwrap(),
-            cache.join("tmp").join("20260924-183005Z-ileapp-3f9a1c")
+            temp_dir_path(cache, RUN).unwrap(),
+            cache.join("tmp").join(RUN)
         );
-        for bad in ["", ".", "..", "a/b", "a\\b", "/abs"] {
+        assert!(temp_dir_path(cache, ACQ).is_ok());
+        assert!(temp_dir_path(cache, "20260924-183005Z-aleapp-ABCDEF").is_ok());
+        for bad in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "/abs",
+            "run1",
+            "20260924-183005Z-ileapp-3f9a1",
+            "20260924-183005Z-ileapp-3f9a1g",
+            "20260924-183005-ileapp-3f9a1c",
+            "2026092-183005Z-ileapp-3f9a1c",
+            "20260924-183005Z-xleapp-3f9a1c",
+            "20260924-183005Z-ileapp-3f9a1c-x",
+            "../20260924-183005Z-ileapp-3f9a1c",
+            "20260924-183005Z-ileapp-3f9a1c/..",
+        ] {
             let error = temp_dir_path(cache, bad).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{bad:?}");
         }
@@ -801,56 +892,76 @@ mod tests {
     #[test]
     fn create_and_remove_temp_dir() {
         let cache = tempfile::tempdir().unwrap();
-        let dir = create_temp_dir(cache.path(), "run1").unwrap();
-        assert_eq!(dir, cache.path().join("tmp").join("run1"));
+        // Nothing to remove before the temp root exists.
+        remove_temp_dir(cache.path(), RUN).unwrap();
+        let dir = create_temp_dir(cache.path(), RUN).unwrap();
+        assert_eq!(dir, cache.path().join("tmp").join(RUN));
         assert!(dir.is_dir());
         // An existing dir is never reused.
         assert_eq!(
-            create_temp_dir(cache.path(), "run1").unwrap_err().kind(),
+            create_temp_dir(cache.path(), RUN).unwrap_err().kind(),
             io::ErrorKind::AlreadyExists
         );
         fs::create_dir_all(dir.join("_MEIfake1").join("nested")).unwrap();
         fs::write(dir.join("_MEIfake1").join("nested").join("f"), "x").unwrap();
-        remove_temp_dir(&dir).unwrap();
+        remove_temp_dir(cache.path(), RUN).unwrap();
         assert!(!dir.exists());
         // Missing is fine.
-        remove_temp_dir(&dir).unwrap();
+        remove_temp_dir(cache.path(), RUN).unwrap();
+        assert!(remove_temp_dir(cache.path(), "not-a-job").is_err());
     }
 
     #[test]
-    fn sweep_removes_every_entry_and_counts_bytes() {
+    fn sweep_removes_job_dirs_only_and_counts_bytes() {
         let cache = tempfile::tempdir().unwrap();
         assert_eq!(
             sweep_stale_temp(cache.path()).unwrap(),
             TempSweep::default()
         );
-        let a = create_temp_dir(cache.path(), "a").unwrap();
-        let b = create_temp_dir(cache.path(), "b").unwrap();
-        fs::write(a.join("one"), [0u8; 100]).unwrap();
-        fs::create_dir(b.join("sub")).unwrap();
-        fs::write(b.join("sub").join("two"), [0u8; 50]).unwrap();
-        fs::write(cache.path().join("tmp").join("stray-file"), [0u8; 7]).unwrap();
+        let run = create_temp_dir(cache.path(), RUN).unwrap();
+        let acq = create_temp_dir(cache.path(), ACQ).unwrap();
+        fs::write(run.join("one"), [0u8; 100]).unwrap();
+        fs::create_dir(acq.join("sub")).unwrap();
+        fs::write(acq.join("sub").join("two"), [0u8; 50]).unwrap();
+        let root = cache.path().join("tmp");
+        fs::write(root.join("stray-file"), [0u8; 7]).unwrap();
+        fs::create_dir(root.join("not-a-job")).unwrap();
+        fs::write(root.join("not-a-job").join("keep"), "x").unwrap();
 
         let sweep = sweep_stale_temp(cache.path()).unwrap();
-        assert_eq!(sweep.removed, 3);
-        assert_eq!(sweep.freed_bytes, 157);
+        assert_eq!(sweep.removed, 2);
+        assert_eq!(sweep.freed_bytes, 150);
         assert!(sweep.failed.is_empty());
-        assert_eq!(fs::read_dir(cache.path().join("tmp")).unwrap().count(), 0);
+        assert!(!run.exists() && !acq.exists());
+        // Only job dirs are swept.
+        assert!(root.join("stray-file").is_file());
+        assert!(root.join("not-a-job").join("keep").is_file());
+    }
+
+    /// Creates a directory symlink, or returns false (with a message) where the OS does not allow
+    /// it: Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
+    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
+        match crate::fsutil::test_support::symlink_dir(target, link) {
+            Ok(()) => true,
+            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
+                eprintln!(
+                    "SKIPPED symlink check: creating symlinks needs Developer Mode or admin \
+                     (ERROR_PRIVILEGE_NOT_HELD)"
+                );
+                false
+            }
+            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
+        }
     }
 
     #[test]
-    fn sweep_does_not_follow_symlinks() {
+    fn sweep_does_not_follow_symlinks_inside_a_temp_dir() {
         let cache = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         fs::write(outside.path().join("keep"), "evidence").unwrap();
-        let dir = create_temp_dir(cache.path(), "run").unwrap();
-        if let Err(e) = crate::fsutil::test_support::symlink_dir(outside.path(), &dir.join("link"))
-        {
-            if cfg!(windows) && e.raw_os_error() == Some(1314) {
-                eprintln!("SKIPPED: creating symlinks needs Developer Mode or admin (error 1314)");
-                return;
-            }
-            panic!("cannot create a symlink: {e}");
+        let dir = create_temp_dir(cache.path(), RUN).unwrap();
+        if !try_symlink_dir(outside.path(), &dir.join("link")) {
+            return;
         }
         sweep_stale_temp(cache.path()).unwrap();
         assert!(!dir.exists());
@@ -858,6 +969,57 @@ mod tests {
             fs::read_to_string(outside.path().join("keep")).unwrap(),
             "evidence"
         );
+    }
+
+    /// `outside` with files that must survive, and a job-named dir for `remove_temp_dir` to aim at.
+    fn precious_dir() -> tempfile::TempDir {
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("precious.txt"), "evidence").unwrap();
+        fs::create_dir_all(outside.path().join("subdir")).unwrap();
+        fs::write(outside.path().join("subdir").join("more.txt"), "more").unwrap();
+        fs::create_dir(outside.path().join(RUN)).unwrap();
+        outside
+    }
+
+    /// With `<app_cache>/tmp` linked to `outside`, nothing may be created or deleted there.
+    fn assert_linked_root_refused(cache: &Path, outside: &Path) {
+        assert!(sweep_stale_temp(cache).is_err());
+        assert!(create_temp_dir(cache, ACQ).is_err());
+        assert!(remove_temp_dir(cache, RUN).is_err());
+        assert_eq!(
+            fs::read_to_string(outside.join("precious.txt")).unwrap(),
+            "evidence"
+        );
+        assert!(outside.join("subdir").join("more.txt").is_file());
+        assert!(outside.join(RUN).is_dir());
+        assert!(!outside.join(ACQ).exists());
+    }
+
+    #[test]
+    fn a_symlinked_temp_root_is_refused() {
+        let cache = tempfile::tempdir().unwrap();
+        let outside = precious_dir();
+        if !try_symlink_dir(outside.path(), &cache.path().join("tmp")) {
+            return;
+        }
+        assert_linked_root_refused(cache.path(), outside.path());
+    }
+
+    /// Junctions need no privilege on Windows.
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_temp_root_is_refused() {
+        let cache = tempfile::tempdir().unwrap();
+        let outside = precious_dir();
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(cache.path().join("tmp"))
+            .arg(outside.path())
+            .stdout(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "mklink /J failed: {status}");
+        assert_linked_root_refused(cache.path(), outside.path());
     }
 
     #[test]

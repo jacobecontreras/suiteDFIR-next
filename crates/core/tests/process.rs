@@ -17,6 +17,8 @@ const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
 const CANCEL_BOUND: Duration = Duration::from_secs(12);
 /// How long to wait for fake-leapp to start both processes.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+/// Temp dirs are named by job id (CONTRACTS.md §7.1).
+const JOB_ID: &str = "20260925-090000Z-ileapp-0a1b2c";
 
 /// A fake run: an `fs` input with one file, an output folder and an app cache, all in a temp dir.
 struct Fixture {
@@ -197,7 +199,7 @@ fn handle_is_send_and_sync() {
 #[test]
 fn success_exits_0_and_captures_output() {
     let fixture = Fixture::new();
-    let temp = process::create_temp_dir(&fixture.cache, "success").unwrap();
+    let temp = process::create_temp_dir(&fixture.cache, JOB_ID).unwrap();
     let mut spec = fixture.spec(
         "success",
         &[("FAKE_LEAPP_LINES", "5"), ("FAKE_LEAPP_INTERVAL_MS", "200")],
@@ -236,14 +238,14 @@ fn success_exits_0_and_captures_output() {
     tree.assert_gone_by(Instant::now() + CANCEL_BOUND);
     // A graceful exit removed the tool's runtime dir; the job's temp dir goes with remove_temp_dir.
     assert_eq!(fs::read_dir(&temp).unwrap().count(), 0);
-    process::remove_temp_dir(&temp).unwrap();
+    process::remove_temp_dir(&fixture.cache, JOB_ID).unwrap();
     assert!(!temp.exists());
 }
 
 #[test]
 fn slow_cancel_stops_both_processes_without_escalation() {
     let fixture = Fixture::new();
-    let temp = process::create_temp_dir(&fixture.cache, "slow").unwrap();
+    let temp = process::create_temp_dir(&fixture.cache, JOB_ID).unwrap();
     let mut spec = fixture.spec("slow", &[]);
     spec.temp_dir = Some(temp.clone());
 
@@ -264,7 +266,7 @@ fn slow_cancel_stops_both_processes_without_escalation() {
     assert_eq!(fixture.stdout(), "");
 
     // On Windows the terminated tool leaves its runtime dir behind; removal copes with both.
-    process::remove_temp_dir(&temp).unwrap();
+    process::remove_temp_dir(&fixture.cache, JOB_ID).unwrap();
     assert!(!temp.exists());
 }
 
@@ -428,7 +430,7 @@ fn kill_pid(pid: u32, signal: &str) {
 #[test]
 fn ignore_term_cancel_escalates_to_kill() {
     let fixture = Fixture::new();
-    let temp = process::create_temp_dir(&fixture.cache, "ignore").unwrap();
+    let temp = process::create_temp_dir(&fixture.cache, JOB_ID).unwrap();
     let mut spec = fixture.spec("ignore_term", &[]);
     spec.temp_dir = Some(temp.clone());
 
@@ -444,7 +446,7 @@ fn ignore_term_cancel_escalates_to_kill() {
     assert_eq!((exit.exit_code, exit.signal), (None, Some(9)));
     // SIGKILL leaks the tool's runtime dir; the job's temp dir removal takes it along.
     assert!(temp.join(format!("_MEIfake{}", tree.parent)).is_dir());
-    process::remove_temp_dir(&temp).unwrap();
+    process::remove_temp_dir(&fixture.cache, JOB_ID).unwrap();
     assert!(!temp.exists());
 }
 

@@ -5,8 +5,10 @@
 //! `unsafe` here is FFI only (job objects, the Toolhelp thread snapshot, thread and process
 //! handles), each commented. Handles are owned by `OwnedHandle`, which closes them.
 
+use std::fs;
 use std::io;
 use std::mem::{offset_of, size_of};
+use std::os::windows::fs::MetadataExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, ExitStatus};
@@ -16,6 +18,7 @@ use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_DIR_NOT_EMPTY, ERROR_INVALID_PARAMETER, ERROR_LOCK_VIOLATION,
     ERROR_SHARING_VIOLATION, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
+use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
 };
@@ -246,6 +249,12 @@ impl Watch {
             Self::Inaccessible => true,
         }
     }
+}
+
+/// A real directory: not a symlink, a junction or any other reparse point (`metadata` is from
+/// `symlink_metadata`).
+pub(super) fn is_plain_dir(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_dir() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
 }
 
 /// Errors that a just-terminated process's open files cause for a short while.
