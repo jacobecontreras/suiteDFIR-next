@@ -641,7 +641,14 @@ fn success_encrypt() {
         record.commands[2].argv[1..],
         ["-u", UDID, "encryption", "off"]
     );
+    // One clock read: the record's start is the first command's recorded start.
     assert_eq!(record.started_at, Some(record.commands[0].started_at));
+    assert!(
+        record
+            .commands
+            .windows(2)
+            .all(|w| w[0].started_at <= w[1].started_at)
+    );
     // The backup was encrypted, and the device is back to unencrypted.
     assert_eq!(lab.state()["will_encrypt"], false);
 }
@@ -710,6 +717,42 @@ fn enable_unknown() {
         AcqCommandPurpose::RestoreEncryption
     );
     assert_eq!(record.encryption.restored_after, RestoreState::Restored);
+    // WillEncrypt was never observed true, so no transition is claimed either way.
+    let changes: Vec<_> = record.device_changes.iter().map(|c| c.change).collect();
+    assert_eq!(changes, [DeviceChangeKind::SyncLockTaken]);
+}
+
+#[test]
+fn an_enable_reported_successful_but_unconfirmed_is_unknown_and_restored() {
+    // `encryption on` exits 0, but the next WillEncrypt read still says false.
+    let lab = Lab::new("enable_unconfirmed");
+    let (_, outcome, events) = simple(&lab, Some(PASSWORD));
+    let record = assert_final(
+        &lab,
+        &outcome,
+        &events,
+        AcqStatus::Succeeded,
+        &[],
+        &["encryption_state_unknown"],
+    );
+    assert_eq!(record.commands[0].exit_code, Some(0));
+    assert_eq!(record.encryption.will_encrypt_after_enable, Some(false));
+    assert!(!record.encryption.enabled_by_examiner);
+    // Not encryption_enable_failed: the restore was attempted, and it turned encryption off.
+    let purposes: Vec<_> = record.commands.iter().map(|c| c.purpose).collect();
+    assert_eq!(
+        purposes,
+        [
+            AcqCommandPurpose::EnableEncryption,
+            AcqCommandPurpose::Backup,
+            AcqCommandPurpose::RestoreEncryption
+        ]
+    );
+    assert_eq!(record.encryption.restored_after, RestoreState::Restored);
+    assert_eq!(record.encryption.will_encrypt_after_restore, Some(false));
+    assert_eq!(lab.state()["will_encrypt"], false);
+    let changes: Vec<_> = record.device_changes.iter().map(|c| c.change).collect();
+    assert_eq!(changes, [DeviceChangeKind::SyncLockTaken]);
 }
 
 #[test]

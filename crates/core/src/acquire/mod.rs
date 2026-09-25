@@ -638,7 +638,7 @@ impl AcqJob {
         let warnings = status::warnings(
             &record.encryption,
             &status::WarningFacts {
-                enable_attempted: record::enable_attempted(&record),
+                enable_outcome_unknown: record::enable_outcome_unknown(&record),
                 device_file_errors: run
                     .backup
                     .as_ref()
@@ -854,15 +854,61 @@ impl AcqJob {
         record.commands.len() - 1
     }
 
+    /// Records how a command ended. Its `started_at` stays the time recorded when it began, so the
+    /// record's `started_at` is exactly the first command's.
     fn end_command(record: &mut AcquisitionRecord, index: usize, run: &CommandRun) {
         if let Some(command) = record.commands.get_mut(index) {
-            command.started_at = run.started_at;
             command.exit_code = run.exit.exit_code;
             command.exited_at = Some(run.exit.exited_at);
         }
     }
 
-    /// Step 6: `encryption on`, then re-read `WillEncrypt`.
+    /// Runs an encryption change and delivers its output lines as events. On an error the command
+    /// stays in the record with a null exit code: the error may come after the tool started.
+    fn run_encryption_command(
+        &self,
+        session: &Session,
+        record: &mut AcquisitionRecord,
+        enable: bool,
+        password: &Password,
+        events: &mut Events<'_>,
+    ) -> Result<CommandRun, IdeviceError> {
+        let purpose = if enable {
+            AcqCommandPurpose::EnableEncryption
+        } else {
+            AcqCommandPurpose::RestoreEncryption
+        };
+        let argv = encryption_argv(&self.tools, &self.udid, enable);
+        log::info!("acquisition {}: running {}", self.acq_id, argv.join(" "));
+        let index = self.begin_command(record, purpose, argv);
+        let result = session.set_encryption(&self.udid, enable, password, &mut |line| {
+            events.output_line(line);
+            events.flush_lines();
+        });
+        events.flush_lines();
+        match &result {
+            Ok(command) => {
+                Self::end_command(record, index, command);
+                log::info!(
+                    "acquisition {}: {purpose} exited with {:?}",
+                    self.acq_id,
+                    command.exit.exit_code
+                );
+            }
+            Err(e) => log::warn!(
+                "acquisition {}: {purpose} did not complete: {e}",
+                self.acq_id
+            ),
+        }
+        result
+    }
+
+    /// Step 6: `encryption on`, then re-read `WillEncrypt`. The outcomes (ARCHITECTURE.md §6b):
+    /// - `WillEncrypt` true: enabled by the examiner;
+    /// - false after a failed command: `encryption_enable_failed` (nothing changed, no restore);
+    /// - false although the tool reported success, or unreadable: unknown, so it is treated as
+    ///   enabled for the restore and warns `encryption_state_unknown`
+    ///   ([`record::enable_outcome_unknown`]).
     fn enable(
         &self,
         session: &Session,
@@ -874,59 +920,39 @@ impl AcqJob {
             return;
         };
         self.set_phase(AcqPhase::EnablingEncryption, events);
-        let argv = encryption_argv(&self.tools, &self.udid, true);
-        let index = self.begin_command(record, AcqCommandPurpose::EnableEncryption, argv);
-        let result = session.set_encryption(&self.udid, true, password, &mut |line| {
-            events.output_line(line);
-            events.flush_lines();
-        });
-        events.flush_lines();
-        let command = match result {
-            Ok(command) => command,
+        let result = self.run_encryption_command(session, record, true, password, events);
+        let after = session.will_encrypt(&self.udid);
+        record.encryption.will_encrypt_after_enable = after;
+        if after == Some(true) {
+            record.encryption.enabled_by_examiner = true;
+            record.device_changes.push(DeviceChange {
+                at: Timestamp::now(),
+                change: DeviceChangeKind::BackupEncryptionEnabled,
+                detail: "WillEncrypt false → true".to_owned(),
+            });
+        }
+        match result {
             Err(e) => {
-                record.commands.remove(index);
-                self.rewrite(record);
                 run.short = Some(status::ShortCircuit::SpawnFailed(format!(
                     "enable_encryption: {e}"
                 )));
-                return;
             }
-        };
-        Self::end_command(record, index, &command);
-        let after = session.will_encrypt(&self.udid);
-        record.encryption.will_encrypt_after_enable = after;
-        match after {
-            Some(true) => {
-                record.encryption.enabled_by_examiner = true;
-                record.device_changes.push(DeviceChange {
-                    at: Timestamp::now(),
-                    change: DeviceChangeKind::BackupEncryptionEnabled,
-                    detail: "WillEncrypt false → true".to_owned(),
-                });
-            }
-            Some(false) => {
+            Ok(command) if after == Some(false) && command.exit.exit_code != Some(0) => {
                 run.short = Some(status::ShortCircuit::EncryptionEnableFailed(format!(
                     "idevicebackup2 encryption on exited with {:?}; WillEncrypt is still false",
                     command.exit.exit_code
                 )));
             }
-            // Unknown: treated as enabled for the restore (encryption_state_unknown).
-            None => {}
+            Ok(_) => {}
         }
         self.rewrite(record);
     }
 
-    /// Whether step 8 runs: encryption was enabled (or its state is unknown) and the examiner asked
-    /// for the restore.
+    /// Whether step 8 runs: the examiner asked for the restore, and encryption was enabled or the
+    /// enable outcome is unknown.
     fn restore_needed(&self, record: &AcquisitionRecord) -> bool {
-        let encryption = &record.encryption;
         self.restore_requested
-            && record::enable_attempted(record)
-            && (encryption.enabled_by_examiner || encryption.will_encrypt_after_enable.is_none())
-            && record
-                .commands
-                .iter()
-                .any(|c| c.purpose == AcqCommandPurpose::EnableEncryption && c.exited_at.is_some())
+            && (record.encryption.enabled_by_examiner || record::enable_outcome_unknown(record))
     }
 
     /// Step 7: the backup.
@@ -1065,37 +1091,26 @@ impl AcqJob {
             self.rewrite(record);
             return;
         }
-        let argv = encryption_argv(&self.tools, &self.udid, false);
-        let index = self.begin_command(record, AcqCommandPurpose::RestoreEncryption, argv);
-        let result = session.set_encryption(&self.udid, false, password, &mut |line| {
-            events.output_line(line);
-            events.flush_lines();
-        });
-        events.flush_lines();
-        match result {
-            Ok(command) => Self::end_command(record, index, &command),
-            Err(e) => {
-                log::warn!(
-                    "acquisition {}: the encryption restore did not run: {e}",
-                    self.acq_id
-                );
-                record.commands.remove(index);
-            }
-        }
+        let ran = self
+            .run_encryption_command(session, record, false, password, events)
+            .is_ok();
         let after = session.will_encrypt(&self.udid);
         record.encryption.will_encrypt_after_restore = after;
         record.encryption.restored_after = match after {
-            Some(false) => {
-                record.device_changes.push(DeviceChange {
-                    at: Timestamp::now(),
-                    change: DeviceChangeKind::BackupEncryptionDisabled,
-                    detail: "WillEncrypt true → false".to_owned(),
-                });
-                RestoreState::Restored
-            }
+            Some(false) => RestoreState::Restored,
             Some(true) => RestoreState::Failed,
             None => RestoreState::Unknown,
         };
+        // A device change is recorded only when it was observed: the command ran, and WillEncrypt
+        // read true before (after the enable) and false now.
+        if ran && record.encryption.will_encrypt_after_enable == Some(true) && after == Some(false)
+        {
+            record.device_changes.push(DeviceChange {
+                at: Timestamp::now(),
+                change: DeviceChangeKind::BackupEncryptionDisabled,
+                detail: "WillEncrypt true → false".to_owned(),
+            });
+        }
         self.rewrite(record);
     }
 

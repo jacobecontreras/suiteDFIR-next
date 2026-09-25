@@ -181,12 +181,29 @@ pub(crate) fn add_warning(warnings: &mut Vec<Reason>, code: &str, message: &str)
     }
 }
 
-/// Whether the record shows an `encryption on` command (started, whatever its outcome).
-pub(crate) fn enable_attempted(record: &AcquisitionRecord) -> bool {
-    record
+/// Whether the record shows an `encryption on` whose outcome is unknown (ARCHITECTURE.md §6b:
+/// treated as enabled for the restore, with `encryption_state_unknown`). That is, the command was
+/// started, and afterwards either
+/// - `WillEncrypt` was not read or was unreadable (`will_encrypt_after_enable` null: this includes a
+///   crash while the command ran), or
+/// - the tool reported success (exit 0) but `WillEncrypt` still read false (the device may update
+///   it only later, IDEVICE-CLI.md §8).
+///
+/// A command that failed (exit ≠ 0, or no exit observed) with `WillEncrypt` still false changed
+/// nothing, and one that left `WillEncrypt` true is known to have enabled encryption.
+pub(crate) fn enable_outcome_unknown(record: &AcquisitionRecord) -> bool {
+    let Some(enable) = record
         .commands
         .iter()
-        .any(|c| c.purpose == crate::contracts::AcqCommandPurpose::EnableEncryption)
+        .find(|c| c.purpose == crate::contracts::AcqCommandPurpose::EnableEncryption)
+    else {
+        return false;
+    };
+    match record.encryption.will_encrypt_after_enable {
+        None => true,
+        Some(false) => enable.exit_code == Some(0),
+        Some(true) => false,
+    }
 }
 
 pub(crate) const LEFT_ENABLED_MESSAGE: &str = "Backup encryption was turned on by the examiner and \
@@ -198,9 +215,10 @@ pub(crate) const STATE_UNKNOWN_MESSAGE: &str = "The device's backup-encryption s
 /// `app_interrupted`, `recovered_at` set, a `pending` seal becomes `interrupted`, and the
 /// encryption warnings are added:
 /// - `encryption_left_enabled` if `enabled_by_examiner` and `restored_after` ≠ `restored`;
-/// - `encryption_state_unknown` if the enable command ran and `will_encrypt_after_enable` is null
-///   (the enable outcome is unknown; ARCHITECTURE.md §6b "Recovery"). Without an enable command
-///   nothing on the device was changed, so a null there is not an unknown state.
+/// - `encryption_state_unknown` if the enable command ran and its outcome is unknown
+///   ([`enable_outcome_unknown`]; ARCHITECTURE.md §6b "Recovery"). Without an enable command
+///   nothing on the device was changed, so a null `will_encrypt_after_enable` is not an unknown
+///   state.
 ///
 /// Then the record is finalized (atomic write, read-only).
 pub fn recover(
@@ -229,7 +247,7 @@ pub fn recover(
     let encryption = &record.encryption;
     let left_enabled = encryption.enabled_by_examiner
         && encryption.restored_after != crate::contracts::RestoreState::Restored;
-    let unknown = enable_attempted(record) && encryption.will_encrypt_after_enable.is_none();
+    let unknown = enable_outcome_unknown(record);
     if left_enabled {
         add_warning(
             &mut record.warnings,
@@ -611,6 +629,35 @@ mod tests {
             started_at: at("2026-09-24T17:12:04Z"),
             exited_at: None,
         }
+    }
+
+    #[test]
+    fn enable_outcome_rules() {
+        let with = |exit_code: Option<i32>, after: Option<bool>| {
+            let mut record = running();
+            let mut enable = command(AcqCommandPurpose::EnableEncryption);
+            enable.exit_code = exit_code;
+            record.commands = vec![enable];
+            record.encryption.will_encrypt_after_enable = after;
+            enable_outcome_unknown(&record)
+        };
+        // Unreadable afterwards, or no exit observed (a crash, an error while waiting).
+        assert!(with(Some(0), None));
+        assert!(with(Some(-1), None));
+        assert!(with(None, None));
+        // The tool reported success, but WillEncrypt still reads false.
+        assert!(with(Some(0), Some(false)));
+        // A failed command with WillEncrypt still false changed nothing.
+        assert!(!with(Some(-22), Some(false)));
+        assert!(!with(None, Some(false)));
+        // Enabled.
+        assert!(!with(Some(0), Some(true)));
+        assert!(!with(Some(-1), Some(true)));
+        // No enable command at all.
+        let mut record = running();
+        record.commands = vec![command(AcqCommandPurpose::Backup)];
+        record.encryption.will_encrypt_after_enable = None;
+        assert!(!enable_outcome_unknown(&record));
     }
 
     #[test]

@@ -166,3 +166,4 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 7. `ideviceinfo -s` field subset on current iOS for an unpaired device.
 8. The sync-lock failure string, and the behavior when Finder/iTunes is open.
 9. The `com.apple.mobile.backup` domain on a device that never had backup encryption set: a dictionary without `WillEncrypt` (read as false), or nothing at all (read as unknown, which blocks enabling encryption).
+10. Whether `WillEncrypt` reads `true` right after `encryption on` reports success, or only after a delay. Upstream once waited for a backup-domain-changed notification after enabling (the code commented out at 2260-2266). suiteDFIR treats "reported success, but `WillEncrypt` reads false" as an unknown outcome: it warns `encryption_state_unknown` and attempts the restore.

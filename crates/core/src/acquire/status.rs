@@ -223,8 +223,8 @@ pub fn evaluate(
 /// Inputs to the warnings that do not come from the encryption block.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WarningFacts {
-    /// The enable command ran.
-    pub enable_attempted: bool,
+    /// The enable command ran and its outcome is unknown (`record::enable_outcome_unknown`).
+    pub enable_outcome_unknown: bool,
     pub device_file_errors: u32,
     pub free_bytes_after: Option<u64>,
     /// Warnings of the seal (`seal_failed`, `seal_cancelled`, `symlinks_in_backup`,
@@ -258,9 +258,7 @@ pub fn warnings(encryption: &AcqEncryption, facts: &WarningFacts) -> Vec<Reason>
     {
         warnings.push(reason("encryption_left_enabled", LEFT_ENABLED_MESSAGE));
     }
-    if (facts.enable_attempted && encryption.will_encrypt_after_enable.is_none())
-        || restored == RestoreState::Unknown
-    {
+    if facts.enable_outcome_unknown || restored == RestoreState::Unknown {
         warnings.push(reason("encryption_state_unknown", STATE_UNKNOWN_MESSAGE));
     }
     if encryption.will_encrypt_before == Some(true) {
@@ -535,8 +533,9 @@ mod tests {
 
     #[test]
     fn encryption_warnings() {
-        let attempted = WarningFacts {
-            enable_attempted: true,
+        let attempted = WarningFacts::default();
+        let outcome_unknown = WarningFacts {
+            enable_outcome_unknown: true,
             ..WarningFacts::default()
         };
         // success_encrypt
@@ -549,12 +548,12 @@ mod tests {
             codes(&warnings(&failed, &attempted)),
             ["encryption_restore_failed", "encryption_left_enabled"]
         );
-        // enable_unknown, restored afterwards
+        // enable_unknown (or an unconfirmed enable), restored afterwards
         let mut unknown = encryption();
         unknown.enabled_by_examiner = false;
         unknown.will_encrypt_after_enable = None;
         assert_eq!(
-            codes(&warnings(&unknown, &attempted)),
+            codes(&warnings(&unknown, &outcome_unknown)),
             ["encryption_state_unknown"]
         );
         // the restore outcome unknown
@@ -608,7 +607,7 @@ mod tests {
     #[test]
     fn other_warnings_in_table_order() {
         let facts = WarningFacts {
-            enable_attempted: false,
+            enable_outcome_unknown: false,
             device_file_errors: 3,
             free_bytes_after: Some(DISK_NEARLY_FULL - 1),
             seal: vec![reason("symlinks_in_backup", "1 link")],
