@@ -447,18 +447,25 @@ fn modules_file(
 /// `manifest` supplies the version and the profile format; `app_cache` holds the per-job temp dir.
 /// LEAPP's exit code is not used (it exits 0 on most failures, LEAPP-CLI.md Q3): the probe's
 /// output decides. Blocks until the tool has exited (at most [`TIMEOUT`] plus the kill grace).
+///
+/// **`entry` must be hash-verified**: this runs whatever it is given. `install` calls it only after
+/// the entry hash was checked; any other caller (e.g. a later re-introspection) must first pass
+/// `install::verify` and use its `VerifiedTool::entry`. A relative `entry` is made absolute
+/// against the current dir, so it does not depend on the tool's working dir.
 pub fn introspect(
     entry: &Path,
     tool: ToolId,
     manifest: &ToolManifest,
     app_cache: &Path,
 ) -> Result<ModulesFile, IntrospectionError> {
+    let entry = std::path::absolute(entry)
+        .map_err(|e| IntrospectionError::new(format!("cannot resolve {}: {e}", entry.display())))?;
     let id = job_id(tool, Timestamp::now())?;
     let dir = process::create_temp_dir(app_cache, &id)
         .map_err(|e| IntrospectionError::new(format!("cannot create the temp dir: {e}")))?;
     let result = std::path::absolute(&dir)
         .map_err(|e| IntrospectionError::new(format!("cannot resolve {}: {e}", dir.display())))
-        .and_then(|dir| run_probe(entry, tool, manifest, &dir))
+        .and_then(|dir| run_probe(&entry, tool, manifest, &dir))
         .and_then(|output| modules_file(tool, &manifest.version, Timestamp::now(), output));
     if let Err(e) = process::remove_temp_dir(app_cache, &id) {
         // The startup sweep removes it later.

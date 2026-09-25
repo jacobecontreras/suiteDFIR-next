@@ -31,6 +31,11 @@ pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
     retry_transient(|| fs::rename(from, to), RENAME_RETRIES, RENAME_BACKOFF)
 }
 
+/// [`retry_transient`] with the rename budget (about 2.5 s), for other callers.
+pub(super) fn retry_transient_briefly(op: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+    retry_transient(op, RENAME_RETRIES, RENAME_BACKOFF)
+}
+
 /// Runs `op`, and again up to `retries` times while it fails with a transient sharing or access
 /// error, pausing `backoff` × the attempt number before each retry. Other errors end it at once.
 fn retry_transient(

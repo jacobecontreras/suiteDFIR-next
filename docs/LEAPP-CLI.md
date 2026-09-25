@@ -111,7 +111,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP
 **Procedure:**
 
 1. Create a temp dir containing:
-   - `probe_artifacts/suitedfir_probe.py` (`leapp::modules::PROBE_SOURCE`). The dict keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function:
+   - `probe_artifacts/suitedfir_probe.py` (embedded in `leapp::modules`). The dict keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function:
      ```python
      __artifacts_v2__ = {
          "suitedfir_probe": {

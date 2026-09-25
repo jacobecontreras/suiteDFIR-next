@@ -12,7 +12,8 @@
 //!    receives nothing for 60 s fails as stalled (`download_failed`).
 //! 2. Extract: a zip yields **only** `entry` (a regular file with a plain relative name; absolute
 //!    paths, `..` and symlinks are rejected), mode 0755 on Unix. An AppImage is made executable and
-//!    run once with `--appimage-extract` (Linux only), and `squashfs-root/<entry>` must exist.
+//!    run once with `--appimage-extract` (Linux only, without the environment variables that
+//!    would make the runtime extract a different file), and `squashfs-root/<entry>` must exist.
 //! 3. Hash the entry and check it against the manifest `entry_sha256` (`hash_mismatch`). Where the
 //!    manifest has `null` (AppImages until ROADMAP E3), the hash is recorded in `install.json`.
 //! 4. Introspect through the caller's callback (ROADMAP A3), then write `modules.json` and
@@ -47,7 +48,7 @@ use crate::contracts::{
     InstallSource, InstallStage, ModulesFile, PlatformAsset, PlatformKey, Timestamp, ToolId,
     ToolManifest, ToolState, ToolStatus, VersionedFile, parse_versioned,
 };
-use crate::fsutil::write_json_atomic;
+use crate::fsutil::{retry_transient, write_json_atomic};
 use crate::hashing::{sha256_file, to_hex};
 use crate::manifest::{asset_for, relative_components};
 
@@ -79,10 +80,6 @@ const MIN_BODY_RATE: u64 = 16 * 1024;
 /// lowercase hex digits.
 const STAGING_PREFIX: &str = ".staging-";
 const OLD_PREFIX: &str = ".old-";
-/// How long renaming the staging dir is retried (Windows: a just-scanned or just-run file may
-/// still be open for a moment).
-const RENAME_RETRY: Duration = Duration::from_secs(5);
-const RENAME_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Why an install or a check failed. Each variant maps to one CONTRACTS.md §12 code.
 #[derive(Debug, thiserror::Error)]
@@ -164,9 +161,12 @@ pub struct Pinned<'a> {
 }
 
 impl Pinned<'_> {
-    /// `<tools_dir>/<tool>`.
+    /// `<tools_dir>/<tool>`, absolute: a relative tools dir is resolved against the current dir,
+    /// so the entry path handed to introspection and runs never depends on a child's cwd.
     pub fn tool_dir(&self) -> PathBuf {
-        self.tools_dir.join(self.tool.as_str())
+        let tools_dir =
+            std::path::absolute(self.tools_dir).unwrap_or_else(|_| self.tools_dir.to_path_buf());
+        tools_dir.join(self.tool.as_str())
     }
 
     /// `<tools_dir>/<tool>/<version>`.
@@ -208,10 +208,10 @@ pub fn install(
 ) -> Result<InstallRecord, InstallError> {
     let (platform, asset) = pinned.asset()?;
     let tool_dir = pinned.tool_dir();
-    let created: Vec<PathBuf> = [pinned.tools_dir, tool_dir.as_path()]
+    let tools_dir = tool_dir.parent().unwrap_or(&tool_dir).to_path_buf();
+    let created: Vec<PathBuf> = [tools_dir, tool_dir.clone()]
         .into_iter()
         .filter(|dir| !dir.exists())
-        .map(Path::to_path_buf)
         .collect();
     fs::create_dir_all(&tool_dir)
         .map_err(InstallError::io(format!("creating {}", tool_dir.display())))?;
@@ -342,7 +342,7 @@ impl Staging<'_> {
         self.check_cancel()?;
         on_event(stage_event(InstallStage::Extracting));
         let entry_path = extract(asset, &asset_path, staging, self.cancel)?;
-        fs::remove_file(&asset_path).map_err(InstallError::io(format!(
+        retry_transient(|| fs::remove_file(&asset_path)).map_err(InstallError::io(format!(
             "removing {}",
             asset_path.display()
         )))?;
@@ -431,17 +431,21 @@ fn agent() -> ureq::Agent {
 }
 
 /// Downloads the asset to `dest` from the first URL that yields exactly the pinned bytes. Returns
-/// that URL.
+/// that URL. The `downloading` stage is reported again when a URL whose body was already being
+/// verified is followed by the next one.
 fn download(
     asset: &PlatformAsset,
     dest: &Path,
     cancel: &AtomicBool,
     on_event: &mut dyn FnMut(InstallEvent),
 ) -> Result<String, InstallError> {
-    on_event(stage_event(InstallStage::Downloading));
     let agent = agent();
     let mut last: Option<InstallError> = None;
     for url in &asset.urls {
+        // Only a hash mismatch fails after the `verifying` stage was reported.
+        if last.is_none() || matches!(last, Some(InstallError::HashMismatch { .. })) {
+            on_event(stage_event(InstallStage::Downloading));
+        }
         let result = if url_allowed(url) {
             download_from(&agent, url, asset, dest, cancel, on_event)
         } else {
@@ -759,15 +763,13 @@ fn extract_appimage(
     parts: &[&str],
     staging: &Path,
 ) -> Result<String, InstallError> {
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     let fail = |what: String| InstallError::Extract(format!("{}: {what}", asset_path.display()));
     make_executable(asset_path).map_err(|e| fail(format!("chmod: {e}")))?;
     let mut attempts = 0;
     let output = loop {
-        let result = Command::new(asset_path)
-            .arg("--appimage-extract")
-            .current_dir(staging)
+        let result = appimage_extract_command(asset_path, staging)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -809,6 +811,24 @@ fn extract_appimage(
     }
 }
 
+/// Variables that make an AppImage runtime work on a different file or tree than the one it
+/// runs from: `TARGET_APPIMAGE` makes `--appimage-extract` extract that file instead (type-2
+/// runtime), and `APPIMAGE`/`APPDIR` describe a running AppImage. The extraction must only ever
+/// see the verified asset, so they are removed.
+#[cfg(target_os = "linux")]
+const APPIMAGE_VARS: [&str; 3] = ["TARGET_APPIMAGE", "APPIMAGE", "APPDIR"];
+
+/// `<asset> --appimage-extract`, run in `staging`, without [`APPIMAGE_VARS`].
+#[cfg(target_os = "linux")]
+fn appimage_extract_command(asset_path: &Path, staging: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new(asset_path);
+    command.arg("--appimage-extract").current_dir(staging);
+    for name in APPIMAGE_VARS {
+        command.env_remove(name);
+    }
+    command
+}
+
 #[cfg(not(target_os = "linux"))]
 fn extract_appimage(
     asset_path: &Path,
@@ -840,10 +860,16 @@ fn commit(staging: &Path, version_dir: &Path) -> Result<(), InstallError> {
                 version_dir.display()
             )))?;
             if let Err(e) = rename_with_retry(staging, version_dir) {
-                let _ = fs::rename(&old, version_dir);
+                if let Err(restore) = rename_with_retry(&old, version_dir) {
+                    log::error!(
+                        "cannot restore the earlier install from {}: {restore}",
+                        old.display()
+                    );
+                }
                 return Err(InstallError::io(context())(e));
             }
             if let Err(e) = remove_tree(&old) {
+                // The next install of this tool removes it (see the module docs).
                 log::warn!("cannot remove the earlier install {}: {e}", old.display());
             }
             Ok(())
@@ -859,27 +885,6 @@ fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
 /// Removes a directory tree without following symlinks, retried like [`rename_with_retry`].
 fn remove_tree(path: &Path) -> io::Result<()> {
     retry_transient(|| fs::remove_dir_all(path))
-}
-
-/// Runs `op`, retrying for up to 5 s while it fails with a transient Windows error: a file of the
-/// tree is still open for a moment (just run or being scanned). Elsewhere `op` runs once.
-fn retry_transient(mut op: impl FnMut() -> io::Result<()>) -> io::Result<()> {
-    // Win32 ERROR_ACCESS_DENIED and ERROR_SHARING_VIOLATION.
-    const TRANSIENT: [i32; 2] = [5, 32];
-    let deadline = std::time::Instant::now().checked_add(RENAME_RETRY);
-    loop {
-        match op() {
-            Err(e)
-                if cfg!(windows)
-                    && e.raw_os_error()
-                        .is_some_and(|code| TRANSIENT.contains(&code))
-                    && deadline.is_some_and(|d| std::time::Instant::now() < d) =>
-            {
-                std::thread::sleep(RENAME_INTERVAL);
-            }
-            result => return result,
-        }
-    }
 }
 
 fn random_hex() -> Result<String, InstallError> {
@@ -1410,6 +1415,36 @@ mod tests {
     }
 
     #[test]
+    fn a_mirror_after_a_hash_mismatch_is_reported_as_downloading_again() {
+        let asset = good_zip();
+        let mut tampered = asset.clone();
+        tampered[0] ^= 1;
+        let (base, server) = serve(vec![Reply::Body(tampered), Reply::Body(asset.clone())]);
+        let urls = vec![format!("{base}/bad.zip"), format!("{base}/mirror.zip")];
+        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), urls.clone());
+        let tools_dir = case.tools_dir();
+        let mut run = Run::default();
+        let record = run
+            .install(pinned(&tools_dir, &case.manifest), Source::Download)
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(record.source_detail, urls[1]);
+        assert_eq!(
+            run.stages(),
+            [
+                InstallStage::Downloading,
+                InstallStage::Verifying,
+                InstallStage::Downloading,
+                InstallStage::Verifying,
+                InstallStage::Extracting,
+                InstallStage::Hashing,
+                InstallStage::Introspecting,
+                InstallStage::Done
+            ]
+        );
+    }
+
+    #[test]
     fn a_stalled_download_fails_in_bounded_time() {
         let asset = good_zip();
         let hold = STALL_TIMEOUT * 2;
@@ -1538,6 +1573,22 @@ mod tests {
         fs::create_dir(tool_dir.join(".old-123abc")).unwrap();
         assert_eq!(remove_leftovers(&tool_dir, ".old-123abc"), 0);
         assert!(tool_dir.join(".old-123abc").is_dir());
+    }
+
+    #[test]
+    fn a_relative_tools_dir_is_made_absolute() {
+        let manifest = tool_manifest(b"x", "ileapp", None);
+        let pinned = pinned(Path::new("relative-tools"), &manifest);
+        let dir = pinned.version_dir();
+        assert!(dir.is_absolute(), "{}", dir.display());
+        assert_eq!(
+            dir,
+            std::env::current_dir()
+                .unwrap()
+                .join("relative-tools")
+                .join("ileapp")
+                .join(VERSION)
+        );
     }
 
     #[test]
@@ -2079,6 +2130,26 @@ mod tests {
         // The failed installs left the earlier install in place and nothing else.
         let tool_dir = linux_pinned(&tools_dir, &case.manifest).tool_dir();
         assert_eq!(entries(&tool_dir), [VERSION]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn appimage_extraction_never_inherits_the_appimage_variables() {
+        let command = appimage_extract_command(Path::new("/x.AppImage"), Path::new("/staging"));
+        let removed: Vec<String> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect();
+        for name in APPIMAGE_VARS {
+            assert!(removed.iter().any(|r| r == name), "{name} not removed");
+        }
+        assert_eq!(command.get_program(), "/x.AppImage");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["--appimage-extract"]
+        );
+        assert_eq!(command.get_current_dir(), Some(Path::new("/staging")));
     }
 
     #[cfg(target_os = "linux")]

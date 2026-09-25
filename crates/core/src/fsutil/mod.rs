@@ -100,6 +100,13 @@ pub fn io_error_code(err: &io::Error) -> ErrorCode {
     }
 }
 
+/// Runs `op` (a rename or removal), retrying it for about 2.5 s on Windows while it fails with a
+/// transient sharing, lock or access error: an antivirus scanner or the search indexer holding a
+/// just-written or just-run file open. On Unix `op` runs once.
+pub(crate) fn retry_transient(op: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+    sys::retry_transient_briefly(op)
+}
+
 /// Makes a file read-only: clears the write bits on Unix (0644 becomes 0444, 0600 becomes 0400),
 /// sets the readonly attribute on Windows.
 pub fn set_read_only(path: &Path) -> io::Result<()> {

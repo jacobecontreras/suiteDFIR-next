@@ -29,6 +29,11 @@ pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Unix has no transient sharing errors: `op` runs once.
+pub(super) fn retry_transient_briefly(mut op: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+    op()
+}
+
 /// Unix names are byte strings and go into manifests unchanged.
 pub(super) fn manifest_name_bytes(name: &OsStr) -> (Vec<u8>, bool) {
     (name.as_bytes().to_vec(), false)
