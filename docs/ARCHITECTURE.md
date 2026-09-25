@@ -137,7 +137,7 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 
 ### 5.2 `src-tauri` (binary)
 
-- **Commands:** registers the commands in CONTRACTS.md §10, validates path arguments per the path policy (§9), and maps core errors to `AppError`.
+- **Commands:** registers the commands in CONTRACTS.md §10 and §13.5, validates path arguments per the path policy (§9), and maps core errors to `AppError`.
 - **`AppState`:** settings cache, active-job handle (run or acquisition), log backlog (last 2,000 lines), instance lock, bundled-tools dir.
 - **Event forwarding:** core callbacks go to `tauri::ipc::Channel`.
 - **Lifecycle:**

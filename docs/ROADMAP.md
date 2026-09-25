@@ -244,7 +244,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 
 - **Shell:** top bar (app name, active-run indicator, nav: Cases, Settings), hash router, `lib/store.js`, `lib/dom.js`, `lib/format.js` (sizes, durations, local/UTC time).
 - **API layer:** `api/index.js` with the activation rule from ARCHITECTURE §5.3, and `api/ipc.js`.
-- **Mock:** `ui-dev/mock.js` implements **every** command in CONTRACTS §10, with simulated runs reaching every final status.
+- **Mock:** `ui-dev/mock.js` implements **every** command in CONTRACTS §10 and §13.5, with simulated runs and acquisitions reaching every final status.
 - **Chrome:** the `AppError` component; MOCK DATA / DEV OVERRIDE banners; light/dark tokens.
 - **Playwright script:** kept under `tests/ui/e2e/shots.mjs` and run on a machine with a browser (not in `npm test`). It loads mock mode via `serve-ui.mjs`, captures screenshots, and **fails on any console CSP violation**.
 
@@ -292,7 +292,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 - **Cancel:** cancel with an in-DOM confirm `<dialog>`.
 - **Progress:** hash/seal progress bars.
 - **Result panel:** status, reasons, warnings, module counts; "Parser output" (`stdio_tail`); open report / reveal folder / open stdout / stderr / `run.json`.
-- **Reloads:** `run_attach` on reload.
+- **Reloads:** `job_attach` on reload.
 
 **Accept:** virtual-list math tests; a 100,000-line mock run stays interactive (measurement documented); screenshots of every `RunStatus` and every phase.
 
