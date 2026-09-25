@@ -6,7 +6,10 @@
  * - There is no form: Enter in the password field does nothing; only the button changes the device.
  * - The password field is cleared as soon as the command starts.
  * - While the command runs (it may wait for the device passcode, without a time limit), the dialog
- *   cannot be dismissed.
+ *   cannot be dismissed, by its buttons or by Escape.
+ * - A failed attempt can be retried. Each attempt is recorded in its own numbered file; once one
+ *   turned encryption off, the core refuses further attempts (`restore_not_applicable`), and the
+ *   screens hide the action because the re-read `AcqSummary.warnings` no longer ask for it.
  */
 import { h } from "../lib/dom.js";
 import { field } from "../lib/form.js";
@@ -22,7 +25,8 @@ import { modal } from "./dialog.js";
  * @param {{ acq_restore_encryption: (req: import("../types").AcqRestoreEncryptionRequest) => Promise<AcqRestoreEncryptionResult> }} spec.api
  * @param {string} spec.casePath
  * @param {{ acq_id: string, label: string | null, device_name: string | null, udid: string }} spec.acq
- * @param {(result: AcqRestoreEncryptionResult) => void} [spec.onDone]
+ * @param {(result: AcqRestoreEncryptionResult | null) => void} [spec.onSettled] After every attempt:
+ *   its result, or null when the command failed. The screens re-read the case's `AcqSummary`.
  * @returns {Modal}
  */
 export function restoreEncryptionDialog(spec) {
@@ -52,6 +56,7 @@ export function restoreEncryptionDialog(spec) {
     title: "Turn backup encryption off",
     onClose: () => {
       password.value = "";
+      document.removeEventListener("keydown", holdEscape, true);
       errors.dispose();
     },
     content: () =>
@@ -70,7 +75,7 @@ export function restoreEncryptionDialog(spec) {
           { class: "list-compact small" },
           h("li", null, "Connect the device, unlock it, and make sure it is paired with this computer."),
           h("li", null, "If the device asks for its passcode, enter it on the device. The app waits for the device without a time limit."),
-          h("li", null, "The result is recorded in encryption-restore.json in the acquisition folder."),
+          h("li", null, "Each attempt is recorded in its own numbered restore record in the acquisition folder; acquisition.json is not changed."),
         ),
         pwField.node,
         errors.node,
@@ -78,7 +83,15 @@ export function restoreEncryptionDialog(spec) {
         h("div", { class: "modal-actions" }, close, confirm),
       ),
   });
-  // Escape would leave a device change running unseen: not while the command runs.
+  // Escape would leave a device change running unseen: not while the command runs. Chromium (and
+  // WebView2) close a dialog on a second Escape even when its `cancel` event was prevented (the
+  // close-watcher rule), so the key itself is stopped too, wherever the focus is (the pressed
+  // button is disabled while the command runs).
+  /** @param {KeyboardEvent} event */
+  const holdEscape = (event) => {
+    if (running && event.key === "Escape") event.preventDefault();
+  };
+  document.addEventListener("keydown", holdEscape, true);
   dialog.node.addEventListener("cancel", (event) => {
     if (running) event.preventDefault();
   });
@@ -95,8 +108,11 @@ export function restoreEncryptionDialog(spec) {
     close.disabled = true;
     pwField.setError(null);
     result.replaceChildren(h("p", { class: "muted" }, "Waiting for the device. If it asks for its passcode, enter it on the device."));
+    /** @type {AcqRestoreEncryptionResult | null} */
+    let outcome = null;
     try {
       const r = await spec.api.acq_restore_encryption({ case_path: spec.casePath, acq_id: acq.acq_id, password: secret });
+      outcome = r;
       done = r.restored;
       result.replaceChildren(
         r.restored
@@ -109,11 +125,10 @@ export function restoreEncryptionDialog(spec) {
                 "p",
                 null,
                 h("strong", null, r.will_encrypt_after === true ? "Backup encryption is still on. " : "The encryption state could not be read. "),
-                "Check the password and try again.",
+                "Check the password and try again; each attempt is recorded.",
               ),
             ),
       );
-      spec.onDone?.(r);
     } catch (err) {
       result.replaceChildren();
       errors.show(err, "Backup encryption could not be turned off.");
@@ -125,6 +140,7 @@ export function restoreEncryptionDialog(spec) {
       confirm.textContent = "Turn encryption off";
       confirm.disabled = done || password.value === "";
     }
+    spec.onSettled?.(outcome);
   }
 
   const open = dialog.open;

@@ -381,12 +381,18 @@ export function initialAcqRecord(s) {
   return rec;
 }
 
+/** Warnings a successful later restore takes out of `AcqSummary.warnings` (not out of acquisition.json). */
+const RESTORABLE = new Set(["encryption_left_enabled", "encryption_state_unknown"]);
+
 /**
+ * The case's row for an acquisition. `warnings` is derived (CONTRACTS.md §13.5): once a later
+ * restore recorded `restored: true`, it leaves out the two "encryption may still be on" codes.
  * @param {string} casePath
  * @param {AcquisitionRecord} rec
+ * @param {boolean} [restoredLater] A later-restore attempt recorded `restored: true`.
  * @returns {AcqSummary}
  */
-export function acqSummary(casePath, rec) {
+export function acqSummary(casePath, rec, restoredLater = false) {
   const acqDir = `${casePath}/acquisitions/${rec.acq_id}`;
   return {
     acq_id: rec.acq_id,
@@ -401,7 +407,7 @@ export function acqSummary(casePath, rec) {
     ended_at: rec.ended_at,
     duration_ms: rec.duration_ms,
     backup_path: rec.status === "succeeded" ? `${acqDir}/backup/${rec.device.udid}` : null,
-    warnings: rec.warnings.map((w) => w.code),
+    warnings: rec.warnings.map((w) => w.code).filter((code) => !(restoredLater && RESTORABLE.has(code))),
   };
 }
 

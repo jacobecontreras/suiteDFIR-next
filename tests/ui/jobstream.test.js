@@ -10,6 +10,7 @@ import {
   applyEvent,
   createJobStreams,
   newStream,
+  seedPhase,
   stepStates,
 } from "../../ui/lib/jobstream.js";
 import { createStore } from "../../ui/lib/store.js";
@@ -233,6 +234,91 @@ test("hub: attach after a reload seeds the backlog, then applies events that arr
   assert.equal(store.get().activeJob?.phase, "sealing");
   // A second attach for the same live job reuses the stream.
   assert.equal(await jobs.attach(api, "acquisition", ACQ_JOB.acq_id, ACQ_JOB.case_path), s);
+});
+
+/**
+ * @param {readonly string[]} order
+ * @param {import("../../ui/lib/jobstream.js").JobStream} s
+ * @param {ReadonlySet<string>} optional
+ */
+const stepText = (order, s, optional) =>
+  stepStates(order, { phases: s.phases, phase: s.phase, finished: s.finished !== null, partial: s.partial }, optional)
+    .map((x) => `${x.phase}:${x.state}`)
+    .join(" ");
+
+test("hub: attach after a reload starts in the active job's phase, before any phase event", async () => {
+  // Reloaded while the acquisition turns encryption off again: job_attach returns only the backlog,
+  // and no phase event follows (the step may wait for the device passcode for a long time).
+  const acqJob = { ...ACQ_JOB, phase: /** @type {const} */ ("restoring_encryption") };
+  const store = appStore(acqJob);
+  const jobs = createJobStreams(store);
+  const quiet = { job_attach: async () => ({ backlog: ["Please confirm disabling the backup encryption…"] }) };
+  const s = await jobs.attach(quiet, "acquisition", acqJob.acq_id, acqJob.case_path);
+  assert.equal(s.phase, "restoring_encryption");
+  assert.equal(
+    stepText(ACQ_PHASES, s, new Set(["enabling_encryption", "restoring_encryption"])),
+    "preparing:done backing_up:done restoring_encryption:current validating:pending sealing:pending finalizing:pending",
+    "the encryption step is shown and current; the earlier steps count as done",
+  );
+
+  // A run reloaded during analysis.
+  const runJob = { ...RUN_JOB, phase: /** @type {const} */ ("analyzing") };
+  const runStore = appStore(runJob);
+  const run = await createJobStreams(runStore).attach(quiet, "run", runJob.run_id, runJob.case_path);
+  assert.equal(
+    stepText(RUN_PHASES, run, new Set(["hashing_input"])),
+    "preparing:done running:done analyzing:current sealing_report:pending finalizing:pending",
+  );
+});
+
+test("hub: attach reads job_active once subscribed; a phase event that already arrived wins", async () => {
+  // The stored phase is from the last poll (up to 2 s old); job_active, read after subscribing, is
+  // current, and it also updates the top bar.
+  const store = appStore({ ...ACQ_JOB, phase: "backing_up" });
+  const jobs = createJobStreams(store);
+  let calls = 0;
+  const api = {
+    job_attach: async () => ({ backlog: [] }),
+    job_active: async () => {
+      calls += 1;
+      return { ...ACQ_JOB, phase: /** @type {const} */ ("restoring_encryption") };
+    },
+  };
+  const s = await jobs.attach(api, "acquisition", ACQ_JOB.acq_id, ACQ_JOB.case_path);
+  assert.equal(calls, 1);
+  assert.equal(s.phase, "restoring_encryption");
+  assert.equal(store.get().activeJob?.phase, "restoring_encryption");
+
+  // A phase event delivered through the new subscription is newer than both.
+  const store2 = appStore({ ...ACQ_JOB, phase: "backing_up" });
+  const jobs2 = createJobStreams(store2);
+  const api2 = {
+    /** @param {unknown} _req @param {(e: Run | Acq) => void} onEvent */
+    job_attach: async (_req, onEvent) => {
+      onEvent({ type: "phase", phase: "validating" });
+      return { backlog: [] };
+    },
+    job_active: async () => ({ ...ACQ_JOB, phase: /** @type {const} */ ("restoring_encryption") }),
+  };
+  const s2 = await jobs2.attach(api2, "acquisition", ACQ_JOB.acq_id, ACQ_JOB.case_path);
+  assert.equal(s2.phase, "validating");
+  assert.equal(store2.get().activeJob?.phase, "validating");
+
+  // job_active failing or naming another job leaves the stored phase.
+  const store3 = appStore({ ...ACQ_JOB, phase: "sealing" });
+  const s3 = await createJobStreams(store3).attach(
+    {
+      job_attach: async () => ({ backlog: [] }),
+      job_active: async () => {
+        throw { code: "internal", message: "x", detail: null };
+      },
+    },
+    "acquisition",
+    ACQ_JOB.acq_id,
+    ACQ_JOB.case_path,
+  );
+  assert.equal(s3.phase, "sealing");
+  assert.equal(seedPhase(newStream("run", "other", "/c"), ACQ_JOB), false, "another job's phase is never taken");
 });
 
 test("hub: attach rejects when the job already ended and leaves no stream behind", async () => {

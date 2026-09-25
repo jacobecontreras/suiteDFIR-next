@@ -106,6 +106,41 @@ export function pickDevice(devices, current) {
   return ready.length === 1 ? ready[0].udid : null;
 }
 
+/** @typedef {Pick<DeviceSummary, "pair_state" | "message">} PairOutcome */
+
+/**
+ * The part of a `device_pair` answer to keep showing, or null when the device paired.
+ * @param {DeviceSummary} answer
+ * @returns {PairOutcome | null}
+ */
+export function pairOutcome(answer) {
+  return answer.pair_state === "paired" ? null : { pair_state: answer.pair_state, message: answer.message };
+}
+
+/**
+ * Keeps the last `device_pair` answer that did not pair on screen (ARCHITECTURE.md §6b steps 1-2).
+ * After Pair answers `awaiting_trust`, `locked`, `trust_denied` or `pairing_failed`, the host has no
+ * pair record yet, so the next `devices_list` reports `not_paired` and the answer's instructions
+ * would vanish 2 s later. While a poll reports `not_paired`, the device shows the remembered answer.
+ * An answer is forgotten when the device pairs or disappears (and by the screen when Pair is
+ * pressed again).
+ * @param {readonly DeviceSummary[]} devices As `devices_list` reported them.
+ * @param {ReadonlyMap<string, PairOutcome>} outcomes Remembered answers by UDID.
+ * @returns {{ devices: DeviceSummary[], outcomes: Map<string, PairOutcome> }} What to show, and
+ *   the answers still remembered.
+ */
+export function withPairOutcomes(devices, outcomes) {
+  /** @type {Map<string, PairOutcome>} */
+  const kept = new Map();
+  const shown = devices.map((d) => {
+    const outcome = outcomes.get(d.udid);
+    if (!outcome || d.pair_state === "paired") return d;
+    kept.set(d.udid, outcome);
+    return d.pair_state === "not_paired" && !d.busy ? { ...d, pair_state: outcome.pair_state, message: outcome.message } : d;
+  });
+  return { devices: shown, outcomes: kept };
+}
+
 /**
  * Replaces a device in the list by UDID (e.g. with `device_pair`'s answer), keeping the order.
  * @param {readonly DeviceSummary[]} devices
@@ -247,6 +282,45 @@ export function acqBlockers(f) {
 }
 
 /**
+ * The options a new acquisition starts with. "New acquisition" returns to them: the label names
+ * one exhibit, encryption is changed only when ticked for this device, and turning it off again
+ * afterwards is the default (D5).
+ */
+export const ACQ_OPTION_DEFAULTS = Object.freeze({
+  label: "",
+  enableEncryption: false,
+  password: "",
+  password2: "",
+  restoreEncryption: true,
+  parseAfter: false,
+});
+
+/**
+ * The option controls of the Acquire screen (inputs and checkboxes).
+ * @typedef {object} AcqControls
+ * @property {{ value: string }} label
+ * @property {{ checked: boolean }} enableEncryption
+ * @property {{ value: string }} password
+ * @property {{ value: string }} password2
+ * @property {{ checked: boolean }} restoreEncryption
+ * @property {{ checked: boolean }} parseAfter "Parse with iLEAPP now"
+ */
+
+/**
+ * Sets every option control to `ACQ_OPTION_DEFAULTS` (the password fields are emptied).
+ * @param {AcqControls} c
+ */
+export function resetAcqControls(c) {
+  const d = ACQ_OPTION_DEFAULTS;
+  c.label.value = d.label;
+  c.enableEncryption.checked = d.enableEncryption;
+  c.password.value = d.password;
+  c.password2.value = d.password2;
+  c.restoreEncryption.checked = d.restoreEncryption;
+  c.parseAfter.checked = d.parseAfter;
+}
+
+/**
  * The `acq_start` request. Call only when `acqBlockers` is empty.
  * @param {string} casePath
  * @param {AcqForm} f
@@ -269,9 +343,22 @@ export function buildAcqRequest(casePath, f) {
 export const ENCRYPTION_LEFT_ON = /** @type {const} */ (["encryption_left_enabled", "encryption_state_unknown"]);
 
 /**
- * True when "Turn backup encryption off" applies (`acq_restore_encryption` accepts it).
+ * True when "Turn backup encryption off" applies. Pass `AcqSummary.warnings`: the core leaves the
+ * two codes out once a later restore recorded `restored: true` (CONTRACTS.md §13.5), so this turns
+ * false after a successful "Turn backup encryption off", while acquisition.json keeps them.
  * @param {readonly string[]} warningCodes
  */
 export function needsEncryptionOff(warningCodes) {
   return warningCodes.some((c) => /** @type {readonly string[]} */ (ENCRYPTION_LEFT_ON).includes(c));
+}
+
+/**
+ * Why backup encryption may still be on, for the "Turn backup encryption off" banner.
+ * @param {readonly string[]} warningCodes
+ * @returns {string | null}
+ */
+export function encryptionLeftOnText(warningCodes) {
+  if (warningCodes.includes("encryption_left_enabled")) return "The app turned it on for this acquisition, and it was not turned off again.";
+  if (warningCodes.includes("encryption_state_unknown")) return "The app tried to turn it on for this acquisition, and whether that worked is unknown.";
+  return null;
 }

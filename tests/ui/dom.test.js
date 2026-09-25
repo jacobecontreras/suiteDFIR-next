@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { fill, flattenChildren, h } from "../../ui/lib/dom.js";
+import { fill, flattenChildren, h, keyedSlot, setText } from "../../ui/lib/dom.js";
 
 // Node has no DOM. This fake implements exactly the DOM surface h() uses, and keeps text
 // nodes distinguishable from elements so the tests can prove text is never parsed as markup.
@@ -175,4 +175,45 @@ test("fill replaces the children with the same rules as h(): text stays text, sk
 test("flattenChildren keeps nodes and order", () => {
   const node = /** @type {Node} */ (/** @type {unknown} */ (new FakeText("n")));
   assert.deepEqual(flattenChildren(["a", [1, [node, null]], false, "b"]), ["a", "1", node, "b"]);
+});
+
+test("keyedSlot rebuilds its children only when the key changes", () => {
+  /** @type {unknown[][]} */
+  const fills = [];
+  const el = /** @type {Element} */ (/** @type {unknown} */ ({ replaceChildren: (/** @type {unknown[]} */ ...nodes) => fills.push(nodes) }));
+  const slot = keyedSlot(el);
+  let builds = 0;
+  const build = () => {
+    builds += 1;
+    return ["banner", null];
+  };
+  assert.equal(slot.update("prompt|a", build), true);
+  // The same state on every job event: nothing is re-inserted (a live region is announced once).
+  for (let i = 0; i < 10; i++) assert.equal(slot.update("prompt|a", build), false);
+  assert.equal(slot.update("prompt|b", build), true);
+  slot.reset();
+  assert.equal(slot.update("prompt|b", build), true, "after reset the next update rebuilds");
+  assert.equal(builds, 3);
+  assert.deepEqual(fills, [["banner"], ["banner"], ["banner"]]);
+});
+
+test("setText writes only a changed text", () => {
+  let writes = 0;
+  let text = "Cancel run";
+  const el = /** @type {Node} */ (
+    /** @type {unknown} */ ({
+      get textContent() {
+        return text;
+      },
+      set textContent(v) {
+        writes += 1;
+        text = v;
+      },
+    })
+  );
+  setText(el, "Cancel run");
+  assert.equal(writes, 0);
+  setText(el, "Cancelling…");
+  assert.equal(writes, 1);
+  assert.equal(text, "Cancelling…");
 });

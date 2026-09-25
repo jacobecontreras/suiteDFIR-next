@@ -463,6 +463,11 @@ code,
   gap: 6px;
 }
 
+/* A wrapper that is updated as a unit (lib/dom.js keyedSlot) but lays out as its children. */
+.slot {
+  display: contents;
+}
+
 .section-title {
   font-size: 13px;
   font-weight: 600;

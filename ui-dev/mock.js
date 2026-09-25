@@ -14,8 +14,20 @@
 //   fails verification), `tool_unsupported` (no aLEAPP build for the platform).
 //   `hold_<phase>` (e.g. `hold_analyzing`, `hold_sealing_report`, `hold_enabling_encryption`,
 //   `hold_backing_up`): a run or acquisition stops in that phase (after its device prompt, if any)
-//   until it is cancelled, so every phase can be screenshotted. `pair_states`: one device in every
-//   PairState. `active_acq`: a slow acquisition of the first device is already active at load.
+//   until it is cancelled, so every phase can be screenshotted. With `active_run` / `active_acq`, a
+//   `hold_<phase>` flag makes the start-up job a normal one (an acquisition then turns encryption
+//   on and off), so it reaches that phase before the UI attaches, as after a reload mid-phase.
+//   `pair_states`: one device in every PairState, as `devices_list` reports it (the real core
+//   reports `not_paired` while there is no host pair record, e.g. after a Pair that returned
+//   `awaiting_trust`; this rendering fixture shows every state at once). `active_acq`: a slow
+//   acquisition of the first device is already active at load. `idevice_session_error`: the tools
+//   are ok but listing the devices failed (state `ok` with `guidance`, as the core reports it).
+// - Pairing: Pair on a device that was never asked answers `awaiting_trust` (the Trust dialog) and
+//   creates no host record, so `devices_list` still reports `not_paired`; the next Pair pairs.
+// - Later restores (`acq_restore_encryption`): each attempt is numbered (encryption-restore.json,
+//   encryption-restore-2.json, …). The password `wrong` fails an attempt, which can be retried;
+//   after an attempt that restored, `AcqSummary.warnings` leaves out `encryption_left_enabled` and
+//   `encryption_state_unknown`, and further attempts are refused (`restore_not_applicable`).
 // - Runs: the final status is chosen by the input path's last segment without extension:
 //   `errors`, `fail-invalid`, `fail-early`, `fail-argparse`, `fail-crash`, `slow` (runs until
 //   cancelled), `interrupt` (the "app crashes": the next case_open marks it interrupted), `flood`
@@ -82,6 +94,8 @@ const FLAGS = new Set(
 );
 /** @param {string} flag */
 const has = (flag) => FLAGS.has(flag);
+/** A `hold_<phase>` flag is set: a job started at load must reach that phase. */
+const HOLDING = [...FLAGS].some((flag) => flag.startsWith("hold_"));
 
 function tick() {
   const t = /** @type {any} */ (globalThis).__SUITEDFIR_MOCK_TICK_MS;
@@ -555,7 +569,7 @@ function detail(path, c, recovered = []) {
     path,
     case: c.file,
     runs: c.runs.map((r) => runSummary(path, r)).sort((a, b) => b.created_at.localeCompare(a.created_at)),
-    acquisitions: c.acqs.map((a) => acqSummary(path, a)).sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    acquisitions: c.acqs.map((a) => acqSummary(path, a, restoredLater(a.acq_id))).sort((a, b) => b.created_at.localeCompare(a.created_at)),
     recovered,
   });
 }
@@ -1205,6 +1219,7 @@ function ideviceTools() {
 export const devices_list = async () => {
   const toolsState = ideviceTools();
   if (toolsState.state !== "ok") return { tools: toolsState, devices: [] };
+  if (has("idevice_session_error")) return { tools: { ...toolsState, guidance: "Listing the devices failed unexpectedly." }, devices: [] };
   const busyUdid = job?.kind === "acquisition" ? job.record.device.udid : null;
   return {
     tools: toolsState,
@@ -1233,23 +1248,26 @@ export const device_pair = async (req) => {
   const attempt = (pairAttempts.get(req.udid) ?? 0) + 1;
   pairAttempts.set(req.udid, attempt);
   // A device that was never asked shows the Trust dialog first; a retry (the examiner tapped Trust,
-  // unlocked it or reconnected it) pairs.
+  // unlocked it or reconnected it) pairs. Until then the host has no pair record, so the device
+  // stays `not_paired` in `devices_list` (ARCHITECTURE.md §6b step 1); only this answer says more.
   if (attempt === 1 && device.pair_state === "not_paired") {
-    device.pair_state = "awaiting_trust";
-    device.message = `ERROR: Please accept the trust dialog on the screen of device ${req.udid}, then attempt to pair again.`;
-  } else {
-    const ipad = device.product_type?.startsWith("iPad") ?? false;
-    Object.assign(device, {
-      pair_state: "paired",
-      message: null,
-      device_name: ipad ? "Evidence iPad" : "Evidence iPhone",
-      serial_number: ipad ? "DMPXXXXXXXXX" : "FFMXXXXXXXXX",
-      // The iPad's owner turned backup encryption on (the "already encrypted" variant).
-      will_encrypt: ipad,
-      data_used_bytes: 42949672960,
-      data_capacity_bytes: 128849018880,
-    });
+    return {
+      ...clone(device),
+      pair_state: "awaiting_trust",
+      message: `ERROR: Please accept the trust dialog on the screen of device ${req.udid}, then attempt to pair again.`,
+    };
   }
+  const ipad = device.product_type?.startsWith("iPad") ?? false;
+  Object.assign(device, {
+    pair_state: "paired",
+    message: null,
+    device_name: ipad ? "Evidence iPad" : "Evidence iPhone",
+    serial_number: ipad ? "DMPXXXXXXXXX" : "FFMXXXXXXXXX",
+    // The iPad's owner turned backup encryption on (the "already encrypted" variant).
+    will_encrypt: ipad,
+    data_used_bytes: 42949672960,
+    data_capacity_bytes: 128849018880,
+  });
   return clone(device);
 };
 
@@ -1493,19 +1511,40 @@ function findAcq(casePath, acqId) {
 /** @type {Api["acq_get"]} */
 export const acq_get = async (req) => clone(findAcq(req.case_path, req.acq_id));
 
+/**
+ * The later-restore attempt files of each acquisition, in order (CONTRACTS.md §13.3):
+ * `encryption-restore.json`, then `encryption-restore-2.json`, … Each records whether it restored.
+ * @type {Map<string, { file: string, restored: boolean }[]>}
+ */
+const restoreAttempts = new Map();
+
+/**
+ * True once a later-restore attempt of this acquisition recorded `restored: true`.
+ * @param {string} acqId
+ */
+const restoredLater = (acqId) => (restoreAttempts.get(acqId) ?? []).some((a) => a.restored);
+
 /** @type {Api["acq_restore_encryption"]} */
 export const acq_restore_encryption = async (req) => {
   const acq = findAcq(req.case_path, req.acq_id);
   if (!acq.warnings.some((w) => w.code === "encryption_left_enabled" || w.code === "encryption_state_unknown")) {
     throw appError("restore_not_applicable", "This acquisition did not leave backup encryption on.");
   }
+  const attempts = restoreAttempts.get(acq.acq_id) ?? [];
+  const earlier = attempts.find((a) => a.restored);
+  if (earlier) throw appError("restore_not_applicable", "An earlier attempt already turned backup encryption off for this acquisition.", earlier.file);
   if (job) throw appError("run_already_active", "Another job is running.");
   const device = findDevice(acq.device.udid);
   if (device.pair_state !== "paired") throw appError("device_not_paired", "Pair the device first.");
   if (!req.password) throw appError("encryption_password_required", "Enter the backup password that was set during the acquisition.");
   await sleep(2 * tick());
-  // The password "wrong" stands for a wrong password: the tool fails, and encryption stays on.
-  if (req.password === "wrong") return { restored: false, will_encrypt_after: true };
+  // The password "wrong" stands for a wrong password: the tool fails, encryption stays on, and
+  // the attempt can be retried.
+  const restored = req.password !== "wrong";
+  const n = attempts.length + 1;
+  attempts.push({ file: n === 1 ? "encryption-restore.json" : `encryption-restore-${n}.json`, restored });
+  restoreAttempts.set(acq.acq_id, attempts);
+  if (!restored) return { restored: false, will_encrypt_after: true };
   device.will_encrypt = false;
   return { restored: true, will_encrypt_after: false };
 };
@@ -1526,12 +1565,14 @@ export const dialog_save = (options) => pickSave(options);
 
 // ---- Start-up scenario ----
 
+// With a `hold_<phase>` flag the start-up job is a normal one that stops in that phase, so the UI
+// attaches mid-phase (as after a reload); otherwise it is a slow one.
 if (has("active_run")) {
   void run_start(
     {
       case_path: NIGHTJAR,
       tool: "ileapp",
-      input_path: "/Volumes/Evidence/slow",
+      input_path: HOLDING ? "/Volumes/Evidence/Pixel-7-extraction" : "/Volumes/Evidence/slow",
       input_type: "fs",
       modules: { mode: "all" },
       timezone: "UTC",
@@ -1548,10 +1589,10 @@ if (has("active_acq")) {
     {
       case_path: NIGHTJAR,
       udid: fx.DeviceSummary.udid,
-      label: "Seized iPhone, item 7/slow",
-      enable_encryption: false,
-      encryption_password: null,
-      restore_encryption: false,
+      label: HOLDING ? "Seized iPhone, item 7" : "Seized iPhone, item 7/slow",
+      enable_encryption: HOLDING,
+      encryption_password: HOLDING ? "examiner-pw" : null,
+      restore_encryption: HOLDING,
     },
     () => {},
   );

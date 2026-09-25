@@ -3,8 +3,6 @@
 
 /** @typedef {import("../types").CaseFields} CaseFields */
 /** @typedef {import("../types").CaseFile} CaseFile */
-/** @typedef {import("../types").AcqSummary} AcqSummary */
-/** @typedef {import("../types").AcquisitionRecord} AcquisitionRecord */
 /** @typedef {import("../types").RunRecord} RunRecord */
 /** @typedef {import("../types").RunSummary} RunSummary */
 
@@ -66,30 +64,5 @@ export function updatedRunSummary(summary, record) {
     ended_at: record.ended_at,
     duration_ms: record.duration_ms,
     report_available: record.leapp_result?.index_html_found === true,
-  };
-}
-
-/**
- * An acquisitions-table row updated from the re-read `acquisition.json` (after the acquisition
- * finished), without re-opening the case. `backup_path` is the absolute `backup/<udid>` folder of a
- * succeeded acquisition (CONTRACTS.md §13.5), joined with the separator of `acq_dir`.
- * @param {AcqSummary} summary
- * @param {AcquisitionRecord} record
- * @returns {AcqSummary}
- */
-export function updatedAcqSummary(summary, record) {
-  const sep = summary.acq_dir.includes("\\") && !summary.acq_dir.includes("/") ? "\\" : "/";
-  const udidDir = record.backup_result?.udid_dir ?? `${record.output.backup_dir}/${record.device.udid}`;
-  return {
-    ...summary,
-    label: record.label,
-    status: record.status,
-    device_name: record.device.device_name,
-    product_version: record.device.product_version,
-    started_at: record.started_at,
-    ended_at: record.ended_at,
-    duration_ms: record.duration_ms,
-    backup_path: record.status === "succeeded" ? `${summary.acq_dir}${sep}${udidDir.split("/").join(sep)}` : null,
-    warnings: record.warnings.map((w) => w.code),
   };
 }

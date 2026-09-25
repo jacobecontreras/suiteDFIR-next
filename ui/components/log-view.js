@@ -160,10 +160,14 @@ export function logView(spec) {
 
   async function copyAll() {
     const lines = log.lines;
+    const dropped = log.dropped;
     const ok = await copyText(lines.join("\n"));
-    copyStatus.textContent = ok
-      ? `Copied ${formatCount(lines.length)} ${lines.length === 1 ? "line" : "lines"}.`
-      : "Could not copy: the clipboard is not available.";
+    const copied = `${formatCount(lines.length)} ${lines.length === 1 ? "line" : "lines"}`;
+    copyStatus.textContent = !ok
+      ? "Could not copy: the clipboard is not available."
+      : dropped > 0
+        ? `Copied the last ${copied}. The first ${formatCount(dropped)} are not kept here and were not copied; the full log is in the job folder.`
+        : `Copied ${copied}.`;
   }
 
   return {

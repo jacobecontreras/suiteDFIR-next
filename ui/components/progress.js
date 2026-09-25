@@ -9,24 +9,54 @@ import { icon, phaseLabel, uid } from "../lib/view.js";
 /** @typedef {import("../lib/jobstream.js").StepState | "failed"} StepState "failed": the install stage that failed. */
 
 /**
- * A `<progress>` with a visible label and detail text. `total: null` (or 0) = indeterminate.
- * @param {{ label: string, done: number | null, total: number | null, detail: string }} spec
+ * @typedef {{ label: string, done: number | null, total: number | null, detail: string }} ProgressSpec
+ * `total: null` (or 0) = indeterminate.
+ */
+
+/**
+ * @typedef {object} ProgressMeter
+ * @property {HTMLElement} node
+ * @property {(spec: ProgressSpec) => void} update Changes the texts and the value in place.
+ */
+
+/**
+ * A `<progress>` with a visible label and detail text, updated in place: the screens call `update`
+ * on every progress event (up to 4/s) without replacing any element.
+ * @param {ProgressSpec} spec
+ * @returns {ProgressMeter}
+ */
+export function progressMeter(spec) {
+  const id = uid("progress");
+  const label = h("label", { class: "progress-label", for: id });
+  const detail = h("span", { class: "muted" });
+  const bar = /** @type {HTMLProgressElement} */ (h("progress", { class: "progress", id }));
+  const node = h("div", { class: "progress-block" }, h("div", { class: "progress-head" }, label, detail), bar);
+  /** @param {ProgressSpec} next */
+  const update = (next) => {
+    if (label.textContent !== next.label) label.textContent = next.label;
+    if (detail.textContent !== next.detail) detail.textContent = next.detail;
+    const determinate = typeof next.total === "number" && next.total > 0 && typeof next.done === "number";
+    if (determinate) {
+      const total = /** @type {number} */ (next.total);
+      if (bar.max !== total) bar.max = total;
+      const value = Math.min(/** @type {number} */ (next.done), total);
+      if (!bar.hasAttribute("value") || bar.value !== value) bar.value = value;
+    } else if (bar.hasAttribute("value")) {
+      // No value attribute = indeterminate.
+      bar.removeAttribute("value");
+    }
+  };
+  update(spec);
+  return { node, update };
+}
+
+/**
+ * A `<progress>` with a visible label and detail text, built once (see `progressMeter` to update).
+ * @param {ProgressSpec} spec
  * @returns {HTMLElement}
  */
 export function progressBar(spec) {
-  const id = uid("progress");
-  const determinate = typeof spec.total === "number" && spec.total > 0 && typeof spec.done === "number";
-  const bar = /** @type {HTMLProgressElement} */ (h("progress", { class: "progress", id }));
-  if (determinate) {
-    bar.max = /** @type {number} */ (spec.total);
-    bar.value = Math.min(/** @type {number} */ (spec.done), /** @type {number} */ (spec.total));
-  }
-  return h(
-    "div",
-    { class: "progress-block" },
-    h("div", { class: "progress-head" }, h("label", { class: "progress-label", for: id }, spec.label), h("span", { class: "muted" }, spec.detail)),
-    bar,
-  );
+  return progressMeter(spec).node;
 }
 
 /**

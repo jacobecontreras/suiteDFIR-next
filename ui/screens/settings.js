@@ -11,8 +11,8 @@
  * Installs keep running (and their progress stays in the store) when the examiner leaves the screen.
  */
 import { appError, errorSlot } from "../components/app-error.js";
-import { progressBar, percentOf, stepList } from "../components/progress.js";
-import { fill, h } from "../lib/dom.js";
+import { percentOf, progressMeter, stepList } from "../components/progress.js";
+import { fill, h, keyedSlot, setText } from "../lib/dom.js";
 import { toAppError } from "../lib/errors.js";
 import { field, selectInput, textInput } from "../lib/form.js";
 import { formatBytes, formatCount } from "../lib/format.js";
@@ -93,86 +93,139 @@ export function settingsScreen(ctx) {
 
   // ---- Parsers ----
 
+  /**
+   * One card per parser, kept across renders: install events arrive several times a second, and
+   * only the parts whose inputs changed are rebuilt (the buttons are updated in place), so focus
+   * stays where it is and status texts are announced only when they change.
+   * @type {Map<ToolId, { node: HTMLElement, update: (t: ToolStatus, p: InstallProgress | undefined) => void }>}
+   */
+  const cards = new Map();
+
   function renderTools() {
     const s = store.get();
-    toolsGrid.replaceChildren(...(s.tools ?? []).map((t) => toolCard(t, s.installs[t.tool])));
+    const nodes = (s.tools ?? []).map((t) => {
+      let c = cards.get(t.tool);
+      if (!c) {
+        c = toolCard(t.tool);
+        cards.set(t.tool, c);
+      }
+      c.update(t, s.installs[t.tool]);
+      return c.node;
+    });
+    const shown = [...toolsGrid.children];
+    if (nodes.length !== shown.length || nodes.some((n, i) => shown[i] !== n)) toolsGrid.replaceChildren(...nodes);
   }
 
-  /**
-   * @param {ToolStatus} t
-   * @param {InstallProgress | undefined} p
-   */
-  function toolCard(t, p) {
-    const info = TOOL_STATES[t.state];
-    const actions = toolActions(t.state);
-    const busy = p?.running === true || verifying.has(t.tool);
+  /** @param {ToolId} tool */
+  function toolCard(tool) {
     const headingId = uid("tool");
-    /** @type {[string, Node | string][]} */
-    const facts = [
-      ["Pinned version", t.pinned_version],
-      ["Installed version", t.installed_version ?? dash()],
-      ["Installed from", sourceText(t.install_source)],
-      ["Modules", t.module_count === null ? dash() : formatCount(t.module_count)],
-      ["Folder", t.install_dir ? h("span", { class: "mono break" }, t.install_dir) : dash()],
-    ];
-    const note = verifyNotes[t.tool];
-    return fill(
-      h("article", { class: "tool-card", "aria-labelledby": headingId }),
-      h(
-        "div",
-        { class: "tool-card-head" },
-        h("h3", { id: headingId }, t.display_name),
-        h("span", { class: `badge badge-tone-${info.tone}` }, icon(info.icon), info.label),
-      ),
-      h("p", { class: "small" }, info.text),
-      t.problem &&
-        h("div", { class: "banner banner-danger" }, icon("x-circle"), h("div", null, h("strong", null, "Problem: "), h("span", { class: "break" }, t.problem))),
-      h("dl", { class: "facts facts-compact" }, facts.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
-      p && installView(t, p),
-      (actions.install || actions.import || actions.verify) &&
-        h(
-          "div",
-          { class: "actions" },
-          actions.install &&
-            h(
-              "button",
-              { class: "btn btn-primary btn-sm", type: "button", disabled: busy, onClick: () => install(t, "download") },
-              t.state === "not_installed" ? `Install ${t.pinned_version}` : "Install again",
-            ),
-          actions.import && h("button", { class: "btn btn-sm", type: "button", disabled: busy, onClick: () => install(t, "import") }, "Import release file…"),
-          actions.verify &&
-            h("button", { class: "btn btn-sm", type: "button", disabled: busy, onClick: () => verify(t) }, verifying.has(t.tool) ? "Verifying…" : "Verify"),
-        ),
-      note && h("p", { class: note.ok ? "status-text" : "field-error", role: "status" }, note.text),
-      toolErrors[t.tool] !== undefined && appError(toolErrors[t.tool], { title: "The parser could not be verified." }).node,
+    const head = keyedSlot(h("div", { class: "tool-card-head" }));
+    const about = keyedSlot(h("div", { class: "slot" }));
+    const panel = installPanel();
+    const panelSlot = keyedSlot(h("div", { class: "slot" }));
+    /** @type {ToolStatus | null} */
+    let current = null;
+    const installButton = /** @type {HTMLButtonElement} */ (
+      h("button", { class: "btn btn-primary btn-sm", type: "button", onClick: () => current && install(current, "download") })
     );
+    const importButton = /** @type {HTMLButtonElement} */ (
+      h("button", { class: "btn btn-sm", type: "button", onClick: () => current && install(current, "import") }, "Import release file…")
+    );
+    const verifyButton = /** @type {HTMLButtonElement} */ (h("button", { class: "btn btn-sm", type: "button", onClick: () => current && verify(current) }));
+    const actionsRow = h("div", { class: "actions" }, installButton, importButton, verifyButton);
+    const outcome = keyedSlot(h("div", { class: "slot" }));
+    const node = h("article", { class: "tool-card", "aria-labelledby": headingId }, head.node, about.node, panelSlot.node, actionsRow, outcome.node);
+    return {
+      node,
+      /**
+       * @param {ToolStatus} t
+       * @param {InstallProgress | undefined} p
+       */
+      update(t, p) {
+        current = t;
+        const info = TOOL_STATES[t.state];
+        const actions = toolActions(t.state);
+        const busy = p?.running === true || verifying.has(tool);
+        head.update(JSON.stringify([t.display_name, t.state]), () => [
+          h("h3", { id: headingId }, t.display_name),
+          h("span", { class: `badge badge-tone-${info.tone}` }, icon(info.icon), info.label),
+        ]);
+        about.update(JSON.stringify(t), () => {
+          /** @type {[string, Node | string][]} */
+          const facts = [
+            ["Pinned version", t.pinned_version],
+            ["Installed version", t.installed_version ?? dash()],
+            ["Installed from", sourceText(t.install_source)],
+            ["Modules", t.module_count === null ? dash() : formatCount(t.module_count)],
+            ["Folder", t.install_dir ? h("span", { class: "mono break" }, t.install_dir) : dash()],
+          ];
+          return [
+            h("p", { class: "small" }, info.text),
+            t.problem &&
+              h("div", { class: "banner banner-danger" }, icon("x-circle"), h("div", null, h("strong", null, "Problem: "), h("span", { class: "break" }, t.problem))),
+            h("dl", { class: "facts facts-compact" }, facts.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
+          ];
+        });
+        if (p) panel.update(t, p);
+        panelSlot.update(p ? "shown" : "", () => (p ? panel.node : null));
+        installButton.hidden = !actions.install;
+        installButton.disabled = busy;
+        setText(installButton, t.state === "not_installed" ? `Install ${t.pinned_version}` : "Install again");
+        importButton.hidden = !actions.import;
+        importButton.disabled = busy;
+        verifyButton.hidden = !actions.verify;
+        verifyButton.disabled = busy;
+        setText(verifyButton, verifying.has(tool) ? "Verifying…" : "Verify");
+        actionsRow.hidden = !(actions.install || actions.import || actions.verify);
+        const note = verifyNotes[tool];
+        const err = toolErrors[tool];
+        outcome.update(JSON.stringify([note ?? null, err === undefined ? null : toAppError(err)]), () => [
+          note && h("p", { class: note.ok ? "status-text" : "field-error", role: "status" }, note.text),
+          err !== undefined && appError(err, { title: "The parser could not be verified." }).node,
+        ]);
+      },
+    };
   }
 
-  /**
-   * @param {ToolStatus} t
-   * @param {InstallProgress} p
-   */
-  function installView(t, p) {
-    const what = p.mode === "download" ? "Installing" : "Importing";
-    const bar =
-      p.running &&
-      (p.stages[p.stages.length - 1] === "downloading" && p.download
-        ? progressBar({
-            label: `Downloading ${t.display_name} ${t.pinned_version}`,
-            done: p.download.done,
-            total: p.download.total,
-            detail: `${formatBytes(p.download.done)} of ${formatBytes(p.download.total)}${pct(p.download.done, p.download.total)}`,
-          })
-        : progressBar({ label: `${what} ${t.display_name}`, done: null, total: null, detail: stageLabel(p.stages[p.stages.length - 1] ?? "") }));
-    return h(
-      "div",
-      { class: "subpanel stack-sm install-progress" },
-      stepList(`${what} stages`, installSteps(p), stageLabel),
-      bar,
-      p.messages.length > 0 && h("ul", { class: "list-compact small muted" }, p.messages.map((m) => h("li", null, m))),
-      !p.running && !p.error && h("p", { class: "status-text", role: "status" }, p.mode === "download" ? "Installed and verified." : "Imported and verified."),
-      p.error && appError(p.error, { title: p.mode === "download" ? "The install failed. Nothing was installed." : "The import failed. Nothing was installed." }).node,
-    );
+  /** The stages, progress bar, messages and outcome of an install or import, updated in place. */
+  function installPanel() {
+    const steps = keyedSlot(h("div", { class: "slot" }));
+    const meter = progressMeter({ label: "", done: null, total: null, detail: "" });
+    const meterSlot = keyedSlot(h("div", { class: "slot" }));
+    const messages = keyedSlot(h("div", { class: "slot" }));
+    const outcome = keyedSlot(h("div", { class: "slot" }));
+    const node = h("div", { class: "subpanel stack-sm install-progress" }, steps.node, meterSlot.node, messages.node, outcome.node);
+    return {
+      node,
+      /**
+       * @param {ToolStatus} t
+       * @param {InstallProgress} p
+       */
+      update(t, p) {
+        const what = p.mode === "download" ? "Installing" : "Importing";
+        const stepStates = installSteps(p);
+        steps.update(JSON.stringify([what, stepStates]), () => stepList(`${what} stages`, stepStates, stageLabel));
+        const stage = p.stages[p.stages.length - 1] ?? "";
+        if (p.running) {
+          meter.update(
+            stage === "downloading" && p.download
+              ? {
+                  label: `Downloading ${t.display_name} ${t.pinned_version}`,
+                  done: p.download.done,
+                  total: p.download.total,
+                  detail: `${formatBytes(p.download.done)} of ${formatBytes(p.download.total)}${pct(p.download.done, p.download.total)}`,
+                }
+              : { label: `${what} ${t.display_name}`, done: null, total: null, detail: stageLabel(stage) },
+          );
+        }
+        meterSlot.update(String(p.running), () => (p.running ? meter.node : null));
+        messages.update(JSON.stringify(p.messages), () => p.messages.length > 0 && h("ul", { class: "list-compact small muted" }, p.messages.map((m) => h("li", null, m))));
+        outcome.update(JSON.stringify([p.running, p.mode, p.error]), () => [
+          !p.running && !p.error && h("p", { class: "status-text", role: "status" }, p.mode === "download" ? "Installed and verified." : "Imported and verified."),
+          p.error && appError(p.error, { title: p.mode === "download" ? "The install failed. Nothing was installed." : "The import failed. Nothing was installed." }).node,
+        ]);
+      },
+    };
   }
 
   /**
@@ -318,6 +371,7 @@ export function settingsScreen(ctx) {
 
   const storageErrors = errorSlot();
   const storageStatus = h("p", { class: "status-text", role: "status" });
+  const storageSlot = keyedSlot(storageBody);
   let storageBusy = false;
 
   function renderStorage() {
@@ -328,13 +382,15 @@ export function settingsScreen(ctx) {
     const toolsDir = override ?? s.appInfo?.paths.tools_dir ?? "";
     const installing = Object.values(s.installs).some((p) => p?.running);
     const jobActive = s.activeJob !== null;
-    storageBody.replaceChildren(
+    // Install events arrive several times a second: rebuild only when this section's inputs change.
+    const key = JSON.stringify([settings.cases_root, override, toolsDir, installing, jobActive, storageBusy]);
+    storageSlot.update(key, () => [
       folderRow({
         label: "Cases folder",
         path: settings.cases_root,
         tag: null,
         hint: "New cases are created here unless you choose another location.",
-        buttons: [h("button", { class: "btn btn-sm", type: "button", disabled: storageBusy, onClick: changeCasesRoot }, "Change…")],
+        buttons: [h("button", { class: "btn btn-sm", type: "button", disabled: storageBusy, "data-focus-key": "cases-root", onClick: changeCasesRoot }, "Change…")],
       }),
       folderRow({
         label: "Tools folder",
@@ -343,9 +399,9 @@ export function settingsScreen(ctx) {
         hint:
           "Parsers are installed in and run from this folder. On machines where AppLocker or WDAC allow programs only from approved folders, choose an approved one. It may not be inside a case folder. Parsers already installed elsewhere are not moved.",
         buttons: [
-          h("button", { class: "btn btn-sm", type: "button", disabled: storageBusy || installing, onClick: changeToolsDir }, "Change…"),
+          h("button", { class: "btn btn-sm", type: "button", disabled: storageBusy || installing, "data-focus-key": "tools-dir", onClick: changeToolsDir }, "Change…"),
           override !== null &&
-            h("button", { class: "btn btn-sm", type: "button", disabled: storageBusy || installing, onClick: () => setToolsDir(null) }, "Use the default"),
+            h("button", { class: "btn btn-sm", type: "button", disabled: storageBusy || installing, "data-focus-key": "tools-dir-default", onClick: () => setToolsDir(null) }, "Use the default"),
         ],
       }),
       h(
@@ -360,13 +416,18 @@ export function settingsScreen(ctx) {
         h(
           "div",
           { class: "inline-row" },
-          h("button", { class: "btn btn-sm", type: "button", disabled: storageBusy || jobActive, onClick: cleanTemp }, "Clean temporary files"),
-          jobActive && h("span", { class: "muted small" }, "Not while a job is running."),
+          // A parser install also works in a temporary folder (its module introspection).
+          h(
+            "button",
+            { class: "btn btn-sm", type: "button", disabled: storageBusy || jobActive || installing, "data-focus-key": "clean-temp", onClick: cleanTemp },
+            "Clean temporary files",
+          ),
+          (jobActive || installing) && h("span", { class: "muted small" }, jobActive ? "Not while a job is running." : "Not while a parser is being installed."),
         ),
       ),
       storageErrors.node,
       storageStatus,
-    );
+    ]);
   }
 
   /**

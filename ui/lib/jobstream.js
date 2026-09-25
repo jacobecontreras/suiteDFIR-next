@@ -7,11 +7,15 @@
  *   `run_start` / `acq_start` (`begin`).
  * - After a window reload the channel is gone; `attach` subscribes again with `job_attach`, which
  *   returns the core's log backlog (the last 2,000 lines) and replaces the previous subscriber.
+ *   The backlog has no phase, so the stream starts in the active job's phase (`ActiveJob.phase`,
+ *   read again with `job_active` once subscribed): the next `phase` event can be hours away.
  *
  * Log lines are kept in one growing array (the log view renders only the rows in view). Past
  * `MAX_LOG_LINES` the oldest lines are dropped in chunks and counted; the complete log is always in
  * the run folder (`report/_HTML/_Script_Logs/Screen_Output.html`) or the acquisition's stdout log.
  */
+
+import { setActiveJob } from "./jobs.js";
 
 /** @typedef {import("../types").AcqEvent} AcqEvent */
 /** @typedef {import("../types").ActiveJob} ActiveJob */
@@ -211,8 +215,23 @@ export function activeJobId(job) {
  */
 
 /**
- * @typedef {{ job_attach: (req: import("../types").JobAttachRequest, onEvent: (e: RunEvent | AcqEvent) => void) => Promise<import("../types").JobBacklog> }} AttachApi
+ * @typedef {object} AttachApi
+ * @property {(req: import("../types").JobAttachRequest, onEvent: (e: RunEvent | AcqEvent) => void) => Promise<import("../types").JobBacklog>} job_attach
+ * @property {() => Promise<ActiveJob | null>} [job_active] Read once subscribed, for the current phase.
  */
+
+/**
+ * Starts an attached stream in the phase `job` reports, if `job` is that stream's job.
+ * @param {JobStream} s
+ * @param {ActiveJob | null | undefined} job
+ * @returns {boolean} Whether the phase was taken.
+ */
+export function seedPhase(s, job) {
+  if (!job || job.kind !== s.kind || activeJobId(job) !== s.id || !job.phase) return false;
+  s.phase = job.phase;
+  s.phases = [job.phase];
+  return true;
+}
 
 /**
  * @param {import("./store.js").Store<AppState>} store Keeps `activeJob.phase` current and clears it on `finished`.
@@ -294,6 +313,8 @@ export function createJobStreams(store, hooks = {}) {
       if (existing && (existing.live || existing.finished)) return existing;
       const s = newStream(kind, id, casePath);
       s.partial = true;
+      // The phase the app last knew, so the first render is already right.
+      seedPhase(s, store.get().activeJob);
       current = s;
       /** @type {(RunEvent | AcqEvent)[] | null} Events that arrive before the backlog. */
       let early = [];
@@ -303,10 +324,22 @@ export function createJobStreams(store, hooks = {}) {
           if (early) early.push(event);
           else deliver(s, event);
         });
+        // Read after subscribing, the active job's phase is current: any later change arrives as
+        // an event. A phase event that already arrived is newer than the stored phase, and wins.
+        /** @type {ActiveJob | null | undefined} */
+        let fresh;
+        if (api.job_active) {
+          try {
+            fresh = await api.job_active();
+          } catch {
+            fresh = undefined;
+          }
+        }
         if (current !== s) return s;
-        appendLog(s.log, backlog);
         const queued = early;
         early = null;
+        if (!queued.some((e) => e.type === "phase") && seedPhase(s, fresh)) setActiveJob(store, /** @type {ActiveJob} */ (fresh));
+        appendLog(s.log, backlog);
         s.version += 1;
         notify(s);
         for (const event of queued) deliver(s, event);

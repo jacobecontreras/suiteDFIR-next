@@ -10,7 +10,7 @@ import { caseForm } from "../components/case-form.js";
 import { modal } from "../components/dialog.js";
 import { restoreEncryptionDialog } from "../components/restore-dialog.js";
 import { needsEncryptionOff } from "../lib/acquire.js";
-import { editableFields, folderLabel, updatedAcqSummary, updatedRunSummary } from "../lib/cases.js";
+import { editableFields, folderLabel, updatedRunSummary } from "../lib/cases.js";
 import { h } from "../lib/dom.js";
 import { formatBytes, formatCount, formatDuration, middleEllipsis } from "../lib/format.js";
 import { jobKey } from "../lib/jobs.js";
@@ -75,8 +75,6 @@ export function caseScreen(ctx) {
   const runsCard = h("section", { class: "card", "aria-labelledby": "runs-heading" });
   const acqErrors = errorSlot();
   const acqCard = h("section", { class: "card", "aria-labelledby": "acquisitions-heading" });
-  /** acq_ids whose backup encryption was turned off from this screen (acquisition.json keeps its warnings). */
-  const encryptionOff = new Set();
 
   async function open() {
     try {
@@ -381,7 +379,9 @@ export function caseScreen(ctx) {
   /** @param {AcqSummary} a */
   function acqRow(a) {
     const casePath = detail?.path ?? path;
-    const encryptionOn = needsEncryptionOff(a.warnings) && !encryptionOff.has(a.acq_id);
+    // AcqSummary.warnings is derived by the core: it drops these codes once a later restore
+    // recorded `restored: true` (acquisition.json keeps them), so the action then disappears.
+    const encryptionOn = needsEncryptionOff(a.warnings);
     const canParse = a.status === "succeeded" && a.backup_path !== null;
     return h(
       "tr",
@@ -391,7 +391,6 @@ export function caseScreen(ctx) {
         null,
         statusBadge(a.status),
         encryptionOn && h("span", { class: "cell-sub cell-warn" }, icon("lock"), " Encryption may still be on"),
-        encryptionOff.has(a.acq_id) && h("span", { class: "cell-sub muted" }, "Encryption turned off"),
       ),
       h(
         "td",
@@ -447,14 +446,28 @@ export function caseScreen(ctx) {
       api,
       casePath: detail?.path ?? path,
       acq: { acq_id: a.acq_id, label: a.label, device_name: a.device_name, udid: a.udid },
-      onDone: (result) => {
-        if (!result.restored || disposed) return;
-        encryptionOff.add(a.acq_id);
-        renderAcqs();
+      // Whatever the outcome, re-read the rows: their warnings say whether the action still applies.
+      onSettled: () => {
+        if (!disposed) void reloadAcqs();
       },
     });
     cleanups.push(() => dialog.close());
     dialog.open();
+  }
+
+  /**
+   * Re-reads the acquisitions (`case_open`, the core's `AcqSummary` rows) and redraws their table.
+   * The runs table and the recovered-jobs notice stay as they are.
+   */
+  async function reloadAcqs() {
+    try {
+      const opened = await api.case_open({ path: detail?.path ?? path });
+      if (disposed || !detail) return;
+      detail = { ...detail, acquisitions: opened.acquisitions };
+      renderAcqs();
+    } catch (err) {
+      if (!disposed) acqErrors.show(err, "The acquisitions could not be read again. Reopen the case to see their current state.");
+    }
   }
 
   /** @param {AcqSummary} a */
@@ -480,16 +493,20 @@ export function caseScreen(ctx) {
       .finally(() => content.removeAttribute("aria-busy"));
   }
 
-  /** @param {string} acqId */
-  async function refreshAcq(acqId) {
-    try {
-      const record = await api.acq_get({ case_path: detail?.path ?? path, acq_id: acqId });
-      if (disposed || !detail) return;
-      detail = { ...detail, acquisitions: detail.acquisitions.map((a) => (a.acq_id === acqId ? updatedAcqSummary(a, record) : a)) };
-      renderAcqs();
-    } catch {
-      // Keep the table as it is; reopening the case shows the current state.
+  /**
+   * A finished acquisition's row: the core's `AcqSummary` from its `finished` event when this
+   * window received it, else re-read with the other rows.
+   * @param {string} acqId
+   */
+  function refreshAcq(acqId) {
+    const finished = /** @type {import("../lib/jobstream.js").AcqFinished | null | undefined} */ (ctx.jobs.find("acquisition", acqId)?.finished);
+    if (!finished || !detail || !detail.acquisitions.some((a) => a.acq_id === acqId)) {
+      void reloadAcqs();
+      return;
     }
+    const summary = finished.summary;
+    detail = { ...detail, acquisitions: detail.acquisitions.map((a) => (a.acq_id === acqId ? summary : a)) };
+    renderAcqs();
   }
 
   // When a job of this case stops being the active job (it finished), re-read just that run or

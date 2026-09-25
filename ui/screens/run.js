@@ -11,9 +11,9 @@
 import { appError, errorSlot } from "../components/app-error.js";
 import { confirmDialog } from "../components/dialog.js";
 import { logView } from "../components/log-view.js";
-import { percentOf, progressBar, stepList } from "../components/progress.js";
+import { percentOf, progressMeter, stepList } from "../components/progress.js";
 import { folderLabel } from "../lib/cases.js";
-import { fill, h } from "../lib/dom.js";
+import { fill, h, keyedSlot, setText } from "../lib/dom.js";
 import { elapsedSince, formatBytes, formatCount, formatElapsed, plural } from "../lib/format.js";
 import { RUN_PHASES, stepStates } from "../lib/jobstream.js";
 import { jobKey } from "../lib/jobs.js";
@@ -74,8 +74,13 @@ export function runScreen(ctx) {
   const facts = h("dl", { class: "facts run-facts" });
   const elapsed = h("span", { class: "elapsed" });
   const elapsedLabel = h("span", null, "Elapsed");
-  const phaseSlot = h("div", { class: "phase-slot" });
-  const progressSlot = h("div", { class: "stack-sm progress-slot" });
+  // Rendered on every event: parts are rebuilt only when what they show changes.
+  const statusBadgeSlot = keyedSlot(statusSlot);
+  const phaseSlot = keyedSlot(h("div", { class: "phase-slot" }));
+  const progressSlot = keyedSlot(h("div", { class: "stack-sm progress-slot" }));
+  const hashMeter = progressMeter({ label: "Hashing the input (SHA-256)", done: null, total: null, detail: "" });
+  const sealMeter = progressMeter({ label: "Sealing the report (report.sha256)", done: null, total: null, detail: "" });
+  const progressNote = h("p", { class: "muted small" }, "Input hashing and report sealing show their progress here when they run.");
   const actionErrors = errorSlot();
   const log = logView({ label: "Run log", emptyText: "No log lines yet." });
   const logBody = h("div", { class: "stack-sm" });
@@ -85,8 +90,8 @@ export function runScreen(ctx) {
     "section",
     { class: "card", "aria-labelledby": "run-progress-heading" },
     h("div", { class: "card-head" }, h("h2", { id: "run-progress-heading" }, "Progress"), h("span", { class: "muted" }, elapsedLabel, " ", elapsed)),
-    phaseSlot,
-    progressSlot,
+    phaseSlot.node,
+    progressSlot.node,
     actionErrors.node,
   );
   const body = h("div", { class: "stack", "aria-busy": "true" }, h("p", { class: "muted" }, "Loading the run…"));
@@ -168,16 +173,16 @@ export function runScreen(ctx) {
     const finished = /** @type {RunFinished | null} */ (s?.finished ?? null);
     /** @type {RunStatus} */
     const status = finished ? finished.status : s ? "running" : record.status;
-    statusSlot.replaceChildren(statusBadge(status));
+    statusBadgeSlot.update(status, () => statusBadge(status));
     cancelButton.hidden = !s || !s.live || stalled;
     cancelButton.disabled = cancelling;
-    cancelButton.textContent = cancelling ? "Cancelling…" : "Cancel run";
+    setText(cancelButton, cancelling ? "Cancelling…" : "Cancel run");
     renderElapsed();
     if (s) {
-      phaseSlot.replaceChildren(
-        stepList("Run phases", stepStates(RUN_PHASES, { phases: s.phases, phase: s.phase, finished: finished !== null, partial: s.partial }, OPTIONAL_PHASES)),
-      );
-      progressSlot.replaceChildren(...progressBars(s));
+      // Rebuilt only when a step changes; the bars are updated in place.
+      const steps = stepStates(RUN_PHASES, { phases: s.phases, phase: s.phase, finished: finished !== null, partial: s.partial }, OPTIONAL_PHASES);
+      phaseSlot.update(JSON.stringify(steps), () => stepList("Run phases", steps));
+      renderProgress(s);
       log.update(s.log);
     }
     if (status !== "running" && resultBuiltFor !== (s?.version ?? 0)) {
@@ -220,37 +225,32 @@ export function runScreen(ctx) {
     facts.replaceChildren(...rows.map(([k, v]) => [h("dt", null, k), h("dd", null, v)]).flat());
   }
 
-  /** @param {JobStream} s */
-  function progressBars(s) {
-    /** @type {HTMLElement[]} */
-    const out = [];
+  /**
+   * The hash and seal progress, updated in place.
+   * @param {JobStream} s
+   */
+  function renderProgress(s) {
     if (s.hash) {
       const pct = percentOf(s.hash.done, s.hash.total);
-      out.push(
-        progressBar({
-          label: "Hashing the input (SHA-256)",
-          done: s.hash.done,
-          total: s.hash.total,
-          detail: `${formatBytes(s.hash.done)} of ${formatBytes(s.hash.total)}${pct === null ? "" : ` (${pct}%)`}`,
-        }),
-      );
+      hashMeter.update({
+        label: "Hashing the input (SHA-256)",
+        done: s.hash.done,
+        total: s.hash.total,
+        detail: `${formatBytes(s.hash.done)} of ${formatBytes(s.hash.total)}${pct === null ? "" : ` (${pct}%)`}`,
+      });
     }
     if (s.seal) {
       const pct = percentOf(s.seal.done, s.seal.total);
-      out.push(
-        progressBar({
-          label: "Sealing the report (report.sha256)",
-          done: s.seal.done,
-          total: s.seal.total,
-          detail:
-            s.seal.total === null ? `${plural(s.seal.done, "file", "files")}` : `${formatCount(s.seal.done)} of ${plural(s.seal.total, "file", "files")}${pct === null ? "" : ` (${pct}%)`}`,
-        }),
-      );
+      sealMeter.update({
+        label: "Sealing the report (report.sha256)",
+        done: s.seal.done,
+        total: s.seal.total,
+        detail:
+          s.seal.total === null ? `${plural(s.seal.done, "file", "files")}` : `${formatCount(s.seal.done)} of ${plural(s.seal.total, "file", "files")}${pct === null ? "" : ` (${pct}%)`}`,
+      });
     }
-    if (out.length === 0 && s.live) {
-      out.push(h("p", { class: "muted small" }, "Input hashing and report sealing show their progress here when they run."));
-    }
-    return out;
+    const note = s.hash === null && s.seal === null && s.live;
+    progressSlot.update(`${s.hash !== null}|${s.seal !== null}|${note}`, () => [s.hash !== null && hashMeter.node, s.seal !== null && sealMeter.node, note && progressNote]);
   }
 
   /** @param {Exclude<RunStatus, "running"> | RunStatus} status */

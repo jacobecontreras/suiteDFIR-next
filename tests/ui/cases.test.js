@@ -3,11 +3,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { editableFields, folderLabel, updatedAcqSummary, updatedRunSummary, validateCaseFields } from "../../ui/lib/cases.js";
+import { editableFields, folderLabel, updatedRunSummary, validateCaseFields } from "../../ui/lib/cases.js";
 import { createStore } from "../../ui/lib/store.js";
 import { FALLBACK_TIMEZONES, loadTimezones, pickTimezone, timezoneList } from "../../ui/lib/timezones.js";
 import { installedTools } from "../../ui/lib/tools.js";
-import { AcqSummary, AcquisitionRecord, CaseFile, RunRecord, RunSummary, ToolModules, ToolStatus } from "../../ui-dev/fixtures/contracts/index.js";
+import { CaseFile, RunRecord, RunSummary, ToolModules, ToolStatus } from "../../ui-dev/fixtures/contracts/index.js";
 
 /** @typedef {import("../../ui/lib/context").AppState} AppState */
 /** @typedef {import("../../ui/types").ToolStatus} Status */
@@ -129,16 +129,4 @@ test("updatedRunSummary takes the outcome from run.json and keeps the row's iden
   assert.equal(noReport.report_available, false);
   assert.equal(noReport.status, "failed");
   assert.equal(noReport.run_dir, running.run_dir);
-});
-
-test("updatedAcqSummary takes the outcome from acquisition.json, with backup_path only when succeeded", () => {
-  /** @type {import("../../ui/types").AcqSummary} */
-  const running = { ...AcqSummary, status: "running", ended_at: null, duration_ms: null, backup_path: null, warnings: [] };
-  assert.deepEqual(updatedAcqSummary(running, structuredClone(AcquisitionRecord)), AcqSummary);
-  const left = { ...structuredClone(AcquisitionRecord), status: /** @type {const} */ ("failed"), warnings: [{ code: "encryption_left_enabled", message: "x" }] };
-  const failed = updatedAcqSummary(running, left);
-  assert.equal(failed.backup_path, null);
-  assert.deepEqual(failed.warnings, ["encryption_left_enabled"]);
-  const win = updatedAcqSummary({ ...running, acq_dir: "C:\\Cases\\A\\acquisitions\\x" }, structuredClone(AcquisitionRecord));
-  assert.equal(win.backup_path, `C:\\Cases\\A\\acquisitions\\x\\backup\\${AcquisitionRecord.device.udid}`);
 });

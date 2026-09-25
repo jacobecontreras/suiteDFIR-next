@@ -5,18 +5,23 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  ACQ_OPTION_DEFAULTS,
   PAIR_STATES,
   acqBlockers,
   buildAcqRequest,
   canAcquire,
   deviceState,
+  encryptionLeftOnText,
   encryptionOption,
   mergeDevice,
   needsEncryptionOff,
+  pairOutcome,
   passwordProblem,
   pickDevice,
   preflightInfo,
+  resetAcqControls,
   toolsGuidance,
+  withPairOutcomes,
 } from "../../ui/lib/acquire.js";
 import { DeviceSummary } from "../../ui-dev/fixtures/contracts/index.js";
 
@@ -87,9 +92,24 @@ test("pair-state transitions through Pair and Retry: not_paired → awaiting_tru
   const first = await mock.device_pair({ udid: ipad.udid });
   assert.equal(first.pair_state, "awaiting_trust");
   assert.equal(deviceState(first).action, "retry");
+  // Like the core: no host pair record yet, so the next poll reports not_paired …
+  const polled = await mock.devices_list();
+  assert.equal(polled.devices.find((d) => d.udid === ipad.udid)?.pair_state, "not_paired");
+  // … and the screen keeps showing the Pair answer (with its Retry and instructions).
+  /** @type {Map<string, import("../../ui/lib/acquire.js").PairOutcome>} */
+  let outcomes = new Map();
+  const remembered = pairOutcome(first);
+  assert.ok(remembered);
+  outcomes.set(ipad.udid, remembered);
+  let shown = withPairOutcomes(polled.devices, outcomes);
+  outcomes = shown.outcomes;
+  const card = shown.devices.find((d) => d.udid === ipad.udid);
+  assert.equal(card?.pair_state, "awaiting_trust");
+  assert.match(card?.message ?? "", /accept the trust dialog/);
   const second = await mock.device_pair({ udid: ipad.udid });
   assert.equal(second.pair_state, "paired");
   assert.equal(deviceState(second).action, null);
+  assert.equal(pairOutcome(second), null);
   const list = mergeDevice(before.devices, second);
   assert.deepEqual(
     list.map((d) => d.udid),
@@ -97,7 +117,62 @@ test("pair-state transitions through Pair and Retry: not_paired → awaiting_tru
     "the list keeps its order",
   );
   assert.equal(list.find((d) => d.udid === ipad.udid)?.pair_state, "paired");
+  // A poll that reports paired forgets the remembered answer.
+  shown = withPairOutcomes((await mock.devices_list()).devices, outcomes);
+  assert.equal(shown.devices.find((d) => d.udid === ipad.udid)?.pair_state, "paired");
+  assert.equal(shown.outcomes.size, 0);
   await assert.rejects(mock.device_pair({ udid: ipad.udid }), { code: "already_paired" });
+});
+
+test("a Pair answer stays shown while polls report not_paired, until the device pairs or disappears", () => {
+  const a = device({ udid: "a", pair_state: "not_paired", device_name: null, message: null });
+  const b = device({ udid: "b", pair_state: "not_paired", device_name: null, message: null });
+  /** @type {Map<string, import("../../ui/lib/acquire.js").PairOutcome>} */
+  const outcomes = new Map([
+    ["a", { pair_state: "trust_denied", message: "ERROR: Device a said that the user denied the trust dialog." }],
+    ["b", { pair_state: "locked", message: "ERROR: Could not validate with device b because a passcode is set." }],
+    ["gone", { pair_state: "awaiting_trust", message: null }],
+  ]);
+  const first = withPairOutcomes([a, b], outcomes);
+  assert.deepEqual(
+    first.devices.map((d) => `${d.udid}:${d.pair_state}`),
+    ["a:trust_denied", "b:locked"],
+  );
+  assert.deepEqual([...first.outcomes.keys()], ["a", "b"], "an unplugged device's answer is forgotten");
+  // Many polls later, still shown.
+  let outcomesNow = first.outcomes;
+  for (let i = 0; i < 5; i++) outcomesNow = withPairOutcomes([a, b], outcomesNow).outcomes;
+  assert.equal(withPairOutcomes([a, b], outcomesNow).devices[0].pair_state, "trust_denied");
+  // A poll with its own answer (a host record exists now) is shown as it is, the device pairs later.
+  const bLocked = device({ udid: "b", pair_state: "pairing_failed", message: "ERROR: Pairing with device b failed." });
+  assert.equal(withPairOutcomes([a, bLocked], outcomesNow).devices[1].pair_state, "pairing_failed");
+  const paired = withPairOutcomes([a, device({ udid: "b" })], outcomesNow);
+  assert.equal(paired.devices[1].pair_state, "paired");
+  assert.deepEqual([...paired.outcomes.keys()], ["a"]);
+  // A busy device is shown as busy.
+  assert.equal(withPairOutcomes([{ ...a, busy: true }], outcomesNow).devices[0].pair_state, "not_paired");
+});
+
+test("'New acquisition' resets every option to its default: no label, no encryption change, restore on", () => {
+  assert.deepEqual({ ...ACQ_OPTION_DEFAULTS }, { label: "", enableEncryption: false, password: "", password2: "", restoreEncryption: true, parseAfter: false });
+  // What the previous acquisition left in the controls.
+  const controls = {
+    label: { value: "Item 7" },
+    enableEncryption: { checked: true },
+    password: { value: "examiner-pw" },
+    password2: { value: "examiner-pw" },
+    restoreEncryption: { checked: false },
+    parseAfter: { checked: true },
+  };
+  resetAcqControls(controls);
+  assert.deepEqual(controls, {
+    label: { value: "" },
+    enableEncryption: { checked: false },
+    password: { value: "" },
+    password2: { value: "" },
+    restoreEncryption: { checked: true },
+    parseAfter: { checked: false },
+  });
 });
 
 test("device selection: keep the choice while it can be acquired, else the only ready device, else none", () => {
@@ -210,7 +285,11 @@ test("buildAcqRequest: encryption with restore by default, the password only whe
 test("'Turn backup encryption off' applies to encryption_left_enabled and encryption_state_unknown only", () => {
   assert.equal(needsEncryptionOff(["encryption_restore_failed", "encryption_left_enabled"]), true);
   assert.equal(needsEncryptionOff(["encryption_state_unknown"]), true);
+  // After a successful later restore the core's AcqSummary.warnings keep only the other codes.
   assert.equal(needsEncryptionOff(["encryption_restore_failed"]), false);
   assert.equal(needsEncryptionOff(["backup_encryption_preexisting", "seal_cancelled"]), false);
   assert.equal(needsEncryptionOff([]), false);
+  assert.match(encryptionLeftOnText(["encryption_restore_failed", "encryption_left_enabled"]) ?? "", /turned it on .* not turned off again/);
+  assert.match(encryptionLeftOnText(["encryption_state_unknown"]) ?? "", /whether that worked is unknown/);
+  assert.equal(encryptionLeftOnText(["seal_cancelled"]), null);
 });
