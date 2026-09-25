@@ -32,7 +32,11 @@ on:
       - "leapp-manifest.json"
       - "crates/core/src/leapp/**"
       - "crates/core/src/process/**"
+      - "crates/core/src/run/**"
       - "crates/core/src/runner.rs"
+      - "crates/core/src/tail.rs"
+      - "crates/core/src/inspect.rs"
+      - "crates/core/src/hashing.rs"
       - "crates/core/tests/leapp_smoke.rs"
       - ".github/workflows/leapp-smoke.yml"
 
