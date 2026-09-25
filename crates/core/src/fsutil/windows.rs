@@ -1,5 +1,6 @@
 //! Windows implementations of the `fsutil` helpers.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
@@ -45,6 +46,15 @@ fn is_transient_rename_error(e: &io::Error) -> bool {
         e.raw_os_error().and_then(|code| u32::try_from(code).ok()),
         Some(ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)
     )
+}
+
+/// Windows names are UTF-16; a name that is not valid Unicode (an unpaired surrogate) is written
+/// lossily.
+pub(super) fn manifest_name_bytes(name: &OsStr) -> (Vec<u8>, bool) {
+    match name.to_str() {
+        Some(text) => (text.as_bytes().to_vec(), false),
+        None => (name.to_string_lossy().into_owned().into_bytes(), true),
+    }
 }
 
 pub(super) fn free_space(path: &Path) -> io::Result<u64> {
@@ -95,6 +105,22 @@ mod tests {
     use std::time::Instant;
 
     use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
+    #[test]
+    fn manifest_names_are_utf8_or_lossy() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+        assert_eq!(
+            manifest_name_bytes(OsStr::new("a b\u{e9}.txt")),
+            ("a b\u{e9}.txt".as_bytes().to_vec(), false)
+        );
+        // 'a', an unpaired high surrogate, 'b'.
+        let unpaired = OsString::from_wide(&[0x61, 0xD800, 0x62]);
+        assert_eq!(
+            manifest_name_bytes(&unpaired),
+            ("a\u{FFFD}b".as_bytes().to_vec(), true)
+        );
+    }
 
     #[test]
     fn rename_waits_for_a_transient_holder() {

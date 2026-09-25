@@ -1,6 +1,6 @@
 //! Unix implementations of the `fsutil` helpers.
 
-use std::ffi::CString;
+use std::ffi::{CString, OsStr};
 use std::fs;
 use std::io;
 use std::mem::MaybeUninit;
@@ -27,6 +27,11 @@ pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
         log::debug!("could not sync directory {}: {e}", parent.display());
     }
     Ok(())
+}
+
+/// Unix names are byte strings and go into manifests unchanged.
+pub(super) fn manifest_name_bytes(name: &OsStr) -> (Vec<u8>, bool) {
+    (name.as_bytes().to_vec(), false)
 }
 
 pub(super) fn free_space(path: &Path) -> io::Result<u64> {
@@ -59,6 +64,12 @@ pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifest_names_are_raw_bytes() {
+        let name = OsStr::from_bytes(b"a\xffb\\c\nd");
+        assert_eq!(manifest_name_bytes(name), (b"a\xffb\\c\nd".to_vec(), false));
+    }
 
     #[test]
     fn set_read_only_clears_only_the_write_bits() {

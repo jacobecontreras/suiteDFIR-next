@@ -1,6 +1,7 @@
 //! Filesystem helpers: atomic JSON writes, read-only marking, path containment and free space
 //! (ARCHITECTURE.md §5.1). OS-specific code lives in `unix.rs` and `windows.rs`.
 
+use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
@@ -103,6 +104,13 @@ pub fn io_error_code(err: &io::Error) -> ErrorCode {
 /// sets the readonly attribute on Windows.
 pub fn set_read_only(path: &Path) -> io::Result<()> {
     sys::set_read_only(path)
+}
+
+/// A file name as written in hash manifests (CONTRACTS.md §8): the raw bytes on Unix, UTF-8 on
+/// Windows. The flag is true when the name is not valid Unicode and was converted lossily (Windows
+/// only; the manifest then warns `unencodable_filename`).
+pub fn manifest_name_bytes(name: &OsStr) -> (Vec<u8>, bool) {
+    sys::manifest_name_bytes(name)
 }
 
 /// Free bytes available to this user on the volume holding `path` (an existing directory).
