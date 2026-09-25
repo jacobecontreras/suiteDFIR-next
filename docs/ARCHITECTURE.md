@@ -272,7 +272,7 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 ## 7. Process model details
 
 - **Unix:**
-  - Spawn with `std::process::Command` plus `pre_exec(|| { libc::setsid(); Ok(()) })`, which gives a new session with pgid = pid. This is the only `unsafe` code that runs between fork and exec; comment why. Every other `unsafe` in `process` is a plain FFI call (`killpg`, `kill`, and the Win32 calls below), each commented.
+  - Spawn with `std::process::Command` plus `pre_exec(|| { libc::setsid(); Ok(()) })`, which gives a new session with pgid = pid. This is the only `unsafe` code that runs between fork and exec; comment why. Every other `unsafe` in `process` is an FFI call (`killpg` and `kill`; on Windows the calls below plus `QueryInformationJobObject`, `OpenProcess` and `WaitForSingleObject`) or takes ownership of a handle such a call returned (`OwnedHandle::from_raw_handle`), each commented.
   - Cancel: `killpg(pgid, SIGTERM)`, wait up to the spawn's configured grace (10 s for LEAPP, 30 s for backups), then `killpg(pgid, SIGKILL)`.
   - `process` also offers a stdout/stderr chunk callback (used for acquisition progress and prompt parsing) in addition to writing the log files.
   - Reap the leader with `wait`, then poll `killpg(pgid, 0)` until `ESRCH` (up to 2 s) before reporting the tree gone. On Linux, members that exited but were never reaped (zombies under an init that does not reap, as in CI containers) count as gone.

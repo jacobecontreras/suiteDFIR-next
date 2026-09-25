@@ -147,7 +147,9 @@ pub struct ExitInfo {
     pub exited_at: Timestamp,
     /// The same moment on the monotonic clock.
     pub exit_instant: Instant,
-    /// [`Handle::cancel`] was called before the exit was observed.
+    /// The tree was stopped because of [`Handle::cancel`]. A cancel that arrives after the leader
+    /// has exited counts as after the exit (`false`), even if the supervisor had not noticed the
+    /// exit yet: the supervisor checks for an exit before it looks at a cancel.
     pub cancel_requested: bool,
     /// The spec's timeout elapsed before the exit was observed.
     pub timed_out: bool,
@@ -183,7 +185,8 @@ impl Handle {
     }
 
     /// Asks the supervisor to stop the tree (SIGTERM, then SIGKILL after the grace on Unix; job
-    /// termination on Windows). Returns at once; idempotent; ignored once the exit was observed.
+    /// termination on Windows). Returns at once; idempotent; has no effect once the leader has
+    /// exited (see [`ExitInfo::cancel_requested`]).
     pub fn cancel(&self) {
         self.shared.lock().cancel = true;
         self.shared.changed.notify_all();

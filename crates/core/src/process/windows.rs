@@ -2,8 +2,9 @@
 //! created suspended, assigned to the job and only then resumed, so no process of the tree ever
 //! runs outside the job (ARCHITECTURE.md §7).
 //!
-//! `unsafe` here is FFI only (job objects, the Toolhelp thread snapshot, thread and process
-//! handles), each commented. Handles are owned by `OwnedHandle`, which closes them.
+//! `unsafe` here is FFI (job objects, the Toolhelp thread snapshot, thread and process handles)
+//! and taking ownership of the handles those calls return (`OwnedHandle::from_raw_handle`, which
+//! closes them), each commented.
 
 use std::fs;
 use std::io;

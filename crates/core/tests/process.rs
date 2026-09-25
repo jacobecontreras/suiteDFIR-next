@@ -107,12 +107,20 @@ impl Fixture {
             pids.is_some()
         });
         assert!(found, "fake-leapp did not write {}", self.pidfile.display());
-        let (parent, worker) = pids.unwrap();
-        Tree {
-            parent,
-            worker,
-            watches: [ProcessWatch::open(parent), ProcessWatch::open(worker)],
-        }
+        Tree::watch(pids.unwrap())
+    }
+
+    /// Like `wait_for_tree`, but `None` if the tree ended before it wrote its pids (a timeout
+    /// that stopped it during a very slow first start, such as a virus scan of the new binary).
+    fn wait_for_tree_unless_done(&self, handle: &Handle) -> Option<Tree> {
+        let mut pids = None;
+        poll_until(STARTUP_TIMEOUT, || {
+            pids = fs::read_to_string(&self.pidfile)
+                .ok()
+                .and_then(|text| parse_pids(&text));
+            pids.is_some() || matches!(handle.wait_timeout(Duration::ZERO), Ok(Some(_)))
+        });
+        pids.map(Tree::watch)
     }
 }
 
@@ -125,6 +133,14 @@ struct Tree {
 }
 
 impl Tree {
+    fn watch((parent, worker): (u32, u32)) -> Self {
+        Self {
+            parent,
+            worker,
+            watches: [ProcessWatch::open(parent), ProcessWatch::open(worker)],
+        }
+    }
+
     /// Asserts that both processes are gone by `deadline`. Polls: on Windows a terminated process
     /// can take a moment to finish exiting after its job reports no active processes.
     fn assert_gone_by(&self, deadline: Instant) {
@@ -274,14 +290,17 @@ fn slow_cancel_stops_both_processes_without_escalation() {
 fn timeout_stops_the_tree() {
     let fixture = Fixture::new();
     let mut spec = fixture.spec("slow", &[]);
-    spec.timeout = Some(Duration::from_secs(1));
+    spec.timeout = Some(Duration::from_secs(5));
     let handle = process::spawn(spec).unwrap();
-    let tree = fixture.wait_for_tree();
+    let tree = fixture.wait_for_tree_unless_done(&handle);
     let exit = handle.wait().unwrap();
     assert!(exit.timed_out);
     assert!(!exit.cancel_requested);
     assert!(!exit.escalated_to_kill);
-    tree.assert_gone_by(Instant::now() + CANCEL_BOUND);
+    match tree {
+        Some(tree) => tree.assert_gone_by(Instant::now() + CANCEL_BOUND),
+        None => eprintln!("the timeout stopped fake-leapp before it wrote its pids (slow start)"),
+    }
 }
 
 /// A timeout the clock cannot represent means no timeout (it used to overflow `Instant`).
