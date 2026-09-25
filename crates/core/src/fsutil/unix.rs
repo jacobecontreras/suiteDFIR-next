@@ -14,6 +14,21 @@ pub(super) fn set_read_only(path: &Path) -> io::Result<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(mode & !0o222))
 }
 
+/// Renames `from` over `to`, then syncs the parent directory so the rename survives a crash. The
+/// directory sync is best effort: the rename has already happened (the target holds the complete
+/// new file), and some filesystems (e.g. network shares) refuse to sync a directory.
+pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
+    fs::rename(from, to)?;
+    let parent = match to.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    if let Err(e) = fs::File::open(parent).and_then(|dir| dir.sync_all()) {
+        log::debug!("could not sync directory {}: {e}", parent.display());
+    }
+    Ok(())
+}
+
 pub(super) fn free_space(path: &Path) -> io::Result<u64> {
     let c_path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains a NUL byte"))?;
