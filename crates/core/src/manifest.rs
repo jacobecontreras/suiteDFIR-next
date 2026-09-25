@@ -63,7 +63,8 @@ pub fn validate(manifest: &LeappManifest) -> Result<(), ManifestError> {
 }
 
 /// Checks one tool's entry:
-/// - `version` is set and `profile_leapp_id` is the tool id (LEAPP matches it in profiles);
+/// - `version` is a plain name (it names the install dir) and `profile_leapp_id` is the tool id
+///   (LEAPP matches it in profiles);
 /// - `asset_name` is a plain file name, `asset_size` is not zero and hashes are lowercase hex
 ///   SHA-256;
 /// - `entry` is a relative `/`-separated path without `.` or `..` components;
@@ -73,8 +74,11 @@ pub fn validate(manifest: &LeappManifest) -> Result<(), ManifestError> {
 /// - there is at least one URL and every URL is `https://`.
 pub fn validate_tool(tool: ToolId, entry: &ToolManifest) -> Result<(), ManifestError> {
     let invalid = |what: String| ManifestError::Invalid(format!("{tool}: {what}"));
-    if entry.version.is_empty() {
-        return Err(invalid("version is empty".to_owned()));
+    if !relative_components(&entry.version).is_some_and(|parts| parts.len() == 1) {
+        return Err(invalid(format!(
+            "version {:?} is not a plain name",
+            entry.version
+        )));
     }
     if entry.profile_leapp_id != tool.as_str() {
         return Err(invalid(format!(
@@ -372,9 +376,11 @@ mod tests {
             .unwrap()
             .profile_leapp_id = "ileapp".into();
         assert!(invalid_because(&manifest).contains("profile_leapp_id"));
-        let mut manifest = valid();
-        manifest.tools.get_mut(&ToolId::Ileapp).unwrap().version = String::new();
-        assert!(invalid_because(&manifest).contains("version is empty"));
+        for version in ["", "..", "v1/../v2", "v1\\x"] {
+            let mut manifest = valid();
+            manifest.tools.get_mut(&ToolId::Ileapp).unwrap().version = version.into();
+            assert!(invalid_because(&manifest).contains("is not a plain name"));
+        }
     }
 
     #[test]
