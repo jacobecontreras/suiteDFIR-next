@@ -436,6 +436,18 @@ const SCREENS = [
     },
   },
   {
+    // A backup whose encryption cannot be read needs a password as if encrypted (K8 owner decision).
+    name: "newrun-encryption-unknown",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await newRunReady(page);
+      await pickInput(page, "Choose folder…", "iPad-backup-encryption-unknown");
+      await page.getByLabel(/Backup password/).waitFor();
+      await page.getByText("The backup's encryption state couldn't be read, so a password is needed.", { exact: false }).first().waitFor();
+    },
+  },
+  {
     name: "newrun-picker-search",
     query: "?mock",
     hash: newRunHash,

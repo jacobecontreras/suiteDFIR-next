@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRunRequest, canHash, initialInputType, needsPassword, startBlockers } from "../../ui/lib/newrun.js";
+import { buildRunRequest, canHash, initialInputType, needsPassword, passwordHint, passwordReason, startBlockers } from "../../ui/lib/newrun.js";
 
 /** @typedef {import("../../ui/lib/newrun.js").NewRunForm} NewRunForm */
 /** @typedef {import("../../ui/types").InputInspection} InputInspection */
@@ -89,6 +89,41 @@ test("an encrypted backup needs a password with iLEAPP only", () => {
   assert.deepEqual(startBlockers({ ...encrypted, password: "secret" }), []);
   assert.equal(needsPassword({ ...encrypted, tool: "aleapp" }), false);
   assert.equal(needsPassword(form()), false);
+  // Read as a plain folder, the backup needs none.
+  assert.equal(needsPassword({ ...encrypted, inputType: "fs" }), false);
+  assert.equal(passwordReason(encrypted), "encrypted");
+  assert.match(passwordHint("encrypted"), /^The backup is encrypted\. /);
+});
+
+test("a backup whose encryption cannot be read needs a password as if encrypted", () => {
+  const unknown = form({
+    inputPath: "/ev/backup",
+    inspection: { ...ENCRYPTED_BACKUP, itunes_encrypted: null, warnings: ["Backup encryption is unknown: Manifest.plist has no IsEncrypted"] },
+    inputType: "itunes",
+  });
+  assert.equal(passwordReason(unknown), "unknown");
+  assert.equal(needsPassword(unknown), true);
+  assert.deepEqual(startBlockers(unknown), ["Enter the backup password (the backup's encryption state couldn't be read)."]);
+  assert.deepEqual(startBlockers({ ...unknown, password: "secret" }), []);
+  assert.match(passwordHint("unknown"), /^The backup's encryption state couldn't be read, so a password is needed\. /);
+  assert.equal(buildRunRequest("/cases/A", { ...unknown, password: "secret" }).itunes_password, "secret");
+  // Not for aLEAPP, nor as a plain folder.
+  assert.equal(needsPassword({ ...unknown, tool: "aleapp" }), false);
+  assert.equal(needsPassword({ ...unknown, inputType: "fs" }), false);
+});
+
+test("an unencrypted backup, or a folder that is not a backup read as iTunes, needs no password", () => {
+  const plain = form({ inputPath: "/ev/backup", inspection: { ...ENCRYPTED_BACKUP, itunes_encrypted: false }, inputType: "itunes" });
+  assert.equal(passwordReason(plain), null);
+  assert.deepEqual(startBlockers(plain), []);
+  const folder = form({
+    inputPath: "/ev/folder",
+    inspection: { ...ENCRYPTED_BACKUP, detected_type: "fs", is_itunes_backup: false, itunes_encrypted: null },
+    inputType: "itunes",
+  });
+  assert.equal(passwordReason(folder), null);
+  assert.deepEqual(startBlockers(folder), []);
+  assert.equal(buildRunRequest("/cases/A", { ...folder, password: "left over" }).itunes_password, null);
 });
 
 test("aLEAPP needs no timezone", () => {

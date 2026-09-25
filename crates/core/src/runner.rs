@@ -318,16 +318,24 @@ pub fn start(request: RunRequest, ctx: RunContext) -> Result<RunJob, AppError> {
     let password = itunes_password
         .filter(|password| !password.is_empty())
         .filter(|_| manifest.supports_itunes_password && input_type == InputType::Itunes);
-    if manifest.supports_itunes_password
-        && input_type == InputType::Itunes
-        && inspection.itunes_encrypted == Some(true)
-        && password.is_none()
-    {
-        return Err(app_error(
-            ErrorCode::PasswordRequired,
-            "This iTunes backup is encrypted: enter its backup password",
-            Some(inspection.path.clone()),
-        ));
+    if manifest.supports_itunes_password && input_type == InputType::Itunes && password.is_none() {
+        // A backup whose encryption cannot be read counts as encrypted: iLEAPP would stop at its
+        // password prompt, which blocks on Windows (LEAPP-CLI.md Q5, ARCHITECTURE.md D15).
+        let message = match (inspection.is_itunes_backup, inspection.itunes_encrypted) {
+            (_, Some(true)) => Some("This iTunes backup is encrypted: enter its backup password"),
+            (true, None) => Some(
+                "This iTunes backup's encryption state could not be read, so a password is \
+                 needed: enter its backup password",
+            ),
+            _ => None,
+        };
+        if let Some(message) = message {
+            return Err(app_error(
+                ErrorCode::PasswordRequired,
+                message,
+                Some(inspection.path.clone()),
+            ));
+        }
     }
 
     let timezone = resolve_timezone(timezone, &ctx)?;

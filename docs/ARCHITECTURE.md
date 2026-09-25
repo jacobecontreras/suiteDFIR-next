@@ -169,7 +169,7 @@ Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker co
      - the input must not lie inside any case's `runs/` folder or the app dirs;
      - inputs inside a case's `acquisitions/` are allowed (that is how acquired backups are parsed);
    - modules resolve with no unknowns;
-   - a password is present if the backup is encrypted;
+   - a password is present if the backup is encrypted, or if its encryption can't be determined, for iLEAPP itunes inputs (`password_required`; an unreadable encryption state counts as encrypted, so iLEAPP never reaches its password prompt, LEAPP-CLI.md Q5);
    - the timezone is in the installed iLEAPP zone list;
    - the run dir path is < 248 characters on Windows (`path_too_long`).
 2. **Prepare:**

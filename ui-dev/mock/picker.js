@@ -30,6 +30,7 @@ export const SAMPLES = [
   { kind: "dir", group: "Parent folders", path: "/Applications/Approved Tools", note: "an allow-listed tools folder (AppLocker/WDAC)" },
   { kind: "dir", group: "Evidence folders", path: `${EV}/00008101-000A1B2C3D4E`, note: "iTunes backup, encrypted" },
   { kind: "dir", group: "Evidence folders", path: `${EV}/iPhone-11-backup`, note: "iTunes backup, not encrypted" },
+  { kind: "dir", group: "Evidence folders", path: `${EV}/iPad-backup-encryption-unknown`, note: "iTunes backup, encryption unknown" },
   { kind: "dir", group: "Evidence folders", path: `${EV}/Pixel-7-extraction`, note: "file system folder" },
   { kind: "dir", group: "Evidence folders", path: `${CASES}/Operation Nightjar/runs`, note: "→ input_overlaps_case" },
   { kind: "dir", group: "Evidence folders", path: `${EV}/denied`, note: "→ permission_denied" },

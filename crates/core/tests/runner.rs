@@ -1026,11 +1026,94 @@ fn an_encrypted_backup_needs_its_password() {
     let request = lab.request(ToolId::Ileapp, &backup, InputType::Itunes);
     let error = start_error(&lab, lab.context(ToolId::Ileapp, "success", &[]), request);
     assert_eq!(error.code, ErrorCode::PasswordRequired);
+    assert!(error.message.contains("is encrypted"), "{error:?}");
     // An empty password is none.
     let mut request = lab.request(ToolId::Ileapp, &backup, InputType::Itunes);
     request.itunes_password = Some(String::new());
     let error = start_error(&lab, lab.context(ToolId::Ileapp, "success", &[]), request);
     assert_eq!(error.code, ErrorCode::PasswordRequired);
+}
+
+/// A backup whose encryption cannot be read counts as encrypted (owner decision for K8): iLEAPP
+/// would otherwise stop at its password prompt, which blocks on Windows (LEAPP-CLI.md Q5).
+#[test]
+fn a_backup_with_unknown_encryption_needs_a_password() {
+    let lab = Lab::new();
+    let ev = lab.root.path().join("ev");
+    // No Manifest.plist (a Manifest.db alone still makes it a backup).
+    let no_plist = ev.join("no-plist");
+    fs::create_dir_all(&no_plist).unwrap();
+    fs::write(no_plist.join("Manifest.db"), b"SQLite format 3\0").unwrap();
+    // A Manifest.plist that is not a plist.
+    let unreadable = ev.join("unreadable");
+    fs::create_dir_all(&unreadable).unwrap();
+    fs::write(unreadable.join("Manifest.plist"), b"not a plist").unwrap();
+    // A Manifest.plist without IsEncrypted.
+    let no_key = ev.join("no-key");
+    fs::create_dir_all(&no_key).unwrap();
+    fs::write(
+        no_key.join("Manifest.plist"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\
+         <key>Version</key><string>10.0</string></dict></plist>\n",
+    )
+    .unwrap();
+    for backup in [&no_plist, &unreadable, &no_key] {
+        let request = lab.request(ToolId::Ileapp, backup, InputType::Itunes);
+        let error = start_error(&lab, lab.context(ToolId::Ileapp, "success", &[]), request);
+        assert_eq!(
+            error.code,
+            ErrorCode::PasswordRequired,
+            "{}",
+            backup.display()
+        );
+        assert!(
+            error.message.contains("encryption state could not be read"),
+            "{error:?}"
+        );
+    }
+    // With a password, it runs (and the record keeps the unknown state).
+    let mut request = lab.request(ToolId::Ileapp, &no_key, InputType::Itunes);
+    request.itunes_password = Some(PASSWORD.to_owned());
+    let (outcome, events) = run(
+        lab.context(ToolId::Ileapp, "success", &[]),
+        request,
+        |_, _| {},
+    );
+    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    assert!(record.options.password_supplied);
+    assert_eq!(record.input.itunes_encrypted, None);
+    // Read as a plain folder, the same backup needs no password.
+    let request = lab.request(ToolId::Ileapp, &no_key, InputType::Fs);
+    let (outcome, events) = run(
+        lab.context(ToolId::Ileapp, "success", &[]),
+        request,
+        |_, _| {},
+    );
+    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    assert!(!record.options.password_supplied);
+}
+
+/// No password is needed for an unencrypted backup, nor for `-t itunes` on a folder that is not a
+/// backup (iLEAPP rejects it without a prompt; E3 runs it on real LEAPP).
+#[test]
+fn an_unencrypted_backup_or_a_non_backup_needs_no_password() {
+    let lab = Lab::new();
+    let backup = lab.root.path().join("ev").join("plain");
+    lab.itunes_backup(&backup, false);
+    for input in [&backup, &lab.input] {
+        let request = lab.request(ToolId::Ileapp, input, InputType::Itunes);
+        let (outcome, events) = run(
+            lab.context(ToolId::Ileapp, "success", &[]),
+            request,
+            |_, _| {},
+        );
+        let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+        assert!(!record.options.password_supplied);
+        assert_eq!(
+            record.input.itunes_encrypted,
+            (input == &backup).then_some(false)
+        );
+    }
 }
 
 #[test]

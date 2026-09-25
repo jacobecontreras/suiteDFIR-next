@@ -140,6 +140,14 @@ test("start refuses unknown modules, missing passwords and overlapping inputs", 
     mock.run_start({ ...runRequest(`${EV}/00008101-000A1B2C3D4E`), input_type: "itunes" }, () => {}),
     { code: "password_required" },
   );
+  // A backup whose encryption cannot be read needs one too, as in the core.
+  const unknown = await mock.input_inspect({ tool: "ileapp", path: `${EV}/iPad-backup-encryption-unknown`, case_path: CASE });
+  assert.equal(unknown.is_itunes_backup, true);
+  assert.equal(unknown.itunes_encrypted, null);
+  await assert.rejects(
+    mock.run_start({ ...runRequest(`${EV}/iPad-backup-encryption-unknown`), input_type: "itunes" }, () => {}),
+    { code: "password_required", message: /encryption state could not be read/ },
+  );
   await assert.rejects(mock.input_inspect({ tool: "ileapp", path: `${CASE}/runs`, case_path: CASE }), { code: "input_overlaps_case" });
   await assert.rejects(mock.input_inspect({ tool: "ileapp", path: `${EV}/denied`, case_path: CASE }), { code: "permission_denied" });
 });

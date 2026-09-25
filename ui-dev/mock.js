@@ -35,7 +35,9 @@
 //   (100,000 log lines in batches of 500, then success); anything else succeeds. `run_cancel`
 //   gives `cancelled`.
 // - Inputs: `…/denied` → permission_denied, `…/missing…` → invalid_input, anything overlapping a
-//   case (ARCHITECTURE.md §6 step 1) → input_overlaps_case.
+//   case (ARCHITECTURE.md §6 step 1) → input_overlaps_case. A folder named like a backup
+//   (`…backup…`, a UDID) is an iTunes backup: encrypted when its name has `encrypted`, of unknown
+//   encryption (null, which needs a password as if encrypted) when it ends in `encryption-unknown`.
 // - Acquisitions: chosen by a label suffix `/<scenario>` (fake-idevice names, CONTRACTS.md §13.4):
 //   `/backup_fail`, `/enable_fail`, `/restore_fail`, `/incomplete`, `/cancel_on_device`,
 //   `/disconnect`, `/sync_lock`, `/slow`, `/interrupt`; anything else succeeds. `acq_cancel`
@@ -628,7 +630,13 @@ function inspect(tool, path, casePath) {
     const acq = acqId ? cases.get(casePath)?.acqs.find((a) => a.acq_id === acqId) : undefined;
     const acqEncrypted = acq ? acq.encryption.enabled_by_examiner || acq.encryption.will_encrypt_before === true : false;
     const encrypted = itunes && (path === fx.InputInspection.path || /encrypted/i.test(stem) || acqEncrypted);
+    // `…encryption-unknown`: Manifest.plist has no IsEncrypted (the core reports null and a warning).
+    const unknown = itunes && /encryption-unknown$/i.test(stem);
     const canItunes = itunes && toolTypes.includes("itunes");
+    /** @type {string[]} */
+    const warnings = [];
+    if (unknown) warnings.push("Backup encryption is unknown: Manifest.plist has no IsEncrypted");
+    if (itunes && !canItunes) warnings.push(`This looks like an iTunes backup; ${TOOLS[tool].display_name} parses it as a plain folder.`);
     return {
       path,
       kind: "directory",
@@ -636,9 +644,9 @@ function inspect(tool, path, casePath) {
       detected_type: canItunes ? "itunes" : "fs",
       allowed_types: canItunes ? ["fs", "itunes"] : ["fs"],
       is_itunes_backup: itunes,
-      itunes_encrypted: itunes ? encrypted : null,
+      itunes_encrypted: itunes && !unknown ? encrypted : null,
       hashable: false,
-      warnings: itunes && !canItunes ? [`This looks like an iTunes backup; ${TOOLS[tool].display_name} parses it as a plain folder.`] : [],
+      warnings,
     };
   }
   /** @type {Record<string, InputType>} */
@@ -1010,7 +1018,17 @@ export const run_start = async (req, onEvent) => {
   }
   const resolved = resolveModules(req.tool, req.modules);
   if (req.tool === "ileapp") {
-    if (insp.itunes_encrypted && !req.itunes_password) throw appError("password_required", "This backup is encrypted: enter its password.");
+    // As the core: an iTunes read needs the password when the backup is encrypted or its
+    // encryption could not be read.
+    if (req.input_type === "itunes" && !req.itunes_password) {
+      if (insp.itunes_encrypted === true) throw appError("password_required", "This iTunes backup is encrypted: enter its backup password");
+      if (insp.is_itunes_backup && insp.itunes_encrypted === null) {
+        throw appError(
+          "password_required",
+          "This iTunes backup's encryption state could not be read, so a password is needed: enter its backup password",
+        );
+      }
+    }
     if (!req.timezone || !TIMEZONES.includes(req.timezone)) throw appError("invalid_timezone", `Unknown timezone: ${req.timezone}`);
   }
   const createdAt = isoNow();

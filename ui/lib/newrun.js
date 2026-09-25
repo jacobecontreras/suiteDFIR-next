@@ -37,12 +37,39 @@ import { TOOL_FEATURES } from "./tools.js";
  */
 
 /**
- * True when the input is an encrypted iTunes backup and the tool takes a password (iLEAPP).
- * @param {Pick<NewRunForm, "tool" | "inspection">} f
+ * Why the run needs a backup password, or null: the tool takes one (iLEAPP), the input is read as
+ * an iTunes backup, and the backup is encrypted (`encrypted`) or its encryption could not be read
+ * (`unknown`, which the core treats as encrypted: ARCHITECTURE.md §6 step 1).
+ * @param {Pick<NewRunForm, "tool" | "inspection" | "inputType">} f
+ * @returns {"encrypted" | "unknown" | null}
+ */
+export function passwordReason(f) {
+  if (f.tool === null || !TOOL_FEATURES[f.tool].password || f.inputType !== "itunes") return null;
+  if (f.inspection?.itunes_encrypted === true) return "encrypted";
+  if (f.inspection?.is_itunes_backup && f.inspection.itunes_encrypted === null) return "unknown";
+  return null;
+}
+
+/**
+ * True when the run needs a backup password (see `passwordReason`).
+ * @param {Pick<NewRunForm, "tool" | "inspection" | "inputType">} f
  * @returns {boolean}
  */
 export function needsPassword(f) {
-  return f.tool !== null && TOOL_FEATURES[f.tool].password && f.inspection?.itunes_encrypted === true;
+  return passwordReason(f) !== null;
+}
+
+/**
+ * The inline reason under the password field.
+ * @param {"encrypted" | "unknown"} reason
+ * @returns {string}
+ */
+export function passwordHint(reason) {
+  const why =
+    reason === "encrypted"
+      ? "The backup is encrypted."
+      : "The backup's encryption state couldn't be read, so a password is needed.";
+  return `${why} The password goes to iLEAPP only, is never stored, and this field is cleared when the run starts.`;
 }
 
 /**
@@ -71,7 +98,14 @@ export function startBlockers(f) {
   else if (!f.inputType) out.push("Choose the input type.");
   else if (!f.inspection.allowed_types.includes(f.inputType)) out.push("Choose an input type allowed for this input.");
 
-  if (needsPassword(f) && f.password === "") out.push("Enter the backup password (the backup is encrypted).");
+  const reason = passwordReason(f);
+  if (reason && f.password === "") {
+    out.push(
+      reason === "encrypted"
+        ? "Enter the backup password (the backup is encrypted)."
+        : "Enter the backup password (the backup's encryption state couldn't be read).",
+    );
+  }
   if (f.tool && TOOL_FEATURES[f.tool].timezone && !f.timezone) out.push("Choose a timezone.");
 
   if (f.tool && !f.modulesLoaded) out.push("Wait for the module list to load.");

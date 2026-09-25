@@ -15,7 +15,7 @@ import { isAppError } from "../lib/errors.js";
 import { field, selectInput, textInput } from "../lib/form.js";
 import { formatCount, plural } from "../lib/format.js";
 import { handoff } from "../lib/handoff.js";
-import { buildRunRequest, canHash, initialInputType, needsPassword, startBlockers } from "../lib/newrun.js";
+import { buildRunRequest, canHash, initialInputType, needsPassword, passwordHint, passwordReason, startBlockers } from "../lib/newrun.js";
 import { routeHref } from "../lib/router.js";
 import { jobKey, setActiveJob } from "../lib/jobs.js";
 import { unknownNames } from "../lib/selection.js";
@@ -115,8 +115,10 @@ export function newRunScreen(ctx) {
     label: "Backup password",
     control: password,
     required: true,
-    hint: "The backup is encrypted. The password goes to iLEAPP only, is never stored, and this field is cleared when the run starts.",
+    hint: passwordHint("encrypted"),
   });
+  // The inline reason follows the inspection (encrypted, or its encryption could not be read).
+  const passwordHintNode = passwordField.node.querySelector(".field-hint");
   const hashBox = /** @type {HTMLInputElement} */ (h("input", { type: "checkbox", name: "hash_input" }));
   hashBox.checked = true;
   hashBox.addEventListener("change", () => {
@@ -381,7 +383,10 @@ export function newRunScreen(ctx) {
       ["Detected type", insp.detected_type ? inputTypeLabel(insp.detected_type) : "Not detected"],
     ];
     if (insp.is_itunes_backup) {
-      facts.push(["iTunes/Finder backup", insp.itunes_encrypted === true ? "Yes, encrypted" : insp.itunes_encrypted === false ? "Yes, not encrypted" : "Yes"]);
+      facts.push([
+        "iTunes/Finder backup",
+        insp.itunes_encrypted === true ? "Yes, encrypted" : insp.itunes_encrypted === false ? "Yes, not encrypted" : "Yes, encryption unknown",
+      ]);
     }
     const typeSelect = selectInput(
       [
@@ -394,6 +399,8 @@ export function newRunScreen(ctx) {
     typeSelect.addEventListener("change", () => {
       f.inputType = /** @type {InputType} */ (typeSelect.value) || null;
       renderInput();
+      // The password field depends on the type (only an iTunes read takes one).
+      renderOptions();
       refresh();
     });
     return h(
@@ -499,7 +506,9 @@ export function newRunScreen(ctx) {
     } else if (f.tool) {
       parts.push(h("p", { class: "muted small" }, `${toolName(f.tool)} has no timezone option; the run record notes this.`));
     }
-    if (needsPassword(f)) {
+    const reason = passwordReason(f);
+    if (reason) {
+      if (passwordHintNode) passwordHintNode.textContent = passwordHint(reason);
       parts.push(passwordField.node);
     } else if (password.value !== "") {
       password.value = "";
