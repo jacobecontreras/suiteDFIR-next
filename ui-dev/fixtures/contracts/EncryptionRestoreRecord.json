@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "acq_id": "20260924-171200Z-ios-9c01de",
+  "at": "2026-09-25T09:15:00Z",
+  "argv": [
+    "/Applications/suiteDFIR.app/Contents/MacOS/idevicebackup2",
+    "-u",
+    "00008101-000A1B2C3D4E001E",
+    "encryption",
+    "off"
+  ],
+  "exit_code": 0,
+  "will_encrypt_after": false,
+  "restored": true,
+  "tools": {
+    "version": "1.4.0",
+    "source": "bundled",
+    "binaries": {
+      "idevice_id": {
+        "path": "/Applications/suiteDFIR.app/Contents/MacOS/idevice_id",
+        "sha256": "79d2ee9abcf31cbcffa307540f3b544422d3bcaa5f84512b0324ea73058a6070",
+        "verified_against": "code_signature"
+      },
+      "ideviceinfo": {
+        "path": "/Applications/suiteDFIR.app/Contents/MacOS/ideviceinfo",
+        "sha256": "a6b284f9e83befa4d8338cde3bb7890420b196fc8e22d2fbce6b88af18ae2667",
+        "verified_against": "code_signature"
+      },
+      "idevicepair": {
+        "path": "/Applications/suiteDFIR.app/Contents/MacOS/idevicepair",
+        "sha256": "3ef6a531ea00523d2049dec59bbf8813249d061e2859753dd0351157794e2e82",
+        "verified_against": "code_signature"
+      },
+      "idevicebackup2": {
+        "path": "/Applications/suiteDFIR.app/Contents/MacOS/idevicebackup2",
+        "sha256": "945993e323408b74219c4efc24a2c24bcf76d0dc352ec26e537177c1cd09a2d2",
+        "verified_against": "code_signature"
+      }
+    }
+  }
+}

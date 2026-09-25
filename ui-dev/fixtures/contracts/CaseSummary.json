@@ -1,0 +1,19 @@
+{
+  "path": "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar",
+  "exists": true,
+  "case": {
+    "schema_version": 1,
+    "case_id": "5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c",
+    "name": "Operation Nightjar",
+    "case_number": "2026-0142",
+    "examiner": "J. Doe",
+    "agency": "County Forensics Lab",
+    "description": "",
+    "default_timezone": "America/Chicago",
+    "created_at": "2026-09-24T18:10:00Z",
+    "updated_at": "2026-09-24T18:10:00Z",
+    "created_by_app_version": "0.2.0"
+  },
+  "run_count": 1,
+  "last_run_at": "2026-09-24T18:30:05Z"
+}

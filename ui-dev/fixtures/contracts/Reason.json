@@ -1,0 +1,4 @@
+{
+  "code": "modules_errored",
+  "message": "2 modules reported Error: foo, bar"
+}

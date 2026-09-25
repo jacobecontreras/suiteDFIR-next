@@ -1,0 +1,9 @@
+[
+  "paired",
+  "not_paired",
+  "awaiting_trust",
+  "locked",
+  "trust_denied",
+  "pairing_failed",
+  "unknown"
+]

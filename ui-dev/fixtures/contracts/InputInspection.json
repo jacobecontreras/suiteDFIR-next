@@ -1,0 +1,14 @@
+{
+  "path": "/Volumes/Evidence/00008101-000A1B2C3D4E",
+  "kind": "directory",
+  "size_bytes": null,
+  "detected_type": "itunes",
+  "allowed_types": [
+    "fs",
+    "itunes"
+  ],
+  "is_itunes_backup": true,
+  "itunes_encrypted": true,
+  "hashable": false,
+  "warnings": []
+}

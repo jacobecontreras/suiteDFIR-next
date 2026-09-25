@@ -1,0 +1,23 @@
+{
+  "tools": {
+    "source": "bundled",
+    "version": "1.4.0",
+    "state": "ok",
+    "guidance": null
+  },
+  "devices": [
+    {
+      "udid": "00008101-000A1B2C3D4E001E",
+      "device_name": "Alex's iPhone",
+      "product_type": "iPhone13,2",
+      "product_version": "18.6",
+      "serial_number": "F2LXXXXXXX",
+      "pair_state": "paired",
+      "busy": false,
+      "will_encrypt": false,
+      "data_used_bytes": 61203455110,
+      "data_capacity_bytes": 118111600640,
+      "message": null
+    }
+  ]
+}

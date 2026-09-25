@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "cases_root": "/Users/examiner/Documents/suiteDFIR Cases",
+  "recent_cases": [
+    "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar"
+  ],
+  "defaults": {
+    "examiner": "J. Doe",
+    "agency": "County Forensics Lab",
+    "timezone": "UTC"
+  },
+  "tools_dir": null
+}

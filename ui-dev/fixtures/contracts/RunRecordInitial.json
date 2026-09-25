@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "run_id": "20260924-183005Z-ileapp-3f9a1c",
+  "label": "iPhone 12 Finder backup",
+  "status": "running",
+  "status_reasons": [],
+  "warnings": [],
+  "created_at": "2026-09-24T18:30:05Z",
+  "started_at": null,
+  "ended_at": null,
+  "recovered_at": null,
+  "duration_ms": null,
+  "app": {
+    "name": "suiteDFIR",
+    "version": "0.2.0"
+  },
+  "host": {
+    "os": "macos",
+    "os_version": "15.6",
+    "arch": "aarch64",
+    "hostname": "LAB-MAC-01"
+  },
+  "case_snapshot": {
+    "case_id": "5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c",
+    "name": "Operation Nightjar",
+    "case_number": "2026-0142",
+    "examiner": "J. Doe",
+    "agency": "County Forensics Lab"
+  },
+  "tool": {
+    "id": "ileapp",
+    "version": "v2026.4.2",
+    "platform": "macos-aarch64",
+    "asset_name": "ileapp-v2026.4.2-macOS_Apple_Silicon.zip",
+    "asset_sha256": "d99f2d05dbde20ee997de477c38443d4f019d60326a8c6b9456058c6cf590386",
+    "entry_sha256": "71dda0d3326d5f5f22a081a296fa2b09292f071680084ab5154d7429e73c2e06",
+    "entry_verified_against": "manifest",
+    "install_source": "download"
+  },
+  "input": {
+    "path": "/Volumes/Evidence/00008101-000A1B2C3D4E",
+    "kind": "directory",
+    "type": "itunes",
+    "type_detected": "itunes",
+    "size_bytes": null,
+    "itunes_encrypted": true,
+    "acquisition_id": null,
+    "hash": {
+      "algorithm": "sha256",
+      "status": "not_applicable",
+      "value": null,
+      "started_at": null,
+      "completed_at": null
+    }
+  },
+  "options": {
+    "timezone": "America/Chicago",
+    "timezone_supported": true,
+    "password_supplied": true,
+    "keychain_path": null,
+    "keychain_sha256": null
+  },
+  "modules": {
+    "mode": "custom",
+    "profile_name": null,
+    "requested": [
+      "callHistory",
+      "sms"
+    ],
+    "resolved": [
+      "callHistory",
+      "sms"
+    ],
+    "unknown": [],
+    "always_run": [
+      "itunes_backup_info",
+      "itunes_backup_installed_applications"
+    ],
+    "available_count": 1176
+  },
+  "command": {
+    "argv": [
+      "/Users/examiner/Library/Application Support/com.suitedfir.desktop/leapp/ileapp/v2026.4.2/bin/ileapp",
+      "-t",
+      "itunes",
+      "-i",
+      "/Volumes/Evidence/00008101-000A1B2C3D4E",
+      "-o",
+      "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/20260924-183005Z-ileapp-3f9a1c",
+      "--custom_output_folder",
+      "report",
+      "-d",
+      "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/20260924-183005Z-ileapp-3f9a1c/case.lcasedata",
+      "-m",
+      "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/20260924-183005Z-ileapp-3f9a1c/profile.ilprofile",
+      "-tz",
+      "America/Chicago",
+      "--itunes_password",
+      "<redacted>"
+    ],
+    "cwd": "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/20260924-183005Z-ileapp-3f9a1c"
+  },
+  "process": null,
+  "leapp_result": null,
+  "output": {
+    "report_dir": "report",
+    "seal": {
+      "status": "pending",
+      "manifest": null,
+      "manifest_sha256": null,
+      "file_count": null,
+      "total_bytes": null
+    }
+  },
+  "logs": {
+    "stdout": "leapp.stdout.log",
+    "stderr": "leapp.stderr.log",
+    "screen_output": "report/_HTML/_Script_Logs/Screen_Output.html"
+  }
+}

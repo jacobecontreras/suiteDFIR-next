@@ -1,0 +1,9 @@
+[
+  "not_requested",
+  "not_applicable",
+  "pending",
+  "completed",
+  "cancelled",
+  "failed",
+  "interrupted"
+]

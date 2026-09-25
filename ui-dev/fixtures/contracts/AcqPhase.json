@@ -1,0 +1,9 @@
+[
+  "preparing",
+  "enabling_encryption",
+  "backing_up",
+  "restoring_encryption",
+  "validating",
+  "sealing",
+  "finalizing"
+]
