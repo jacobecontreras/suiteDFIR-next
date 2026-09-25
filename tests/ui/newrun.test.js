@@ -100,7 +100,10 @@ test("module selection blockers: loading, profile, unknown modules, empty custom
   assert.deepEqual(startBlockers(form({ moduleMode: "profile" })), ["Choose a profile."]);
   const profile = { tool: /** @type {const} */ ("ileapp"), name: "Messaging", modules: ["sms", "noSuch"], unknown_modules: ["noSuch"] };
   assert.deepEqual(startBlockers(form({ moduleMode: "profile", profile })), [
-    "Profile “Messaging” has 1 unknown module: edit it as a custom selection and remove them.",
+    "Profile “Messaging” has 1 unknown module: edit it as a custom selection and remove it.",
+  ]);
+  assert.deepEqual(startBlockers(form({ moduleMode: "profile", profile: { ...profile, unknown_modules: ["x", "y"] } })), [
+    "Profile “Messaging” has 2 unknown modules: edit it as a custom selection and remove them.",
   ]);
   assert.deepEqual(startBlockers(form({ moduleMode: "profile", profile: { ...profile, unknown_modules: [] } })), []);
   assert.deepEqual(startBlockers(form({ moduleMode: "custom" })), ["Select at least one module."]);

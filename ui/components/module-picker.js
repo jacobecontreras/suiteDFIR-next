@@ -203,7 +203,7 @@ export function modulePicker(spec) {
           "p",
           null,
           h("strong", null, unknown.length === 1 ? "1 selected module is unknown" : `${unknown.length} selected modules are unknown`),
-          ` to ${spec.toolLabel}. The run is blocked until they are removed.`,
+          ` to ${spec.toolLabel}. The run is blocked until ${unknown.length === 1 ? "it is" : "they are"} removed.`,
         ),
         h("ul", { class: "list-compact mono" }, unknown.map((n) => h("li", null, n))),
         h(

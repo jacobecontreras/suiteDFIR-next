@@ -4,6 +4,7 @@
  * request. The core validates everything again (ARCHITECTURE.md §6 step 1); these checks only
  * explain what is missing before the examiner presses Start.
  */
+import { plural } from "./format.js";
 import { TOOL_FEATURES } from "./tools.js";
 
 /** @typedef {import("../types").InputInspection} InputInspection */
@@ -54,13 +55,6 @@ export function canHash(f) {
 }
 
 /**
- * @param {number} n
- * @param {string} one
- * @param {string} many
- */
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-
-/**
  * Every reason Start is disabled, in form order. Empty = the form is ready.
  * @param {NewRunForm} f
  * @returns {string[]}
@@ -84,8 +78,9 @@ export function startBlockers(f) {
   else if (f.moduleMode === "profile") {
     if (!f.profile) out.push("Choose a profile.");
     else if (f.profile.unknown_modules.length > 0) {
+      const n = f.profile.unknown_modules.length;
       out.push(
-        `Profile “${f.profile.name}” has ${plural(f.profile.unknown_modules.length, "unknown module", "unknown modules")}: edit it as a custom selection and remove them.`,
+        `Profile “${f.profile.name}” has ${plural(n, "unknown module", "unknown modules")}: edit it as a custom selection and remove ${n === 1 ? "it" : "them"}.`,
       );
     }
   } else if (f.moduleMode === "custom") {

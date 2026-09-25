@@ -43,6 +43,17 @@ export function formatCount(n) {
 }
 
 /**
+ * A count with the singular or plural noun: `1 module`, `1,300 modules`.
+ * @param {number} n
+ * @param {string} one
+ * @param {string} many
+ * @returns {string}
+ */
+export function plural(n, one, many) {
+  return `${formatCount(n)} ${n === 1 ? one : many}`;
+}
+
+/**
  * `850 ms`, `42 s`, `22 min 36 s`, `1 h 02 min 05 s`. Negative or missing → `—`.
  * @param {number | null | undefined} ms
  * @returns {string}

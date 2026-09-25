@@ -13,7 +13,7 @@ import { folderLabel } from "../lib/cases.js";
 import { h } from "../lib/dom.js";
 import { isAppError } from "../lib/errors.js";
 import { field, selectInput, textInput } from "../lib/form.js";
-import { formatCount } from "../lib/format.js";
+import { formatCount, plural } from "../lib/format.js";
 import { buildRunRequest, canHash, initialInputType, needsPassword, startBlockers } from "../lib/newrun.js";
 import { routeHref } from "../lib/router.js";
 import { jobKey, setActiveJob } from "../lib/jobs.js";
@@ -301,7 +301,7 @@ export function newRunScreen(ctx) {
               h(
                 "span",
                 { class: "muted small" },
-                [t.installed_version ?? t.pinned_version, stateText(t), t.module_count !== null ? `${formatCount(t.module_count)} modules` : null]
+                [t.installed_version ?? t.pinned_version, stateText(t), t.module_count !== null ? plural(t.module_count, "module", "modules") : null]
                   .filter(Boolean)
                   .join(" · "),
               ),
@@ -587,7 +587,7 @@ export function newRunScreen(ctx) {
       );
     }
     const select = selectInput(
-      profiles.map((p) => ({ value: p.name, label: `${p.name} (${formatCount(p.modules.length)} modules)` })),
+      profiles.map((p) => ({ value: p.name, label: `${p.name} (${plural(p.modules.length, "module", "modules")})` })),
       f.profile?.name ?? profiles[0].name,
       { name: "profile" },
     );
@@ -618,14 +618,14 @@ export function newRunScreen(ctx) {
               h(
                 "p",
                 null,
-                h("strong", null, `${profile.unknown_modules.length} of its modules ${profile.unknown_modules.length === 1 ? "is" : "are"} unknown`),
-                ` to ${toolName(tool)} ${toolModules?.version ?? ""}. LEAPP would silently skip them, so the run is blocked.`,
+                h("strong", null, profile.unknown_modules.length === 1 ? "1 of its modules is unknown" : `${profile.unknown_modules.length} of its modules are unknown`),
+                ` to ${toolName(tool)} ${toolModules?.version ?? ""}. LEAPP would silently skip ${profile.unknown_modules.length === 1 ? "it" : "them"}, so the run is blocked.`,
               ),
               h("ul", { class: "list-compact mono" }, profile.unknown_modules.map((n) => h("li", null, n))),
               h("div", null, h("button", { class: "btn btn-sm", type: "button", onClick: () => editAsCustom(profile) }, "Edit as custom selection")),
             ),
           )
-        : profile && h("p", { class: "muted small" }, `${formatCount(profile.modules.length)} modules, all known to ${toolName(tool)} ${toolModules?.version ?? ""}.`),
+        : profile && h("p", { class: "muted small" }, `${plural(profile.modules.length, "module", "modules")}, all known to ${toolName(tool)} ${toolModules?.version ?? ""}.`),
     );
   }
 
@@ -693,14 +693,15 @@ export function newRunScreen(ctx) {
                 dialog.close();
                 if (disposed || f.tool !== tool) return;
                 profiles = list;
-                modulesStatus.textContent = `Saved profile “${saved.name}” (${formatCount(saved.modules.length)} modules).`;
+                modulesStatus.textContent = `Saved profile “${saved.name}” (${plural(saved.modules.length, "module", "modules")}).`;
                 renderModules();
               } catch (err) {
                 errors.show(err);
               }
             },
           },
-          h("p", null, `${formatCount(f.customModules.length)} modules will be saved as a ${toolName(tool)} profile.`),
+          // Both tool names (iLEAPP, aLEAPP) start with a vowel sound: "an".
+          h("p", null, `${plural(f.customModules.length, "module", "modules")} will be saved as an ${toolName(tool)} profile.`),
           nameField.node,
           errors.node,
           h(
@@ -746,7 +747,7 @@ export function newRunScreen(ctx) {
       f.moduleMode = "profile";
       f.profile = profiles.find((p) => p.name === info.name) ?? info;
       modulesStatus.textContent =
-        `Imported profile “${info.name}” (${formatCount(info.modules.length)} modules` +
+        `Imported profile “${info.name}” (${plural(info.modules.length, "module", "modules")}` +
         (info.unknown_modules.length ? `, ${info.unknown_modules.length} unknown).` : ").");
       renderModules();
       refresh();

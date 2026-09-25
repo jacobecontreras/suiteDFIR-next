@@ -9,6 +9,7 @@ import {
   formatLocalTime,
   formatUtcTime,
   parseTimestamp,
+  plural,
 } from "../../ui/lib/format.js";
 
 test("formatBytes uses binary units with one decimal below 100", () => {
@@ -33,6 +34,12 @@ test("formatCount groups thousands", () => {
   assert.equal(formatCount(1300), "1,300");
   assert.equal(formatCount(0), "0");
   assert.equal(formatCount(null), "—");
+});
+
+test("plural picks the noun by count", () => {
+  assert.equal(plural(1, "module", "modules"), "1 module");
+  assert.equal(plural(0, "module", "modules"), "0 modules");
+  assert.equal(plural(1300, "module", "modules"), "1,300 modules");
 });
 
 test("formatDuration picks ms, s, min+s or h+min+s", () => {
