@@ -6,12 +6,12 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. This file covers how to
 
 | Tool | Version policy |
 |---|---|
-| Rust | Pinned in `rust-toolchain.toml` to a specific stable release (≥ 1.89 for `File::try_lock`; 1.98.x at planning time), with `rustfmt` and `clippy`. |
+| Rust | Pinned in `rust-toolchain.toml` to a specific stable release (≥ 1.89 for `File::try_lock`; 1.98.x at planning time) with `components = ["rustfmt", "clippy"]`. On a new machine, first run `rustup toolchain install <pin> -c rustfmt,clippy`. |
 | Tauri | `tauri` 2.11.x, `tauri-build` 2.6.x, `tauri-plugin-dialog` 2.x. Exact versions come from `Cargo.lock`. |
 | Tauri CLI | `cargo install tauri-cli --version "=2.11.5" --locked`. The exact version is recorded in CI; bump deliberately. |
-| Node.js | Dev-only (`tsc`, `node --test`, `scripts/serve-ui.mjs`). Version in `.node-version` (24 LTS). |
+| Node.js | Dev-only (`tsc`, `node --test`, `scripts/serve-ui.mjs`). `.node-version` = 22 (the lowest in use), `engines.node` = `>=22`. |
 | TypeScript | Exact version in `package.json` `devDependencies` (7.0.x), installed with `npm ci`. |
-| cargo-deny | Exact version installed with `--locked` in CI (0.20.x at planning time). |
+| cargo-deny | Exact version (0.20.x at planning time). CI uses the prebuilt release binary checked against a pinned SHA-256; locally `cargo install cargo-deny --version <exact> --locked`. |
 | cargo-auditable | Release builds only (see F1). |
 | Linux build deps | Ubuntu 22.04 packages: `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev build-essential libssl-dev pkg-config curl wget file`. |
 
@@ -74,7 +74,7 @@ fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <R
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
 scripts/build-idevice-tools.sh  reproducible libimobiledevice build from pinned tarballs (X1)
-.github/workflows/            ci.yml, leapp-smoke.yml, release.yml
+.github/workflows/            ci-rust.yml, ci-js.yml, leapp-smoke.yml, idevice-tools.yml, release.yml
 docs/                         ARCHITECTURE, CONTRACTS, LEAPP-CLI, IDEVICE-CLI, ROADMAP, USER-GUIDE, QA-CHECKLIST
 ```
 
@@ -151,7 +151,7 @@ Anything else needs a PR labelled `new-dependency` that explains why std or an a
 - **Pure core:** no `unwrap`/`expect` outside tests and provably infallible spots (comment why). Errors are `thiserror` enums mapped to `AppError` codes (CONTRACTS.md §12).
 - **I/O placement:** `crates/core` takes directories and callbacks as parameters and never reads Tauri state or guesses OS dirs.
 - **Async:** blocking work (hashing, process wait, downloads) runs on dedicated threads or `tauri::async_runtime::spawn_blocking`, never on the command thread.
-- **Platform code:** lives only in `process/unix.rs` and `process/windows.rs` (plus `inspect` for OS backup locations and `idevice` for tool lookup). The only permitted `unsafe` is FFI there, commented.
+- **Platform code:** lives only in `process/{unix,windows}.rs` and `fsutil/{unix,windows}.rs` (plus `inspect` for OS backup locations and `idevice` for tool lookup). The only permitted `unsafe` is FFI there, commented.
 - **Style:** `cargo fmt`; clippy clean with `-D warnings`.
 
 ### 4.6 UI conventions
@@ -211,10 +211,12 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 - `prompt` exits within 5 s.
 
 **fake-idevice** (`crates/core/src/bin/fake-idevice.rs`) emulates `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2`:
-- **Selection:** by `argv[0]` file stem (tests create copies or symlinks with the tool names) or by the first argument (`fake-idevice idevicebackup2 …`).
+- **Selection:** by `argv[0]` file stem (tests create **copies** named after the tools) or by the first argument (`fake-idevice idevicebackup2 …`).
 - **Output formats:** follow docs/IDEVICE-CLI.md: XML plists for `-x`, `idevicepair` message lines, and `\r[==  ] NN% (x/y)` progress with explicit flush.
 - **Backup layout:** writes a valid tiny layout (`Info.plist`, `Manifest.plist`, `Manifest.db`, `Status.plist` with `SnapshotState`).
 - **Signals:** handles SIGTERM like the real tool.
+- **Pairing semantics:** mirrors the real tools. `hostid` prints `(null)` without a host record, and `validate` without a record behaves like `pair` (it starts pairing), so tests can prove that polling never pairs.
+- **Password handling:** reads passwords only from `BACKUP_PASSWORD_NEW`/`BACKUP_PASSWORD`, and fails if a password appears in argv.
 - **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`.
 
 **Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow.
@@ -227,39 +229,64 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 
 ## 5. Git and pull requests
 
-- **Branches:** `task/<id>-<slug>`, with the task ID lowercase and no dots (`task/m01-scaffold`, `task/b1-fake-leapp`, `task/e1a-runner`). One task = one PR, ideally ≤ 800 changed lines excluding fixtures.
+- **Branches:** `task/<id>-<slug>`, with the task ID lowercase and no dots (`task/m01-scaffold`, `task/b1-fake-leapp`, `task/x3a-acquire-core`). One task = one PR, ideally ≤ 800 changed lines excluding fixtures.
 - **Commits:** Conventional Commits (`feat(core): …`, `fix(ui): …`, `test: …`, `ci: …`, `docs: …`). Messages describe the change and contain no tool-attribution lines or co-author trailers for non-humans.
+- **Draft first:**
+  - Open PRs as **drafts**; CI skips drafts.
+  - Mark ready for review (`gh pr ready`) only after the local macOS and Windows gates pass on the head commit. That triggers CI once.
 - **Keeping current:**
-  - **Never rebase or amend a pushed branch; never force-push.** To update, run `git merge origin/main`, resolve, push, and wait for CI.
-  - Merge only when `gh pr view <n> --json mergeStateStatus` is `CLEAN` and CI is green on that head.
-- **Merging:** squash only (`gh pr merge <n> --squash`, never `--delete-branch`; the repo setting `delete_branch_on_merge` stays off). No branch is ever deleted.
+  - **Never rebase or amend a pushed branch; never force-push.**
+  - Merge `origin/main` into the branch **only when preparing to merge** (not every time `main` moves), then re-run the gate on the new head.
+- **Gate evidence** is recorded as **commit statuses** on the head SHA:
+  - `gate/macos` and `gate/windows`, posted by the gate tooling;
+  - the CI checks on GitHub.
+  
+  Anything else (comments, PR text) is informational.
+- **Merging:**
+  - One merger, one PR at a time.
+  - Squash only, pinned to the verified head: `gh pr merge <n> --squash --match-head-commit <sha>`. Never `--delete-branch`; the repo setting `delete_branch_on_merge` stays off; no branch is ever deleted.
+  - **Pre-merge checks**, all on the same head SHA:
+    - both gate statuses `success`;
+    - CI checks passed;
+    - `behind_by == 0` against `main` (compare API);
+    - an independent review verdict naming that SHA;
+    - no `.claude/`, `CLAUDE.md` or `AGENTS.md` paths in the diff.
+  - **Post-merge check:** `main`'s tree must equal the head's tree. Otherwise stop merging and revert via a PR.
+- **Docs-only PRs** (only `*.md` changes): no gate statuses are required. Review is still required.
 - **Screenshots:**
   - Push PNGs to a separate, never-merged branch `shots/<task-id>` under `shots/<task-id>/`.
-  - Link them in the PR body (`https://github.com/<owner>/<repo>/blob/shots/<task-id>/<file>.png`).
+  - Link them in the PR body.
   - Reviewers fetch that branch and inspect the images.
 - **PR description:** the task ID, what changed, how it was verified (commands + results), dependency changes (normally "none"), contract changes, deviations from the task spec, and screenshot links for UI.
 - **Definition of done:**
   - acceptance criteria from docs/ROADMAP.md met and demonstrated;
-  - the **verification gate** (§6) is green on the PR head commit;
+  - the **verification gate** (§6) green on the PR head commit;
   - docs updated for any behavior or contract change;
-  - an independent review found no unresolved blocking issues.
+  - an independent review with no unresolved blocking issues.
 
-## 6. Headless development
+## 6. Headless development and the verification gate
 
-The UI can be developed and screenshotted entirely in browser mock mode (`node scripts/serve-ui.mjs`, then open `/?mock`) using any headless browser. Machines that cannot open GUI windows can still run every Rust test, including the fake-leapp process tests.
+The UI can be developed and screenshotted entirely in browser mock mode (`node scripts/serve-ui.mjs`, then open `/?mock`) using any headless browser. Machines that cannot open GUI windows can still run every Rust test, including the fake-leapp and fake-idevice process tests.
 
 ### Verification gate while the repository is private (local-first)
 
-GitHub Actions minutes are limited for private repositories (macOS minutes count 10×), so the gate is split:
+GitHub Actions minutes are limited for private repositories (Windows minutes count about 2×, macOS about 10×), so the gate is split:
 
-| Platform | Where | What |
+| Status / check | Where | What |
 |---|---|---|
-| Linux x64 | GitHub Actions `ci.yml` (`ubuntu-24.04` runner, `ubuntu:22.04` container) on every PR push | fmt, clippy, tests, deny, contracts-drift, js typecheck/tests |
-| macOS arm64 | Locally on a Mac | `cargo fmt --all --check`, `cargo clippy …`, `cargo test --workspace --locked`, `npm run typecheck`, `npm test`, `cargo tauri build --debug --no-bundle` |
-| Windows x64 | Locally on a Windows machine (`cargo test --workspace --locked`, `cargo clippy …`, `cargo tauri build --debug --no-bundle`) | same Rust checks |
+| `gate/macos` | a Mac, clean checkout of the head SHA | `npm ci`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, `npm run typecheck`, `npm test`, `cargo tauri build --debug --no-bundle` |
+| `gate/windows` | a Windows machine, clean checkout of the head SHA | the same Rust commands (fmt, clippy, test, `cargo tauri build --debug --no-bundle`) |
+| CI (`ci-rust.yml`, `ci-js.yml`) | GitHub Actions, Linux, on non-draft PRs and on push to `main` | Rust: fmt, clippy, tests, `cargo build --workspace --locked`, cargo-deny (prebuilt, hash-checked), contracts-drift, all in **one job** in an `ubuntu:22.04` container on `ubuntu-24.04`. JS: typecheck and tests. Each workflow has `paths` filters, so UI-only PRs skip Rust and vice versa. |
 
-The PR body records, for the head commit SHA, the command lines and pass/fail summary of the macOS and Windows runs. Any later push invalidates them.
+**CI rules:**
+- **Tauri CLI:** CI does **not** install the Tauri CLI; `cargo build` compiles the app, including `tauri-build` config validation. `cargo tauri build` runs in the local gates.
+- **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
+- **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. They run only on `workflow_dispatch` with an `os` input, or automatically once the repository is public (`if: github.event_name == 'workflow_dispatch' || !github.event.repository.private`).
+- **Dispatch-only workflows:** `leapp-smoke.yml`, `idevice-tools.yml` and `release.yml` are `workflow_dispatch`-only while private. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
+- **Artifacts:** uploaded with `retention-days: 1`.
 
-`ci.yml` also defines macOS and Windows jobs that run only on `workflow_dispatch` or when the repository is public (`if: github.event_name == 'workflow_dispatch' || !github.event.repository.private`). When the repo goes public, the full three-OS matrix returns automatically. `leapp-smoke.yml` and the tool-build workflow are `workflow_dispatch`-only while private (Linux legs); macOS and Windows smoke runs happen locally.
+### Platform test caveats
 
-Linux builds and tests run in an `ubuntu:22.04` container on `ubuntu-24.04` runners, because the plain `ubuntu-22.04` runner image is deprecated.
+- **Windows symlinks:** creating symlinks requires Developer Mode or admin. Tests that create symlinks must **skip with an explicit message** on `ERROR_PRIVILEGE_NOT_HELD` (1314), never fail silently or pass vacuously.
+- **fake-idevice on Windows:** tests make fake-idevice tool names by **copying** the binary, never by symlinking.
+- **Windows paths:** keep test paths short; long-path support may be disabled on the machine.

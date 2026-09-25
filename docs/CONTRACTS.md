@@ -23,7 +23,7 @@ File formats on disk and the UI↔core API. During M0 this document is the spec.
 | `ModuleMode` | `all`, `profile`, `custom` |
 | `RunStatus` | `running`, `succeeded`, `completed_with_errors`, `failed`, `cancelled`, `interrupted` |
 | `HashStatus` | `not_requested`, `not_applicable`, `pending`, `completed`, `cancelled`, `failed`, `interrupted` |
-| `SealStatus` | `pending`, `sealed`, `skipped_no_output`, `failed`, `interrupted` |
+| `SealStatus` | `pending`, `sealed`, `skipped_no_output`, `failed`, `cancelled`, `interrupted` |
 | `InstallSource` | `download`, `offline_import`, `dev_override` (debug builds only) |
 | `EntryVerifiedAgainst` | `manifest`, `install_record`, `none` (dev override only) |
 | `ToolState` | `unsupported_platform`, `not_installed`, `installed_unverified`, `verified`, `verification_failed`, `dev_override` |
@@ -202,6 +202,7 @@ Maintained by `cargo xtask pin-leapp` (ROADMAP A1). Hand edits only for `urls` m
     "type_detected": "itunes",
     "size_bytes": null,
     "itunes_encrypted": true,
+    "acquisition_id": null,
     "hash": { "algorithm": "sha256", "status": "not_applicable", "value": null, "started_at": null, "completed_at": null }
   },
   "options": {
@@ -266,6 +267,8 @@ Maintained by `cargo xtask pin-leapp` (ROADMAP A1). Hand edits only for `urls` m
 **`modules`:**
 - For mode `all`: `requested = []`, `resolved` = every selectable name (sorted), `unknown = []`.
 - `always_run` = the entry for this input type (or `default`).
+
+**`input.acquisition_id`:** the `acq_id` when the input lies inside a case's `acquisitions/<acq_id>/`, else `null`.
 
 **Hashes:**
 - `input.hash.status` is `not_applicable` for directories and `not_requested` when unticked.
@@ -477,7 +480,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 
 ## 12. Error codes
 
-`another_instance_running`, `run_already_active` (any active job), `acq_not_found`, `device_not_found`, `device_not_paired`, `device_locked`, `trust_pending`, `trust_denied`, `pairing_failed`, `usbmuxd_unavailable`, `idevice_tools_missing`, `idevice_tools_verification_failed`, `encryption_already_on`, `encryption_password_required`, `insufficient_space`, `run_not_found`, `tool_not_installed`, `tool_verification_failed`, `unsupported_platform`, `download_failed`, `hash_mismatch`, `extract_failed`, `introspection_failed`, `case_not_found`, `case_exists`, `invalid_case`, `invalid_input`, `input_type_not_allowed`, `input_overlaps_case`, `password_required`, `invalid_timezone`, `profile_not_found`, `profile_invalid`, `profile_exists`, `unknown_modules`, `report_missing`, `path_not_allowed`, `path_too_long`, `permission_denied`, `io`, `internal`.
+`another_instance_running`, `run_already_active` (any active job), `acq_not_found`, `device_busy`, `already_paired`, `restore_not_applicable`, `path_not_supported_by_tool`, `device_not_found`, `device_not_paired`, `device_locked`, `trust_pending`, `trust_denied`, `pairing_failed`, `usbmuxd_unavailable`, `idevice_tools_missing`, `idevice_tools_verification_failed`, `encryption_already_on`, `encryption_password_required`, `insufficient_space`, `run_not_found`, `tool_not_installed`, `tool_verification_failed`, `unsupported_platform`, `download_failed`, `hash_mismatch`, `extract_failed`, `introspection_failed`, `case_not_found`, `case_exists`, `invalid_case`, `invalid_input`, `input_type_not_allowed`, `input_overlaps_case`, `password_required`, `invalid_timezone`, `profile_not_found`, `profile_invalid`, `profile_exists`, `unknown_modules`, `report_missing`, `path_not_allowed`, `path_too_long`, `permission_denied`, `io`, `internal`.
 
 `message` is human-readable and safe to show. `detail` may hold technical context (never secrets).
 
@@ -489,9 +492,12 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 |---|---|
 | `AcqStatus` | `running`, `succeeded`, `failed`, `cancelled`, `interrupted` |
 | `AcqPhase` | `preparing`, `enabling_encryption`, `backing_up`, `restoring_encryption`, `validating`, `sealing`, `finalizing` |
-| `PairState` | `paired`, `not_paired`, `awaiting_trust`, `locked`, `trust_denied`, `unknown` |
+| `PairState` | `paired`, `not_paired`, `awaiting_trust`, `locked`, `trust_denied`, `pairing_failed`, `unknown` |
 | `IdeviceToolSource` | `bundled`, `system`, `dev_override` |
-| `IdeviceToolsState` | `ok`, `missing`, `verification_failed`, `usbmuxd_unavailable` |
+| `IdeviceToolsState` | `ok`, `missing`, `verification_failed`, `usbmuxd_unavailable`, `unsupported_platform` |
+| `ToolVerification` | `manifest` (hash equals the pinned unsigned hash), `code_signature` (macOS `codesign --verify --strict` passed), `recorded_only` (hash recorded, not verifiable: signed Windows builds and Linux system tools), `none` (dev override) |
+| `RestoreState` | `not_requested`, `restored`, `failed`, `not_attempted`, `unknown` |
+| `DevicePromptKind` | `passcode_for_backup`, `passcode_for_encryption` |
 
 ### 13.2 `idevice-tools.json` (repo root, embedded at build time; maintained by ROADMAP X1)
 
@@ -501,10 +507,11 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
   "version": "1.4.0",
   "sources": [
     { "name": "libplist", "version": "2.7.0", "url": "https://github.com/libimobiledevice/libplist/releases/download/2.7.0/libplist-2.7.0.tar.bz2", "sha256": "…" },
+    { "name": "mbedtls", "version": "3.6.x", "url": "…", "sha256": "…" },
     { "name": "libimobiledevice", "version": "1.4.0", "url": "…/libimobiledevice-1.4.0.tar.bz2", "sha256": "…" }
   ],
   "platforms": {
-    "macos-aarch64":  { "bundle": "idevice-tools-1.4.0-macos-aarch64.tar.gz", "bundle_sha256": "…",
+    "macos-aarch64":  { "bundle": "idevice-tools-1.4.0-macos-aarch64.zip", "bundle_sha256": "…",
                         "files": { "idevice_id": "…", "ideviceinfo": "…", "idevicepair": "…", "idevicebackup2": "…" } },
     "macos-x86_64":   { "…": "same shape" },
     "windows-x86_64": { "…": "same shape; files include .exe names and any required .dll" }
@@ -513,9 +520,13 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 }
 ```
 
-- `sources` lists every tarball the build consumes, including TLS/curl dependencies if they are built from source.
-- `files` maps each bundled file to its SHA-256; the app verifies these before every use.
-- `system_platforms` use tools found on `PATH` (hashes recorded, not pinned).
+- **What gets pinned:** hashes are of the **unsigned** build outputs. `fetch-idevice-tools` enforces them.
+- **Runtime verification** (`ToolVerification`):
+  - `manifest`: file hashes equal these values (unsigned/debug builds).
+  - `code_signature`: macOS signed builds pass `codesign --verify --strict`.
+  - `recorded_only`: otherwise.
+- **Sources:** `sources` lists every tarball the build consumes (TLS, curl if built). The libplist asset has no GitHub digest, so X1 computes it.
+- **Linux:** `system_platforms` use tools found on `PATH` (hashes recorded).
 
 ### 13.3 `acquisition.json` (the acquisition audit record)
 
@@ -537,26 +548,39 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
   "case_snapshot": { "case_id": "5b0c…9e7c", "name": "Operation Nightjar", "case_number": "2026-0142", "examiner": "J. Doe", "agency": "County Forensics Lab" },
   "device": {
     "udid": "00008101-000A1B2C3D4E001E", "serial_number": "F2LXXXXXXX", "device_name": "Alex's iPhone",
-    "product_type": "iPhone13,2", "product_version": "18.6", "build_version": "22G86", "captured_at": "2026-09-24T17:12:01Z"
+    "product_type": "iPhone13,2", "product_version": "18.6", "build_version": "22G86",
+    "captured_at": "2026-09-24T17:12:01Z", "info_file": "device-info.plist", "info_file_sha256": "…"
   },
+  "pairing": { "paired_before": false, "paired_by_app_at": "2026-09-24T17:10:40Z", "host_id": "…", "system_buid": "…" },
+  "device_changes": [
+    { "at": "2026-09-24T17:10:40Z", "change": "pair_record_created", "detail": "Trusted this computer via idevicepair pair" },
+    { "at": "2026-09-24T17:12:05Z", "change": "backup_encryption_enabled", "detail": "WillEncrypt false → true" },
+    { "at": "2026-09-24T17:12:09Z", "change": "sync_lock_taken", "detail": "idevicebackup2 holds /com.apple.itunes.lock_sync during backup" },
+    { "at": "2026-09-24T17:48:40Z", "change": "backup_encryption_disabled", "detail": "WillEncrypt true → false" }
+  ],
   "tools": {
-    "version": "1.4.0", "source": "bundled", "verified_against": "manifest",
-    "binaries": { "idevicebackup2": { "path": "/Applications/suiteDFIR.app/Contents/MacOS/idevicebackup2", "sha256": "…" } }
+    "version": "1.4.0", "source": "bundled",
+    "binaries": {
+      "idevice_id": { "path": "…", "sha256": "…", "verified_against": "code_signature" },
+      "ideviceinfo": { "…": "…" }, "idevicepair": { "…": "…" }, "idevicebackup2": { "…": "…" }
+    }
   },
   "encryption": {
     "will_encrypt_before": false, "enable_requested": true, "enabled_by_examiner": true,
-    "restore_requested": true, "restored_after": true, "password_supplied": true
+    "will_encrypt_after_enable": true, "restore_requested": true, "restored_after": "restored",
+    "will_encrypt_after_restore": false, "password_supplied": true, "password_channel": "env"
   },
   "commands": [
-    { "purpose": "enable_encryption", "argv": ["…/idevicebackup2", "-u", "00008101-…", "encryption", "on", "<redacted>"], "exit_code": 0, "started_at": "…", "exited_at": "…" },
+    { "purpose": "enable_encryption", "argv": ["…/idevicebackup2", "-u", "00008101-…", "encryption", "on"], "exit_code": 0, "started_at": "…", "exited_at": "…" },
     { "purpose": "backup", "argv": ["…/idevicebackup2", "-u", "00008101-…", "backup", "--full", "/…/acquisitions/20260924-171200Z-ios-9c01de/backup"], "exit_code": 0, "started_at": "…", "exited_at": "…" },
-    { "purpose": "restore_encryption", "argv": ["…/idevicebackup2", "-u", "00008101-…", "encryption", "off", "<redacted>"], "exit_code": 0, "started_at": "…", "exited_at": "…" }
+    { "purpose": "restore_encryption", "argv": ["…/idevicebackup2", "-u", "00008101-…", "encryption", "off"], "exit_code": 0, "started_at": "…", "exited_at": "…" }
   ],
   "process": { "exit_code": 0, "signal": null, "cancel_requested": false, "escalated_to_kill": false },
   "backup_result": {
-    "success_message_seen": true, "udid_dir": "backup/00008101-000A1B2C3D4E001E",
+    "final_message": "Backup Successful.", "udid_dir": "backup/00008101-000A1B2C3D4E001E",
     "manifest_found": "Manifest.db", "info_plist_found": true, "status_plist_found": true,
-    "snapshot_state": "finished", "last_progress_percent": 100
+    "snapshot_state": "finished", "last_progress_percent": 100, "device_file_errors": 0,
+    "free_bytes_after": 81234567890
   },
   "output": {
     "backup_dir": "backup",
@@ -569,23 +593,29 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 **Record rules:**
 - `acq_id` = `YYYYMMDD-HHMMSSZ-ios-<6 hex>`.
 - `process` describes the backup command.
-- Times follow the §7.1 rules.
-- Passwords are always `<redacted>` in argv.
-- The initial record and recovery follow §7.2: `commands: []`, `process`/`backup_result` `null`, seal `pending`.
+- Times follow §7.1.
+- Passwords never appear anywhere; they travel only via env (`password_channel: "env"`).
+- **Initial record:** follows §7.2 (`commands: []`, `device_changes: []`, `process`/`backup_result` `null`, seal `pending`, `restored_after` `not_requested` or `not_attempted`).
+- **During the job:** the record is **rewritten atomically after every device-changing command**: enable, backup start (sync lock), restore.
+- **`device-info.plist`:** holds the full post-pairing `ideviceinfo -x` output. Its hash is in `device.info_file_sha256`, and it is covered by no other manifest.
+- **Exit codes:** `idevicebackup2` exits with a truncated negative code (Unix `(-N) & 0xFF`, so 0 is possible on failure; Windows sees a negative value). Status therefore relies on messages and layout, never on the numeric value alone.
 
 **Status rules** (same structure as §7.3):
 
-1. **Short-circuits** (only this reason is recorded):
+1. **Short-circuits** (only this reason is recorded; restore still runs per ARCHITECTURE §6b):
    - `prepare_failed`.
    - `encryption_enable_failed`.
-   - `spawn_failed`.
-   - Cancel requested before the backup's exit was observed → `cancelled` (`cancelled_by_user`).
+   - `spawn_failed` (message names the command purpose).
+   - The examiner cancelled before the backup's exit was observed → `cancelled` (`cancelled_by_user`).
 2. **Otherwise, evaluate each check** and add a reason for each match:
 
    | Check | Reason code |
    |---|---|
    | Exit code ≠ 0 | `nonzero_exit` |
    | Killed by a signal | `killed_by_signal` |
+   | `Backup Aborted.` after `User has cancelled the backup process on the device.` | `cancelled_on_device` |
+   | `Backup Aborted.` and the UDID no longer listed at finalize | `device_disconnected` |
+   | The sync-lock failure message (IDEVICE-CLI.md §5) | `sync_lock_failed` |
    | `Backup Successful.` not seen | `success_message_missing` |
    | `backup/<udid>/` missing | `backup_dir_missing` |
    | Neither `Manifest.db` nor `Manifest.mbdb` | `manifest_missing` |
@@ -594,42 +624,70 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
    | `SnapshotState` ≠ `finished` | `snapshot_not_finished` |
 
 3. **Status:** any match → `failed`; otherwise `succeeded`.
-4. **Warnings:**
-   - `encryption_restore_failed`;
-   - `seal_failed`;
-   - `symlinks_in_backup`;
-   - `unencodable_filename`;
-   - `already_encrypted_unknown_password` (`WillEncrypt` was true before the acquisition, so parsing needs the owner's password).
+4. **Warnings** (never change the status):
+
+   | Code | Meaning |
+   |---|---|
+   | `encryption_restore_failed` | |
+   | `encryption_left_enabled` | encryption was enabled by the examiner and not confirmed disabled |
+   | `encryption_state_unknown` | |
+   | `backup_encryption_preexisting` | `WillEncrypt` was already true, so parsing needs the owner's password |
+   | `device_file_errors` | count of `Received an error message from device:` lines |
+   | `disk_nearly_full` | |
+   | `seal_failed` | |
+   | `seal_cancelled` | |
+   | `symlinks_in_backup` | |
+   | `unencodable_filename` | |
+
+**Recovery:** a `running` record becomes `interrupted` (`app_interrupted`), and `recovered_at` is set. Then:
+- if `enabled_by_examiner` and `restored_after` ≠ `restored`: add `encryption_left_enabled`;
+- if `will_encrypt_after_enable` is null: add `encryption_state_unknown`;
+- pending hash and seal statuses become `interrupted`.
+
+**Later restore:** `acq_restore_encryption` writes `encryption-restore.json` (`schema_version`, `acq_id`, `at`, `argv` without the password, `exit_code`, `will_encrypt_after`, `restored`, `tools`) and marks it read-only. `acquisition.json` is not modified.
 
 ### 13.4 Expected outcomes for fake-idevice scenarios (normative for tests)
 
-| `FAKE_IDEVICE_SCENARIO` | Behavior | Status | Reasons | Warnings |
+fake-idevice mirrors the real pairing semantics: `hostid` prints `(null)` when there is no host record, and **`validate` without a host record behaves like `pair`**.
+
+| `FAKE_IDEVICE_SCENARIO` | Behavior | Status | Reasons | Warnings / record |
 |---|---|---|---|---|
-| `success` | 1 paired device; backup streams progress and writes a valid layout | `succeeded` | none | none |
-| `success_encrypt` | as `success`; `encryption on`/`off` succeed | `succeeded` | none | none; `enabled_by_examiner` and `restored_after` true |
-| `already_encrypted` | `WillEncrypt` true | `succeeded` | none | `already_encrypted_unknown_password` |
-| `restore_fail` | `encryption off` fails | `succeeded` | none | `encryption_restore_failed` |
-| `enable_fail` | `encryption on` fails | `failed` | `encryption_enable_failed` | none |
-| `backup_fail` | prints `Backup Failed (Error Code 105).`, exit 1 | `failed` | `nonzero_exit`, `success_message_missing`, then whichever layout checks fail | none |
-| `incomplete` | exit 0 + success message, but `SnapshotState` = `new` | `failed` | `snapshot_not_finished` | none |
+| `success` | 1 paired device; backup streams batch progress plus `NN% Finished` lines and writes a valid layout | `succeeded` | none | none |
+| `success_encrypt` | as `success`; `encryption on`/`off` succeed after a `Please confirm … passcode` prompt line | `succeeded` | none | `restored_after: restored`; two `device_changes` for encryption; `device_prompt` events emitted |
+| `already_encrypted` | `WillEncrypt` true | `succeeded` | none | `backup_encryption_preexisting` |
+| `restore_fail` | `encryption off` fails; `WillEncrypt` stays true | `succeeded` | none | `encryption_restore_failed`, `encryption_left_enabled`; `restored_after: failed` |
+| `enable_fail` | `encryption on` fails; `WillEncrypt` stays false | `failed` | `encryption_enable_failed` | `restored_after: not_attempted` |
+| `enable_unknown` | `encryption on` exits non-zero and `WillEncrypt` is unreadable | per the backup outcome | per the backup outcome | `encryption_state_unknown`; restore attempted |
+| `backup_fail` | prints `Backup Failed (Error Code 105).`, exit 151 | `failed` | `nonzero_exit`, `success_message_missing`, plus failing layout checks | none |
+| `backup_fail_encrypted` | as `backup_fail` with encryption enabled | `failed` | as above | restore still attempted; `restored_after: restored` |
+| `incomplete` | prints `Backup Failed (Error Code 0).`, exit 0, `SnapshotState` = `new` | `failed` | `success_message_missing`, `snapshot_not_finished` | none |
+| `cancel_on_device` | prints the on-device cancel line, then `Backup Aborted.` | `failed` | `cancelled_on_device`, `success_message_missing`, … | none |
+| `disconnect` | `Backup Aborted.`; the device disappears from `idevice_id -l` | `failed` | `device_disconnected`, `success_message_missing`, … | restore `not_attempted` → `encryption_left_enabled` if enabled |
+| `sync_lock` | the sync-lock failure message, exit ≠ 0 | `failed` | `sync_lock_failed`, `nonzero_exit`, `success_message_missing`, … | none |
 | `slow` + cancel | on SIGTERM prints `Backup Aborted.` and exits within 2 s | `cancelled` | `cancelled_by_user` | none |
-| `ignore_term` + cancel (Unix) | ignores SIGTERM | `cancelled` | `cancelled_by_user` | none; `escalated_to_kill` true |
-| `not_paired` | `validate` → not paired; the first `pair` → trust dialog; the second → success | none (tests `device_pair` states) | | |
-| `locked`, `trust_denied` | respective `idevicepair` errors | none (tests states) | | |
-| `usbmuxd_missing` | `idevice_id` fails to connect | none (`devices_list` → tools state `usbmuxd_unavailable`) | | |
+| `ignore_term` + cancel (Unix) | ignores SIGTERM | `cancelled` | `cancelled_by_user` | `escalated_to_kill: true` |
+| `slow` + cancel (Windows) | terminated via the job at once | `cancelled` | `cancelled_by_user` | `escalated_to_kill: true` |
+| `cancel_during_enable` | cancel while `encryption on` waits for a prompt | `cancelled` | `cancelled_by_user` | enable completes, then restore runs; `restored_after: restored` |
+| `cancel_during_restore` | cancel while restoring | as the backup outcome | | cancel ignored; restore completes |
+| `crash_after_enable` | test kills the runner after the enable write | `interrupted` (on recovery) | `app_interrupted` | `encryption_left_enabled` |
+| `not_paired` | `hostid` → `(null)`; `devices_list` must **not** call `validate`; first `pair` → trust dialog, second → success | none (tests `devices_list`/`device_pair` states and that no pairing happens during polling) | | |
+| `locked`, `trust_denied`, `pairing_failed` | respective `idevicepair` errors | none (tests states) | | |
+| `usbmuxd_missing` | `idevice_id` fails to connect | none (`tools.state` = `usbmuxd_unavailable`) | | |
+| `info_empty` | `ideviceinfo` exits 0 with empty stdout | none (treated as failure: fields null, `message` set) | | |
 
 ### 13.5 IPC types, commands and events
 
 ```ts
 type DeviceSummary = {
   udid: string; device_name: string | null; product_type: string | null; product_version: string | null;
-  serial_number: string | null; pair_state: PairState; will_encrypt: boolean | null;
+  serial_number: string | null; pair_state: PairState; busy: boolean; will_encrypt: boolean | null;
   data_used_bytes: number | null; data_capacity_bytes: number | null; message: string | null;
 };
 type DevicesResult = {
   tools: { source: IdeviceToolSource | null; version: string | null; state: IdeviceToolsState; guidance: string | null };
   devices: DeviceSummary[];
 };
+type AcqPreflight = { free_bytes: number; required_bytes: number | null; level: "ok" | "warn" | "block" };
 type AcqRequest = {
   case_path: string; udid: string; label: string | null;
   enable_encryption: boolean; encryption_password: string | null; restore_encryption: boolean;
@@ -638,25 +696,29 @@ type AcqSummary = {
   acq_id: string; acq_dir: string; label: string | null; status: AcqStatus; udid: string;
   device_name: string | null; product_version: string | null; created_at: string; started_at: string | null;
   ended_at: string | null; duration_ms: number | null; backup_path: string | null; // abs path of backup/<udid> when succeeded
+  warnings: string[];  // warning codes, so the Case screen can offer "Turn backup encryption off"
 };
 ```
 
 | Command | `req` | Returns | Notes |
 |---|---|---|---|
-| `devices_list` | none | `DevicesResult` | Never throws for tool or usbmuxd problems; they are reported in `tools.state`. |
-| `device_pair` | `{udid}` | `DeviceSummary` | Runs `idevicepair pair`. Trust and lock outcomes are states, not errors. |
-| `acq_start` | `AcqRequest` + `on_event: AcqEvent` | `{acq_id, acq_dir}` | Validation per ARCHITECTURE.md §6b step 3. |
-| `acq_cancel` | `{acq_id}` | none | Idempotent. |
+| `devices_list` | none | `DevicesResult` | Single-flight. Never pairs. Never throws for tool or usbmuxd problems. The active job's device is returned with `busy: true` and not queried. |
+| `device_pair` | `{udid}` | `DeviceSummary` | Runs `idevicepair pair`. `device_busy` / `already_paired` refusals. Trust and lock outcomes are states, not errors. |
+| `acq_preflight` | `{case_path, udid}` | `AcqPreflight` | |
+| `acq_start` | `AcqRequest` + `on_event: AcqEvent` | `{acq_id, acq_dir}` | Validation per ARCHITECTURE.md §6b step 4. |
+| `acq_cancel` | `{acq_id}` | none | Idempotent. Semantics by phase per ARCHITECTURE.md §6b. |
 | `acq_get` | `{case_path, acq_id}` | `AcquisitionRecord` | |
-| `open_acq_file` | `{case_path, acq_id, which: "stdout"\|"stderr"\|"acquisition_json"\|"backup_manifest"}` | none | |
+| `acq_restore_encryption` | `{case_path, acq_id, password}` | `{restored: boolean, will_encrypt_after: boolean \| null}` | Allowed only when the record has `encryption_left_enabled` or `encryption_state_unknown` (`restore_not_applicable` otherwise) and the device is connected and paired. Counts as a job. |
+| `open_acq_file` | `{case_path, acq_id, which: "stdout"\|"stderr"\|"acquisition_json"\|"backup_manifest"\|"device_info"}` | none | |
 
 ```ts
 type AcqEvent =
   | { type: "phase"; phase: AcqPhase }
   | { type: "log"; lines: string[] }
-  | { type: "progress"; percent: number; bytes_done: number | null; bytes_total: number | null }
+  | { type: "progress"; percent: number }                              // overall, from "NN% Finished"; ≤ 4/s
+  | { type: "device_prompt"; kind: DevicePromptKind; text: string }   // "watch the device" banner
   | { type: "seal_progress"; files_done: number; files_total: number | null }
   | { type: "finished"; status: AcqStatus; reasons: Reason[]; warnings: Reason[]; summary: AcqSummary };
 ```
 
-**Parse handoff:** the core never retains backup passwords. If the examiner ticks "Parse with iLEAPP now", the **UI** keeps the password it already has in memory, pre-fills the New run form (input = `backup_path`, type `itunes`), and clears it when that run starts or the form closes.
+**Parse handoff:** the core keeps no backup password after the restore step. If the examiner ticks "Parse with iLEAPP now", the **UI** keeps the password it collected in memory, pre-fills the New run form (input = `backup_path`, type `itunes`), and clears it when that run starts or the form closes. The resulting `run.json` records `input.acquisition_id`.

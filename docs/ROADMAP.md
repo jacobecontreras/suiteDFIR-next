@@ -8,7 +8,7 @@ Tasks are sized for one PR each. Branches are `task/<id>-<slug>` (DEVELOPMENT.md
 M0.1 ─► M0.2 ─► M0.3 ─┬─► A1 ─► A2 ─┐
                       ├─► B1 ─► B2 ─┼─► A3 ─┐
                       │             ├─► B3 ─┤
-                      │             └─► X2 ─┼─► X3 ─┐
+                      │             └─► X2 ─┼─► X3a ─► X3b ─┐
                       ├─► C1 ─► C2 ─► C3 ───┼───────┼─► E1a ─┬─► E1b ─┐
                       │                     │       │        └─► E3 ──┼─► F1 ─► G1 ─┐
                       ├─► D1 ─► D2 ─► D3 ─► D4a ─► D4b ─► D5 ─────────┴─► E2 ─┘     ├─► RC
@@ -18,9 +18,9 @@ Should: S1, S2, S3 after E2 and E3.     Optional (owner approval): U
 
 **Edges:**
 - A3 needs A2 **and** B2.
-- X2 needs B2. X3 needs X2 and C3.
+- X2 needs B2. X3a needs X2 and C3. X3b needs X3a.
 - E1a needs A3, B3 and C3.
-- E1b needs E1a and X3.
+- E1b needs E1a and X3b.
 - E2 needs E1b, D4a, D4b and D5.
 - E3 needs E1a.
 - F1 needs E2, E3 and X1.
@@ -51,12 +51,13 @@ Tracks A–D and X run in parallel after M0.3 (contract freeze), at most 4 imple
 - **UI and dev tooling:**
   - `ui/index.html`, `ui/app.js` (renders a "suiteDFIR" shell), `ui/styles/app.css`, `ui/lib/dom.js`, `ui/types.d.ts` (empty).
   - `ui-dev/` (empty `mock.js`), `tests/ui/dom.test.js`.
-  - `package.json`: private; devDependencies = exact `typescript`; scripts `typecheck` (`tsc -p .`) and `test` (`node --test "tests/ui/**/*.test.js"`, glob **quoted**).
+  - `package.json`: private; `engines.node` `>=22`; devDependencies = exact `typescript`; scripts `typecheck` (`tsc -p .`) and `test` (`node --test "tests/ui/**/*.test.js"`, glob **quoted**). `.node-version` = 22.
   - `package-lock.json`; `tsconfig.json` (`allowJs`, `checkJs`, `strict`, `noEmit`, include `ui`, `ui-dev`, `tests/ui`).
   - `scripts/serve-ui.mjs`: node:http, zero deps; serves `ui/` at `/` and `ui-dev/` at `/dev/`; sends the `tauri.conf.json` CSP as a `Content-Security-Policy` header; `--port` flag.
 - **Legal and docs:**
   - `LICENSE` (Apache-2.0), `NOTICE`, `THIRD-PARTY-NOTICES.md` (placeholder with the LEAPP MIT notice).
   - Record the exact Tauri CLI version in DEVELOPMENT §1.
+- **Machine setup (both the Mac and the Windows machine):** `rustup toolchain install <pin> -c rustfmt,clippy`, `cargo install tauri-cli --version "=2.11.5" --locked`, `cargo install cargo-deny --version <exact> --locked`. Neither machine has rustfmt, clippy, the Tauri CLI or cargo-deny today.
 
 **Accept:**
 - Locally, all of these pass: `cargo build`, `cargo test`, `cargo clippy -D warnings`, `cargo fmt --check`, `cargo deny check`, `npm ci && npm run typecheck && npm test`, and `cargo tauri build --debug --no-bundle`.
@@ -65,18 +66,20 @@ Tracks A–D and X run in parallel after M0.3 (contract freeze), at most 4 imple
 
 ### M0.2 CI
 
-**Build:** `.github/workflows/ci.yml` on `pull_request` and `push` to `main`, with `concurrency` cancelling superseded runs and path filters skipping docs-only changes.
-- **`js` job** (`ubuntu-24.04`): `npm ci`, typecheck, tests.
-- **`rust` job** (matrix):
-  - `ubuntu-24.04` running in an `ubuntu:22.04` container with the DEVELOPMENT §1 apt deps, always.
-  - `macos-15` (arm64) and `windows-2025` (x64), only on `workflow_dispatch` or when the repo is public (DEVELOPMENT §6).
-  - Steps: fmt, clippy, `cargo test --workspace --locked`, `cargo tauri build --debug --no-bundle`.
-- **`deny` job**.
-- **`contracts-drift` job**: a no-op until M0.3.
-- **Hygiene:** actions pinned by commit SHA; cargo + tauri-cli caching.
+**Build**, per DEVELOPMENT §6:
+- **`ci-rust.yml`** runs on `pull_request` (types `opened`, `synchronize`, `reopened`, `ready_for_review`; skips drafts), on `push` to `main`, and on `workflow_dispatch` with an `os` input. It has `paths` filters for Rust files. One Linux job, in an `ubuntu:22.04` container on `ubuntu-24.04` with the DEVELOPMENT §1 apt deps, runs:
+  - fmt, clippy, `cargo test --workspace --locked`, `cargo build --workspace --locked`;
+  - cargo-deny (prebuilt, hash-checked);
+  - contracts-drift (a no-op until M0.3).
+  
+  Its macOS and Windows jobs are dispatch- or public-only.
+- **`ci-js.yml`** (same triggers, `paths` for `ui/**`, `ui-dev/**`, `tests/ui/**`, `package*.json`, `tsconfig.json`): `npm ci`, typecheck, tests.
+- **Hygiene:** `concurrency` with `cancel-in-progress` for PRs only; actions pinned by commit SHA; `Swatinem/rust-cache` (or equivalent) pinned by SHA; no Tauri CLI in CI.
+- **Dispatch-only skeletons of `leapp-smoke.yml`, `idevice-tools.yml` and `release.yml`:** each has a single job that prints "not implemented". They must exist on `main` so later tasks can `gh workflow run <file> --ref <branch>`.
 
 **Accept:**
-- CI is green on the PR, and local macOS + Windows runs are recorded in the PR body.
+- CI is green on the PR, and `gate/macos` + `gate/windows` statuses are `success` on its head.
+- The three skeleton workflows appear in `gh workflow list`.
 - The PR description shows a throwaway commit with a clippy warning turning CI red (reverted before merge; history is not rewritten, so it's a normal revert commit).
 
 ### M0.3 Contracts and shared foundations
@@ -86,8 +89,9 @@ This task removes cross-track collisions so tracks A–D rarely touch the same f
 - **`crates/core/Cargo.toml`:** declares **every** allowlisted crate the core will use (with the DEVELOPMENT §4.2 specs). `Cargo.lock` committed.
 - **Module stubs:** `crates/core/src/lib.rs` declares every module in ARCHITECTURE §5.1, each with a stub file (doc comment only, no placeholder functions).
 - **Contracts:** every type in CONTRACTS.md §2–§13 in `crates/core/src/contracts/`, with serde, `schema_version` checks, and hand-written `Debug` for password-holding types.
+- **Placeholder manifest:** a schema-valid `idevice-tools.json` with the `sources` list and empty `platforms` (X1 fills it).
 - **Shared helpers:**
-  - `fsutil::write_json_atomic`, `fsutil::set_read_only`, and `fsutil::path_within(a, b)` (canonicalizes for comparison only).
+  - `fsutil::write_json_atomic`, `fsutil::set_read_only`, `fsutil::path_within(a, b)` (canonicalizes for comparison only), and `fsutil::free_space(path)` (`statvfs` / `GetDiskFreeSpaceExW` in `fsutil/{unix,windows}.rs`; add the windows-sys `Win32_Storage_FileSystem` feature).
   - `hashing::sha256_file(path) -> String` (streaming, read-only).
   - All unit-tested.
 - **Fixtures and types:**
@@ -149,7 +153,7 @@ This task removes cross-track collisions so tracks A–D rarely touch the same f
 
 **Accept:**
 - Smoke tests pass locally on macOS arm64 and on the Windows machine (output in the PR, with local paths redacted).
-- The smoke workflow (Linux, via `workflow_dispatch` on the PR branch) is green.
+- The smoke workflow (Linux, `gh workflow run leapp-smoke.yml --ref <branch>`) is green.
 - iLEAPP and aLEAPP counts are identical across the three platforms.
 
 ---
@@ -164,7 +168,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 
 ### B2 Spawn / cancel / temp
 
-- **API:** `process::spawn(spec) -> Handle` with `Handle::{wait, cancel}` per ARCHITECTURE §7 (Unix `setsid`; Windows suspended → job → resume, `CREATE_NO_WINDOW`).
+- **API:** `process::spawn(spec) -> Handle` with `Handle::{wait, cancel}` per ARCHITECTURE §7 (Unix `setsid`; Windows suspended → job → resume, `CREATE_NO_WINDOW`). The spec includes a **configurable kill grace** (default 10 s), extra env vars, an optional timeout (`None` = none), and an optional **stdout/stderr chunk callback** alongside the log files. Windows cancel terminates the job at once.
 - **I/O:** stdin null; stdout/stderr streamed to files by reader threads.
 - **Temp dirs:** create the per-run temp dir and set `TMPDIR`/`TEMP`/`TMP`. Remove it after exit, retrying on Windows sharing violations for up to 5 s. `sweep_stale_temp(app_cache)` handles leftovers.
 
@@ -222,7 +226,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 ### C3 Hashing and inspection
 
 - **Input hashing:** `hashing::sha256_file_with_progress` (1 MiB buffer, ≤ 10 progress callbacks/s, cancellable).
-- **Report seal:** `hashing::seal_report` writes `report.sha256` per CONTRACTS §8 (GNU escaping, sorted, symlinks counted, not listed) and returns the manifest hash, count, bytes and warnings.
+- **Seal:** `hashing::seal_tree(dir, manifest_path, cancel)` writes a manifest per CONTRACTS §8 (GNU escaping, sorted, symlinks counted, not listed) and returns the manifest hash, count, bytes, warnings and a `cancelled` flag. It is used for `report.sha256` (runs) and `backup.sha256` (acquisitions).
 - **`inspect`:**
   - Kind and size.
   - Type detection: a directory with `Manifest.db`/`Manifest.plist` → `itunes` (iLEAPP), else `fs`. `.zip` → `zip`, `.tar` → `tar`, `.gz`/`.tgz` → `gz`, `.e01`/`.dd`/`.img`/`.bin`/`.raw`/`.001` → `raw`, any other file → `file` (iLEAPP) or `invalid_input` (aLEAPP).
@@ -306,12 +310,17 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 
 ### D5 Acquire screen (against the mock)
 
-- **Entry points:** "Acquire iOS backup" on the Case screen. The Case screen gains an **Acquisitions** table (status, device, iOS version, date; actions: reveal folder, details, open log, "Parse with iLEAPP").
+- **Entry points:** "Acquire iOS backup" on the Case screen. The Case screen gains an **Acquisitions** table:
+  - columns: status, device, iOS version, date;
+  - actions: reveal folder, details, open log, "Parse with iLEAPP";
+  - "Turn backup encryption off", shown when `AcqSummary.warnings` contains `encryption_left_enabled` or `encryption_state_unknown`. It asks for the password and runs `acq_restore_encryption`.
 - **Device list:**
-  - `devices_list` polled every 2 s while the screen is visible.
-  - Tools-state banner with platform guidance (`missing`, `usbmuxd_unavailable`, `verification_failed`).
+  - `devices_list` polled every 2 s while the screen is visible. At most one poll is in flight; a busy device shows "in use by the current acquisition".
+  - Tools-state banner with platform guidance (`missing`, `usbmuxd_unavailable`, `verification_failed`, `unsupported_platform`).
+  - The UI never pairs implicitly: pairing happens only via the Pair button.
   - Per-device card: name, model, iOS version, serial, pair state with instructions ("Unlock the device and tap Trust", then Pair/Retry), encryption state.
 - **Options:**
+  - Preflight (`acq_preflight`): free vs required space, with an `ok`/`warn`/`block` banner.
   - Label.
   - If not encrypted:
     - "Enable backup encryption (recommended)", with an explanation that this changes a device setting and yields more data.
@@ -319,16 +328,17 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
     - "Turn encryption off again afterwards" (default on).
   - If already encrypted: a warning that the owner's password is needed to parse.
 - **Progress view:**
-  - Phase, percent bar, bytes, elapsed time, log.
-  - A banner: "Watch the device: it may ask for the passcode".
+  - Phase, overall percent bar, elapsed time, log.
+  - A prominent `device_prompt` banner ("Enter the passcode on the device").
+  - During encryption phases, text explaining that the app waits for the device without a time limit.
   - Cancel with an in-DOM confirm.
 - **Result panel:**
-  - Status, reasons, warnings (especially `encryption_restore_failed`).
+  - Status, reasons, warnings (especially `encryption_restore_failed` / `encryption_left_enabled`, with the "Turn backup encryption off" action).
   - Open folder, `acquisition.json` and logs.
   - "Parse with iLEAPP" (enabled on `succeeded`). It pre-fills New run and carries the password in UI memory only when the examiner set it in this session; cleared per CONTRACTS §13.5.
 - **Password fields** are cleared after use.
 
-**Accept:** node tests for the screen state logic (pair-state transitions, option validation, handoff clearing); screenshots of every `PairState`, every tools state, every `AcqStatus` and the encryption option variants, with no CSP violations.
+**Accept:** node tests for the screen state logic (pair-state transitions, single-flight polling, option validation, preflight levels, handoff clearing); screenshots of every `PairState`, every tools state, every `AcqStatus`, the `device_prompt` banner, the preflight levels, the encryption option variants and the later-restore dialog, with no CSP violations.
 
 ---
 
@@ -336,60 +346,84 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 
 ### X1 Pinned libimobiledevice tool build
 
-- **`idevice-tools.json`:** sources with SHA-256 per IDEVICE-CLI.md §1, plus any TLS/curl sources.
-- **`scripts/build-idevice-tools.sh <platform-key>`:** downloads the pinned tarballs, verifies their hashes, and builds **static** libraries plus the four tools with `--without-cython`. Then:
-  - **macOS arm64 and x64** (x64 cross-built on an arm Mac with `-arch x86_64`, or on `macos-15-intel`):
+- **Manifest:** `idevice-tools.json` pins sources with SHA-256 per IDEVICE-CLI.md §1, including an exact mbedtls 3.6.x. Compute the libplist hash yourself (no GitHub digest).
+- **Build tools:** `scripts/build-idevice-tools.sh <platform-key>` is a scripted build (not bit-reproducible).
+  - It needs autoconf, automake, libtool and pkg-config. If they are missing and Homebrew isn't writable (the agent account on the build Mac isn't admin), the script builds pinned autoconf, automake and pkgconf from source into `~/.local/idevice-buildtools` first. `glibtool` is present on the Mac.
+- **Build steps:**
+  - Download the pinned tarballs and verify their hashes.
+  - Build every library with `--enable-static --disable-shared`; use `pkg-config --static`; build libimobiledevice with `--with-mbedtls --without-cython`.
+  - **macOS arm64 and x64** (x64 cross-built with `-arch x86_64`, or on `macos-15-intel`):
     - `MACOSX_DEPLOYMENT_TARGET=11.0`.
-    - TLS via mbedtls (`--with-mbedtls`) or OpenSSL, built statically from pinned source.
-    - libcurl for libtatsu may link the macOS system libcurl.
+    - libtatsu links the **system** libcurl. macOS has no `libcurl.pc`, so set `libcurl_CFLAGS=-I$(xcrun --show-sdk-path)/usr/include`, `libcurl_LIBS=-lcurl`, and keep Homebrew curl off `PKG_CONFIG_PATH`.
     - `otool -L` must list only `/usr/lib` and `/System` libraries.
-  - **Windows x64:** MSYS2 UCRT64 on the `windows-2025` runner; static where possible. Any DLLs that can't be avoided are listed in `files` and shipped next to the tools.
-  - **Every bundle** gets `BUILDINFO.json` (source URLs + hashes, compiler and toolchain versions, configure flags, build date) and the license texts.
-- **`.github/workflows/idevice-tools.yml`** (`workflow_dispatch` only):
-  - Builds the Windows x64 bundle (and macOS bundles when the owner accepts the minutes; otherwise they are built locally on the Mac).
-  - Uploads the bundles to a **prerelease** named `idevice-tools-<version>` in this repo.
-  - Agents may create and update these prereleases (ORCHESTRATION carve-out); they are build inputs, not app releases.
+  - **Windows x64:** MSYS2 UCRT64 on the `windows-2025` runner; static where possible. Any unavoidable DLLs are listed in `files`.
+- **Bundle output:** a **`.zip`** (the `zip` crate is already allowed; don't use tar/gz) containing:
+  - the four tools (+ DLLs);
+  - `BUILDINFO.json` (source URLs + hashes, compiler and toolchain versions, configure flags, date);
+  - `COPYING`, `COPYING.LESSER`, the `3rd_party/` notices and the mbedtls notice.
+- **Workflow:** `.github/workflows/idevice-tools.yml` (dispatch-only; skeleton from M0.2) builds the Windows bundle and optionally macOS. Bundles are uploaded to a **prerelease** named `idevice-tools-<version>` (`gh release upload --clobber` allowed for these prereleases). macOS bundles may be built locally on the Mac and uploaded the same way.
 - **`cargo xtask fetch-idevice-tools`:**
-  - Downloads the host platform's bundle; authenticates via `GH_TOKEN` or `gh auth token` while the repo is private.
-  - Verifies `bundle_sha256` and every file hash.
+  - Downloads the host bundle via the **API asset URL** with `Accept: application/octet-stream` and a token from `GH_TOKEN`, or `gh auth token` while private.
+  - Verifies `bundle_sha256` and every (unsigned) file hash.
   - Extracts to `src-tauri/binaries/` with Tauri sidecar names (`<tool>-<target-triple>[.exe]`).
-- **`src-tauri/tauri.release.conf.json`:** `bundle.externalBin` lists the four tools. Windows DLLs, if any, go in `bundle.resources` placed next to the executable.
+- **`src-tauri/tauri.release.conf.json`:** `bundle.externalBin` lists the four tools. Windows DLLs go in `bundle.resources` using the **map form** (`{"binaries/x.dll": "x.dll"}`) so they land next to the executable.
 
 **Accept:**
 - Bundles exist for `macos-aarch64`, `macos-x86_64` and `windows-x86_64`, and `idevice-tools.json` has all hashes.
 - On the Mac, the fetched `idevicebackup2 --version` prints `1.4.0` and `otool -L` shows only system libraries.
-- On the Windows machine, `idevicebackup2.exe --version` prints `1.4.0`, and `idevice_id -l` without Apple's service fails with a message (captured in IDEVICE-CLI.md §8, item 4).
+- On the Windows machine, `idevicebackup2.exe --version` prints `1.4.0`, and `idevice_id -l` without Apple's service fails with a message (recorded in IDEVICE-CLI.md §8).
 
 ### X2 `idevice` module and fake-idevice (needs B2)
 
-- **fake-idevice:** `crates/core/src/bin/fake-idevice.rs` per DEVELOPMENT §4.8, covering every scenario in CONTRACTS §13.4.
-- **`idevice` module:**
-  - Tool lookup: dev override → bundled dir (verify hashes against `idevice-tools.json`) → `PATH` on Linux. The result carries the source and binary hashes.
-  - `list_devices`, `device_info`, `validate`/`pair` → `PairState`, `will_encrypt`, `disk_usage`, `set_encryption(on|off, pw)`.
-  - All commands run through `process` with a 20 s timeout.
-  - Output parsing per IDEVICE-CLI.md §2–§4.
-  - Tool and usbmuxd problems map to `IdeviceToolsState`.
+- **fake-idevice:** `crates/core/src/bin/fake-idevice.rs` per DEVELOPMENT §4.8 (real pairing semantics, env-only passwords), with every scenario in CONTRACTS §13.4.
+- **Tool lookup:**
+  - Order: dev override (debug) → bundled dir → `PATH`. `PATH` is allowed on Linux always, and on macOS/Windows only in debug builds.
+  - The `idevice-tools.json` contents are injectable for tests.
+  - Verification per `ToolVerification` (CONTRACTS §13.1): hash compare, and `codesign --verify --strict` on signed macOS builds.
+- **`list_devices`:**
+  - Single-flight.
+  - Pair state via `hostid` first; `validate` only when a record exists (ARCHITECTURE §6b step 1).
+  - The busy device is skipped. Poll output is never logged.
+- **Device operations:** `pair` (with `device_busy` / `already_paired` refusals), `device_info_full` (→ `device-info.plist` bytes), `hostid`/`systembuid`, `will_encrypt`, `disk_usage`. Empty `ideviceinfo` output counts as failure.
+- **`set_encryption(on|off, pw)`:** password via env, **no timeout**, prompt lines forwarded via a callback. All other commands use a 20 s timeout.
 
 **Accept:**
-- Parser unit tests use the exact message strings from IDEVICE-CLI.md.
-- Integration tests with fake-idevice cover `not_paired` → `awaiting_trust` → `paired`, `locked`, `trust_denied`, `usbmuxd_missing`, tools missing, and a tampered bundled tool (`verification_failed`).
+- Parser unit tests use exact strings from IDEVICE-CLI.md.
+- Integration tests with fake-idevice prove that **polling an unpaired device never pairs it** (the fake records any pairing attempt).
+- Pair-state transitions: `awaiting_trust` → `paired`, `locked`, `trust_denied`, `pairing_failed`.
+- Tools states: `usbmuxd_missing` → `usbmuxd_unavailable`, `info_empty`, tools missing, and a tampered bundled tool → `verification_failed`.
 - The gate is green.
 
-### X3 Acquisition runner (needs X2 + C3)
+### X3a Acquisition core (needs X2 + C3)
 
-- **`acquire` module:** ARCHITECTURE §6b end-to-end, including:
-  - the `acquisition.json` lifecycle and recovery;
-  - the free-space check (`statvfs` on Unix; `GetDiskFreeSpaceExW` on Windows, adding the `Win32_Storage_FileSystem` windows-sys feature);
-  - progress parsing (split on `\r`/`\n`, regex `\]\s+(\d+)%`);
-  - cancel with a 30 s grace;
-  - validation and status per CONTRACTS §13.3;
-  - encryption enable and restore;
-  - sealing via a generalized `hashing::seal_tree(dir, manifest_name)`, shared with runs.
+**`acquire` module**, ARCHITECTURE §6b without the encryption steps:
+- Preflight (`fsutil::free_space`); Windows ASCII/length path check.
+- Prepare, including `backup/` and `device-info.plist`.
+- Backup via `process` (30 s grace, chunk callback): overall progress from `NN% Finished` (throttled), `device_prompt` parsing, abort-cause detection.
+- Validation and status (CONTRACTS §13.3).
+- Post-backup free-space warning.
+- Seal via `hashing::seal_tree` (cancellable).
+- The `acquisition.json` lifecycle with **atomic rewrites after each device-changing step**, plus `pairing` and `device_changes`.
+- Discovery and recovery on case open (`CaseDetail.acquisitions`, `AcqSummary.warnings`).
+- `input.acquisition_id` detection helper for runs.
+
+**Accept:** CONTRACTS §13.4 rows without encryption are integration tests, each checking status, reasons, warnings, a finalized read-only record and a manifest:
+- `success`, `already_encrypted`, `backup_fail`, `incomplete`, `cancel_on_device`, `disconnect`, `sync_lock`;
+- `slow` + cancel, `ignore_term` + cancel;
+- `info_empty`.
+
+The gate is green.
+
+### X3b Encryption flow and later restore (needs X3a)
+
+- **Enable and restore:** ARCHITECTURE §6b steps 6 and 8. Passwords go via env and are zeroized after the restore step. There is no timeout. `WillEncrypt` is re-read after each command, the record is rewritten after each change, and `restored_after` is maintained.
+- **Cancel by phase:** follows ARCHITECTURE §6b.
+- **Recovery:** the encryption warnings on recovery.
+- **Later restore:** `acq_restore_encryption` writes `encryption-restore.json`.
 
 **Accept:**
-- Every CONTRACTS §13.4 row is an integration test with the expected status, reasons and warnings, a finalized read-only `acquisition.json`, and `backup.sha256` when a backup exists.
-- The password never appears in the record, in `Debug` output or in errors.
-- Recovery marks a `running` acquisition `interrupted`.
+- Integration tests cover `success_encrypt`, `restore_fail`, `enable_fail`, `enable_unknown`, `backup_fail_encrypted`, `cancel_during_enable`, `cancel_during_restore` and `crash_after_enable` (recovery), plus a later restore that succeeds and one that is refused (`restore_not_applicable`).
+- A test proves the password never appears in argv, records, `Debug` output, logs or errors (fake-idevice fails if it sees the password in argv).
 - The gate is green.
 
 ---
@@ -408,11 +442,14 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 
 ### E1b Command layer and app state
 
-- **Commands:** `src-tauri` implements every command in CONTRACTS §10 and §13.5 with channels and the path-policy checks (ARCHITECTURE §9). The single active job covers runs and acquisitions. The shell passes the bundled-tools dir (sidecar location) to the core.
+- **Commands:** `src-tauri` implements every command in CONTRACTS §10 and §13.5 with channels and the path-policy checks (ARCHITECTURE §9).
+  - The single active **job** covers runs, acquisitions and later encryption restores. `temp_cleanup` refuses while any job is active.
+  - The shell passes the bundled-tools dir (sidecar location) to the core.
+  - `case_open` fills `CaseDetail.acquisitions` and runs acquisition recovery.
 - **`AppState`:** single active run and backlog.
 - **Lifecycle:**
   - Instance lock (`another_instance_running` → native message, exit).
-  - Quit guard (`CloseRequested` + `ExitRequested`, native dialog, cancel → wait ≤ 30 s → exit).
+  - Quit guard (`CloseRequested` + `ExitRequested`, native dialog) per ARCHITECTURE §5.2: runs wait ≤ 30 s; acquisitions follow the §6b cancel semantics, with "finishing safely…" and "Quit anyway".
   - Startup temp sweep.
 - **Other:** app file logger (no secrets); debug-only dev override; `licenses_get`.
 
@@ -455,21 +492,23 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
   - macOS: `.app` + `.dmg` per arch (`macos-15`, `macos-15-intel`), minimum 11.0.
   - Windows x64: NSIS online installer (default `downloadBootstrapper`) and an offline installer built with a config overlay `{"bundle":{"windows":{"webviewInstallMode":{"type":"offlineInstaller","silent":true}}}}` via `cargo tauri build --config <file>`. Rename the outputs to `suiteDFIR_<ver>_x64-online-setup.exe` and `…_x64-offline-setup.exe`.
   - Linux: AppImage + `.deb`, built in the `ubuntu:22.04` container.
-- **iOS tools:** `cargo xtask fetch-idevice-tools` + `--config src-tauri/tauri.release.conf.json` bundle the pinned X1 tools as sidecars (macOS arm64/x64, Windows x64). Linux packages declare no dependency on them; the user guide explains installing them.
+- **iOS tools:** `cargo xtask fetch-idevice-tools` + `--config src-tauri/tauri.release.conf.json` bundle the pinned X1 tools as sidecars (macOS arm64/x64, Windows x64). Signing changes their bytes; runtime verification follows D22 (`code_signature` on signed macOS builds). Linux packages declare no dependency on them; the user guide explains installing them.
+- **Source obligations:** every release (draft) attaches the exact libimobiledevice-stack source tarballs, `scripts/build-idevice-tools.sh` and each bundle's `BUILDINFO.json`.
+- **While private:** macOS and Windows bundles are built **locally** (the Mac, and the Windows machine over ssh). The CI dry run is Linux-only. Artifacts use `retention-days: 1`.
 - **Builds** use `cargo tauri build --runner <abs>/scripts/cargo-auditable` (a wrapper that execs `cargo auditable "$@"`). The Windows `.cmd` wrapper must be verified; if it can't work, document that Windows builds are not auditable and proceed.
 - **`release.yml`:**
   - `workflow_dispatch` = build-only dry run (artifacts uploaded to the run, no release).
   - Tag `v*` = build + `SHA256SUMS` + a **draft** GitHub release (never published by automation).
   - Signing/notarization steps run only when the secrets exist (H1); otherwise the release notes state that the builds are unsigned.
 
-**Accept:** the dry run produces every artifact, with sizes recorded in the PR. The bundled tool hashes in the built app match `idevice-tools.json`. Targets:
+**Accept:** local builds and the Linux dry run produce every artifact, with sizes recorded in the PR. In unsigned builds, the bundled tool hashes match `idevice-tools.json`; signed builds report `code_signature`. Targets:
 - < 20 MB for the dmg, the online installer and the deb (includes the iOS tools);
 - AppImage exempt (≈ 70+ MB, bundles WebKitGTK);
 - offline installer ≈ 215 MB.
 
 ### F2 Third-party notices
 
-- **`cargo xtask notices`** generates `THIRD-PARTY-NOTICES.md` from `cargo metadata`: each crate, its version and license, and the license text from registry sources. It also includes the LEAPP MIT notice, the LGPL notices for LEAPP's bundled libheif/libde265, and the libimobiledevice stack's GPL-2.0+/LGPL-2.1+ texts with the exact source tarball URLs and hashes from `idevice-tools.json` (the source offer).
+- **`cargo xtask notices`** generates `THIRD-PARTY-NOTICES.md` from `cargo metadata`: each crate, its version and license, and the license text from registry sources. It also includes the LEAPP MIT notice, the LGPL notices for LEAPP's bundled libheif/libde265, and the libimobiledevice stack's texts: **both** `COPYING` (GPL-2) and `COPYING.LESSER` (LGPL-2.1), the `3rd_party/` notices and the mbedtls notice, with the exact source tarball URLs and hashes from `idevice-tools.json`. The tarballs themselves ship with each release (F1).
 - **`licenses_get`** embeds this file.
 - **CI** checks that the file is up to date.
 
@@ -488,7 +527,16 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
   - privacy.
 - **G2 `docs/QA-CHECKLIST.md`**, a human checklist:
   - real encrypted and unencrypted Finder backups (right and wrong password); **grep the report for the password**;
-  - **USB acquisition** on macOS and Windows with a real iPhone: first-time trust, locked device, encryption enable + restore, a device already encrypted with an unknown password, cancel mid-backup, unplug mid-backup, then "Parse with iLEAPP" handoff; resolve IDEVICE-CLI.md §8;
+  - **USB acquisition** on macOS and Windows with a real iPhone:
+    - first-time trust (confirm polling never shows a Trust prompt by itself) and a locked device;
+    - encryption enable + restore with passcode prompts;
+    - a device already encrypted with an unknown password;
+    - cancel during enable, backup and restore; unplug mid-backup;
+    - Finder/iTunes open (sync lock);
+    - later "Turn backup encryption off";
+    - the "Parse with iLEAPP" handoff;
+    - confirm `device-info.plist` never appears in the app log;
+    - resolve IDEVICE-CLI.md §8;
   - Android fs extraction and zip; an E01;
   - a large input (≥ 100 GB) with hashing;
   - cancel in each phase; quit during a run; a second instance;
@@ -521,7 +569,7 @@ Draft issues/PRs for LEAPP-CLI.md §8. **Owner approval before anything is poste
 
 | # | When | What |
 |---|---|---|
-| H0 | Before M0 | Done by the planning session with owner approval:<ul><li>create the **private** repo `jacobecontreras/suiteDFIR-next`; the existing `suiteDFIR` repo is untouched;</li><li>`delete_branch_on_merge` off; squash-only merges;</li><li>ruleset on `main` if the account plan supports it for private repos (otherwise the orchestrator enforces the gate);</li><li>push the initial docs commit; clone to `~/suiteDFIR-next`;</li><li>set up the Windows test remote;</li><li>update `~/.claude/CLAUDE.md` and the auto-mode trusted repos.</li></ul> |
+| H0 | Before M0 | Done by the planning session with owner approval:<ul><li>create the **private** repo `jacobecontreras/suiteDFIR-next`; the existing `suiteDFIR` repo is untouched;</li><li>`delete_branch_on_merge` off; squash-only merges;</li><li>ruleset on `main`: **not available** (GitHub Free, private repo), so the orchestrator enforces the gate (DEVELOPMENT §5);</li><li>push the initial docs commit; clone to `~/suiteDFIR-next`;</li><li>set up the Windows test remote;</li><li>update `~/.claude/CLAUDE.md` and the auto-mode trusted repos.</li></ul> |
 | H1 | Before F1 signing | Apple Developer ID certificate + notarization credentials; Windows signing (e.g. Azure Trusted Signing) or accept unsigned beta builds; add them as GitHub secrets. |
 | H2 | Any time | Approve mirroring pinned LEAPP assets in this repo's releases (adds mirror URLs to the manifest). |
 | H3 | RC | Publish releases (automation only creates drafts). |
