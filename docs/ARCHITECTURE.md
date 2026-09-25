@@ -147,6 +147,8 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
   - The single-instance lock is `<app_data>/instance.lock` via `std::fs::File::try_lock`. A second instance shows a native message and exits before touching any state.
   - Startup: acquire the lock → temp sweep → app log → settings → the main window. The window is declared with `create: false` in `tauri.conf.json` and opened by the shell once the lock is held, so a second instance never shows one.
   - The job slot is freed just before a job's `finished` event is sent, so the UI can start the next job as soon as it sees `finished`. A later encryption restore occupies the slot too, but `job_active` does not report it (the Case screen waits for the command's answer).
+  - Starting a job first reserves the slot, then runs its slow checks (the tool's entry hash, device queries) without holding the slot's lock, so the quit guard and device polling never wait for it; a failed start frees the reservation. A job thread that panics frees the slot and ends with `finished` from its recovered (`interrupted`) record. `temp_cleanup` also reserves the slot, and installs and device commands wait for its sweep to end.
+  - The quit guard's "finishing safely…" dialog shows again on the next close after "Wait", so "Quit anyway" stays reachable.
 
 ### 5.3 `ui/` and `ui-dev/`
 
@@ -191,9 +193,9 @@ Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker co
 9. **Seal:** if `report/` exists, hash every file into `report.sha256` (CONTRACTS.md §8), with progress events.
 10. **Finalize:**
     - Write the complete `run.json` atomically and mark it read-only.
-    - Emit `finished` (status, reasons, warnings, summary).
-    - Clear the active run.
+    - Clear the active job (§5.2), then emit `finished` (status, reasons, warnings, summary).
     - If the final write fails: emit `finished` with `failed` + `record_write_failed` and log it. The record stays `running` and becomes `interrupted` on the next open.
+    - If the record was written but cannot be marked read-only (e.g. a share that refuses permission changes): the final record is on disk with its real status, so `finished` reports that status; the problem is logged. Recovery never touches a final record.
 
 Phases emitted: `preparing` → `running` → (`hashing_input`) → `analyzing` → `sealing_report` → `finalizing`.
 
@@ -249,8 +251,8 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 10. **Seal:** if `backup/` exists, write `backup.sha256` via `hashing::seal_tree`. Cancelling stops the seal (`SealStatus.cancelled`).
 11. **Finalize:**
     - Write the complete `acquisition.json` atomically and mark it read-only.
-    - Emit `finished`.
-    - Clear the active job.
+    - Clear the active job (§5.2), then emit `finished`.
+    - A failed final write, or a record that cannot be marked read-only, is handled as in §6 step 10 (`record_write_failed` only for the former).
 
 **Cancel semantics by phase:**
 
@@ -365,10 +367,11 @@ A **known case folder** is a path in `settings.recent_cases` whose `case.json` p
 | `case_create.parent_dir`, `settings_update.cases_root` | Existing writable dir, not inside the tools dir or app dirs. |
 | `settings_update.tools_dir` | Existing writable dir, not inside any known case folder. |
 | `case_open.path` | Any dir containing a valid `case.json` (it becomes known). |
-| `case_update`, `case_forget`, `run_get`, `open_report`, `open_text_file` | `case_path` must be a known case folder; `run_id` must match the `run_id` format and exist. |
+| `case_update`, `run_get`, `open_report`, `open_text_file` | `case_path` must be a known case folder; `run_id` must match the `run_id` format and exist. |
+| `case_forget.path` | A path in the recent list, also when its folder is gone or its `case.json` is invalid (nothing is read or written there; it only leaves the list). |
 | `input_inspect.path`, `run_start.input_path`, `run_start.keychain_path` | Any readable path, subject to the overlap rule in §6 step 1. |
 | `tool_import.archive_path`, `profile_import.path` | Any readable regular file (read-only). |
-| `profile_export.dest_path` | A path returned by the save dialog; refuse if inside a known case folder's `runs/`. |
+| `profile_export.dest_path` | A path returned by the save dialog; refuse if inside a known case folder's `runs/` or `acquisitions/` (run output and acquired evidence stay untouched). |
 | `reveal_path.path` | Inside a known case folder or app dirs only. |
 | `acq_preflight`, `acq_start`, `acq_get`, `acq_cancel`, `open_acq_file`, `acq_restore_encryption` | `case_path` must be a known case folder; `acq_id` must match its format and exist. |
 | `devices_list`, `device_pair`, and any `udid` argument | No path. `udid` must match `^(?:[0-9a-fA-F]{40}\|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16})$`. |

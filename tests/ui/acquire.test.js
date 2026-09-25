@@ -252,7 +252,7 @@ test("option validation: tools, device, preflight, passwords and the one-job rul
 
 test("on Windows a password must be printable ASCII, as the core requires (FU31)", () => {
   const WINDOWS_ONLY_ASCII = "On Windows the iOS tools can only use a password of plain ASCII letters, digits, spaces and punctuation.";
-  for (const pw of ["Zoë-1234", "pass word", "tab\there", "日本語パス"]) {
+  for (const pw of ["Zoë-1234", "pass\u00a0word", "tab\there", "日本語パス"]) {
     assert.equal(toolPasswordProblem(pw, true), WINDOWS_ONLY_ASCII, pw);
     assert.equal(toolPasswordProblem(pw, false), null, pw);
     // It blocks Start on Windows only, and before the mismatch check.

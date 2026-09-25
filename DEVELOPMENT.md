@@ -66,7 +66,7 @@ The UI shows a "DEV OVERRIDE" banner. The code is compiled out of release builds
 
 Likewise, `SUITEDFIR_DEV_IDEVICE_OVERRIDE=<path to target/debug/fake-idevice>` (debug builds only) makes the core use fake-idevice for all four libimobiledevice tools (`IdeviceToolSource.dev_override`).
 
-The bundled libimobiledevice tools are **not** needed for `cargo tauri dev` or `cargo tauri build --debug --no-bundle`. They are attached only by the release overlay config `src-tauri/tauri.release.conf.json` (`bundle.externalBin`). Debug builds find tools via the dev override, `PATH`, or `src-tauri/binaries/` if present.
+The bundled libimobiledevice tools are **not** needed for `cargo tauri dev` or `cargo tauri build --debug --no-bundle`. They are attached only by the release overlay config `src-tauri/tauri.release.conf.json` (`bundle.externalBin`). Debug builds find tools via the dev override (`SUITEDFIR_DEV_IDEVICE_OVERRIDE`), next to the app executable (`target/debug/`, the same place release builds look), or on `PATH`; `src-tauri/binaries/` is not searched.
 
 ## 3. Repository layout
 
@@ -168,7 +168,7 @@ Anything else needs a PR labelled `new-dependency` that explains why std or an a
 - **Pure core:** no `unwrap`/`expect` outside tests and provably infallible spots (comment why). Errors are `thiserror` enums mapped to `AppError` codes (CONTRACTS.md §12).
 - **I/O placement:** `crates/core` takes directories and callbacks as parameters and never reads Tauri state or guesses OS dirs.
 - **Async:** blocking work (hashing, process wait, downloads) runs on dedicated threads or `tauri::async_runtime::spawn_blocking`, never on the command thread.
-- **Platform code:** lives only in `process/{unix,windows}.rs` and `fsutil/{unix,windows}.rs` (plus `inspect` for OS backup locations and `idevice` for tool lookup). The only permitted `unsafe` is FFI there, commented.
+- **Platform code:** lives only in `process/{unix,windows}.rs` and `fsutil/{unix,windows}.rs` (plus `inspect` for OS backup locations and `idevice` for tool lookup). The only permitted `unsafe` is FFI there, commented. One exception without FFI or `unsafe`: `src-tauri/src/host.rs` reads the OS version and host name per OS for the records' `host` (on Windows through `%SystemRoot%\System32\cmd.exe`, never a bare `cmd.exe`).
 - **Style:** `cargo fmt`; clippy clean with `-D warnings`.
 
 ### 4.6 UI conventions
@@ -310,7 +310,7 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
 - **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. A `workflow_dispatch` runs only the job(s) selected by its `os` input (`linux`, `macos`, `windows` or `all`). On pull requests and pushes to `main`, the Linux job always runs, and the macOS and Windows jobs run only once the repository is public (`!github.event.repository.private`). Draft pull requests run no CI jobs.
 - **LEAPP smoke container:** `leapp-smoke.yml` runs its Linux legs (x64 and arm64) in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
-- **LEAPP smoke triggers** (the repository is public): a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process}/**`, `crates/core/src/runner.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`.
+- **LEAPP smoke triggers** (the repository is public): a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process,run}/**`, `crates/core/src/{runner,tail,inspect,hashing}.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`.
 - **Dispatch-only workflows:** `release.yml` is `workflow_dispatch`-only. All other builds, including the iOS tools and the macOS/Windows release bundles, happen on local machines. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 
