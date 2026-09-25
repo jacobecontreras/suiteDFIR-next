@@ -6,7 +6,7 @@
 import { h } from "../lib/dom.js";
 import { icon, phaseLabel, uid } from "../lib/view.js";
 
-/** @typedef {import("../lib/jobstream.js").StepState} StepState */
+/** @typedef {import("../lib/jobstream.js").StepState | "failed"} StepState "failed": the install stage that failed. */
 
 /**
  * A `<progress>` with a visible label and detail text. `total: null` (or 0) = indeterminate.
@@ -40,12 +40,13 @@ export function percentOf(done, total) {
   return Math.max(0, Math.min(100, Math.floor((done / total) * 100)));
 }
 
-/** @type {Record<StepState, { icon: "check-circle" | "play-circle" | "slash" | "circle", text: string }>} */
+/** @type {Record<StepState, { icon: "check-circle" | "play-circle" | "slash" | "circle" | "x-circle", text: string }>} */
 const STEP = {
   done: { icon: "check-circle", text: "done" },
   current: { icon: "play-circle", text: "in progress" },
   skipped: { icon: "slash", text: "skipped" },
   pending: { icon: "circle", text: "not started" },
+  failed: { icon: "x-circle", text: "failed" },
 };
 
 /**
@@ -66,8 +67,8 @@ export function stepList(label, steps, labelOf = phaseLabel) {
         { class: `phase-step phase-step-${s.state}`, "aria-current": s.state === "current" ? "step" : null },
         icon(STEP[s.state].icon, "icon phase-step-icon"),
         h("span", null, labelOf(s.phase)),
-        s.state === "skipped"
-          ? h("span", { class: "phase-step-note" }, "skipped")
+        s.state === "skipped" || s.state === "failed"
+          ? h("span", { class: "phase-step-note" }, STEP[s.state].text)
           : h("span", { class: "visually-hidden" }, ` (${STEP[s.state].text})`),
       ),
     ),

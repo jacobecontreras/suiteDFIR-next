@@ -1,7 +1,8 @@
 // UI-internal types shared by app.js, the screens and the components (not IPC contracts; those
 // are in ui/types.d.ts).
 
-import type { ActiveJob, AppInfo, Settings, ToolStatus } from "../types";
+import type { ActiveJob, AppInfo, Settings, ToolId, ToolStatus } from "../types";
+import type { InstallProgress } from "./install.js";
 import type { JobStreams } from "./jobstream.js";
 import type { Store } from "./store.js";
 
@@ -17,6 +18,8 @@ export type AppState = {
   activeJob: ActiveJob | null;
   /** iLEAPP's own zone list for its installed version (lib/timezones.js); fallbacks are never cached. */
   timezones: { version: string; list: string[] } | null;
+  /** Parser installs and imports started on the Settings screen, by tool (lib/install.js). */
+  installs: Partial<Record<ToolId, InstallProgress>>;
 };
 
 export type ScreenContext = {

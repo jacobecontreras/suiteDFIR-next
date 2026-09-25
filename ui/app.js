@@ -16,6 +16,7 @@ import { casesScreen } from "./screens/cases.js";
 import { newRunScreen } from "./screens/new-run.js";
 import { notFoundScreen } from "./screens/not-found.js";
 import { runScreen } from "./screens/run.js";
+import { settingsScreen } from "./screens/settings.js";
 
 /** @typedef {import("./lib/context").AppState} AppState */
 /** @typedef {import("./lib/context").ScreenContext} ScreenContext */
@@ -27,6 +28,7 @@ const ROUTES = {
   case: caseScreen,
   "new-run": newRunScreen,
   run: runScreen,
+  settings: settingsScreen,
 };
 
 /** How often `job_active` is polled while a job is active. */
@@ -44,7 +46,7 @@ async function main() {
   const { api, mode } = loaded;
 
   const store = createStore(
-    /** @type {AppState} */ ({ mode, appInfo: null, settings: null, tools: null, activeJob: null, timezones: null }),
+    /** @type {AppState} */ ({ mode, appInfo: null, settings: null, tools: null, activeJob: null, timezones: null, installs: {} }),
   );
   const chrome = shell({ store });
   root.replaceChildren(chrome.node);

@@ -577,6 +577,110 @@ const SCREENS = [
       await runResult(page, "Interrupted");
     },
   },
+  // ---- D4b: Settings, every ToolState plus installing and install failed ----
+  {
+    name: "settings",
+    query: "?mock",
+    hash: "#/settings",
+    setup: async (page) => {
+      await page.locator(".tool-card").first().waitFor();
+      await page.getByRole("button", { name: "Save defaults" }).waitFor();
+    },
+  },
+  {
+    // verified (iLEAPP) and installed_unverified (aLEAPP), then Verify on aLEAPP.
+    name: "settings-tools-verify",
+    query: "?mock",
+    hash: "#/settings",
+    element: ".tool-grid",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "aLEAPP" }).getByRole("button", { name: "Verify" }).click();
+      await page.getByText("Verified: the binary matches the pinned SHA-256.").waitFor();
+    },
+  },
+  {
+    name: "settings-tools-not-installed",
+    query: "?mock&scenario=no_tools",
+    hash: "#/settings",
+    element: ".tool-grid",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "Not installed" }).first().waitFor();
+    },
+  },
+  {
+    name: "settings-tools-failed-unsupported",
+    query: "?mock&scenario=tool_verification_failed,tool_unsupported",
+    hash: "#/settings",
+    element: ".tool-grid",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "Verification failed" }).waitFor();
+      await page.locator(".tool-card", { hasText: "Not available" }).waitFor();
+    },
+  },
+  {
+    name: "settings-tools-dev-override",
+    query: "?mock&scenario=dev_override",
+    hash: "#/settings",
+    element: ".tool-grid",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "Dev override" }).first().waitFor();
+    },
+  },
+  {
+    name: "settings-installing",
+    query: "?mock&scenario=no_tools",
+    hash: "#/settings",
+    element: ".tool-grid",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "iLEAPP" }).getByRole("button", { name: /^Install/ }).click();
+      await page.getByText(/^Downloading iLEAPP/).waitFor();
+    },
+  },
+  {
+    name: "settings-install-failed",
+    query: "?mock&scenario=no_tools,install_fail",
+    hash: "#/settings",
+    element: ".tool-grid",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "iLEAPP" }).getByRole("button", { name: /^Install/ }).click();
+      await page.locator(".install-progress .app-error").waitFor();
+    },
+  },
+  {
+    name: "settings-installed",
+    query: "?mock&scenario=no_tools",
+    hash: "#/settings",
+    element: ".tool-grid",
+    setup: async (page) => {
+      await page.locator(".tool-card", { hasText: "iLEAPP" }).getByRole("button", { name: /^Import/ }).click();
+      await page.locator("dialog.mock-picker button", { hasText: "ileapp-v2026.4.2-macOS_Apple_Silicon.zip" }).click();
+      await page.getByText("Imported and verified.").waitFor({ timeout: 15000 });
+    },
+  },
+  {
+    // A tools-folder override (with "Use the default"), and a finished temp cleanup.
+    name: "settings-storage",
+    query: "?mock",
+    hash: "#/settings",
+    element: "section[aria-labelledby=settings-storage]",
+    setup: async (page) => {
+      await page.getByRole("group", { name: "Tools folder" }).getByRole("button", { name: "Change…" }).click();
+      await page.locator("dialog.mock-picker button", { hasText: "/Applications/Approved Tools" }).click();
+      await page.getByRole("button", { name: "Use the default" }).waitFor();
+      await page.getByRole("button", { name: "Clean temporary files" }).click();
+      await page.getByText(/^Removed .* of temporary files\.$/).waitFor();
+    },
+  },
+  {
+    name: "settings-about-licenses",
+    query: "?mock",
+    hash: "#/settings",
+    element: "section[aria-labelledby=settings-about]",
+    setup: async (page) => {
+      await page.getByText("Third-party licenses").click();
+      await page.locator(".licenses-text").waitFor();
+    },
+  },
   {
     // 100,000 lines (the flood scenario), scrolled to the middle: auto-scroll turns itself off.
     name: "run-log-100k",

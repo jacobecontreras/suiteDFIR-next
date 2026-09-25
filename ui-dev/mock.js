@@ -10,7 +10,8 @@
 // - URL flags, `?mock&scenario=a,b`: `empty` (no recent cases), `no_tools` (no parser installed),
 //   `dev_override`, `active_run` (a slow run is already active at load), `install_fail`,
 //   `no_devices`, `idevice_missing`, `usbmuxd_unavailable`, `idevice_verification_failed`,
-//   `idevice_unsupported`, `preflight_warn`, `preflight_block`.
+//   `idevice_unsupported`, `preflight_warn`, `preflight_block`, `tool_verification_failed` (iLEAPP
+//   fails verification), `tool_unsupported` (no aLEAPP build for the platform).
 //   `hold_<phase>` (e.g. `hold_analyzing`, `hold_sealing_report`): a run stops in that phase until
 //   it is cancelled, so every phase can be screenshotted.
 // - Runs: the final status is chosen by the input path's last segment without extension:
@@ -197,6 +198,16 @@ if (has("dev_override")) {
   for (const tool of /** @type {ToolId[]} */ (["ileapp", "aleapp"])) {
     tools[tool] = { ...installedStatus(tool), state: "dev_override", installed_version: "dev-override", install_source: "dev_override" };
   }
+}
+if (has("tool_verification_failed")) {
+  tools.ileapp = {
+    ...installedStatus("ileapp"),
+    state: "verification_failed",
+    problem: "The entry's SHA-256 does not match the pinned value: expected 5c1e0b3a…9d42, found 77ab04e1…c3f0 (bin/ileapp).",
+  };
+}
+if (has("tool_unsupported")) {
+  tools.aleapp = { ...notInstalledStatus("aleapp"), state: "unsupported_platform", problem: null };
 }
 
 const settings = clone(fx.Settings);
@@ -631,16 +642,40 @@ function profileInfo(tool, name) {
 // ---- §10: app, settings, tools ----
 
 /** @type {Api["app_info"]} */
-export const app_info = async () => ({ ...clone(fx.AppInfo), dev_override: has("dev_override") });
+export const app_info = async () => {
+  const info = { ...clone(fx.AppInfo), dev_override: has("dev_override") };
+  // `paths.tools_dir` is the folder in effect: the override, else the default.
+  info.paths.tools_dir = settings.tools_dir ?? LEAPP_DIR;
+  return info;
+};
 
 /** @type {Api["licenses_get"]} */
 export const licenses_get = async () =>
   [
     "# Third-party notices (mock)",
     "",
-    "iLEAPP and aLEAPP: MIT License, Copyright (c) Alexis Brignoni and contributors.",
-    "",
     "The real app returns the embedded THIRD-PARTY-NOTICES.md here.",
+    "",
+    "## iLEAPP and aLEAPP",
+    "",
+    "MIT License",
+    "",
+    "Copyright (c) Alexis Brignoni and contributors",
+    "",
+    "Permission is hereby granted, free of charge, to any person obtaining a copy",
+    "of this software and associated documentation files (the \"Software\"), to deal",
+    "in the Software without restriction, including without limitation the rights",
+    "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell",
+    "copies of the Software, and to permit persons to whom the Software is",
+    "furnished to do so, subject to the following conditions: …",
+    "",
+    "## Rust crates",
+    "",
+    "| Crate      | Version | License           |",
+    "|------------|---------|-------------------|",
+    "| serde      | 1.0.228 | MIT OR Apache-2.0 |",
+    "| sha2       | 0.10.9  | MIT OR Apache-2.0 |",
+    "| tauri      | 2.11.0  | Apache-2.0 OR MIT |",
   ].join("\n");
 
 /** @type {Api["settings_get"]} */
@@ -656,7 +691,13 @@ export const settings_update = async (req) => {
     if (!req.defaults) throw appError("invalid_input", "defaults may not be null.");
     settings.defaults = clone(req.defaults);
   }
-  if ("tools_dir" in req) settings.tools_dir = req.tools_dir ?? null;
+  if ("tools_dir" in req) {
+    const dir = req.tools_dir ?? null;
+    if (dir !== null && settings.recent_cases.some((c) => within(dir, c))) {
+      throw appError("path_not_allowed", "The tools folder cannot be inside a case folder.", dir);
+    }
+    settings.tools_dir = dir;
+  }
   return clone(settings);
 };
 

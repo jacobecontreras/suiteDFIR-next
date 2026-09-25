@@ -1475,6 +1475,13 @@ input[type="radio"] {
   border-style: dashed;
 }
 
+.phase-step-failed {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  font-weight: 600;
+}
+
 .phase-step-note {
   font-size: 12px;
   font-style: italic;
@@ -1619,6 +1626,106 @@ input[type="radio"] {
   display: grid;
   place-items: center;
   pointer-events: none;
+}
+
+/* ---- Settings ---- */
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 14px;
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tool-card-head h3 {
+  font-size: 15px;
+}
+
+.badge-tone-ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.badge-tone-info {
+  background: var(--info-bg);
+  border-color: var(--info-border);
+  color: var(--info);
+}
+
+.badge-tone-warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.badge-tone-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.banner-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.banner-danger > .icon {
+  color: var(--danger);
+}
+
+.banner-ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+}
+
+.banner-ok > .icon {
+  color: var(--ok);
+}
+
+.install-progress {
+  background: var(--card);
+}
+
+.form-actions-start {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.folder-path {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.licenses summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.licenses-text {
+  max-height: 420px;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
 .clipboard-helper {
