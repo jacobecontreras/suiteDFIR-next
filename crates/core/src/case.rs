@@ -545,10 +545,16 @@ mod tests {
         assert_eq!(name_of(&second), "Case_ A_B (2)");
         let third = create(dir.path(), &fields("Case? A|B")).unwrap();
         assert_eq!(name_of(&third), "Case_ A_B (3)");
-        // An existing plain file also blocks the name.
-        fs::write(dir.path().join("CON_"), "").unwrap();
+        // An existing plain file also blocks the name (same spelling, so this holds on
+        // case-sensitive and case-insensitive filesystems alike).
+        fs::write(dir.path().join("con_"), "").unwrap();
         let reserved = create(dir.path(), &fields("con")).unwrap();
         assert_eq!(name_of(&reserved), "con_ (2)");
+        // Whether another spelling collides is the filesystem's call: create_dir decides.
+        let case_insensitive = dir.path().join("CON_").exists();
+        let other = create(dir.path(), &fields("CON")).unwrap();
+        let expected = if case_insensitive { "CON_ (3)" } else { "CON_" };
+        assert_eq!(name_of(&other), expected);
     }
 
     #[test]
