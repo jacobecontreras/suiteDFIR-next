@@ -37,8 +37,10 @@ node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mo
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
 cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
-scripts/build-idevice-tools.sh           # build pinned libimobiledevice tools locally (macOS; Windows via per-user MSYS2)
-cargo xtask fetch-idevice-tools          # fetch + verify the pinned tool bundle into src-tauri/binaries/ (release builds)
+scripts/build-idevice-tools.sh <platform-key>  # build a pinned libimobiledevice tool bundle: macos-aarch64 / macos-x86_64
+                                         # on the Mac, windows-x86_64 in a per-user MSYS2 UCRT64 shell (X1)
+cargo xtask fetch-idevice-tools [--target <triple>]  # fetch + verify the pinned tool bundle into src-tauri/binaries/
+                                         # (release builds; token: GH_TOKEN, else `gh auth token [--user $SUITEDFIR_GH_USER]`)
 cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1   # real LEAPP
 cargo xtask fetch-idevice-tools && cargo tauri build --config src-tauri/tauri.release.conf.json   # release bundle (host)
 ```
@@ -71,7 +73,7 @@ crates/core/                  suitedfir-core: all logic, no Tauri dependency
   tests/{process.rs, runner.rs, acquire.rs, leapp_smoke.rs}
 src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.json (externalBin overlay),
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
-xtask/                        pin-leapp, contracts, notices
+xtask/                        pin-leapp, contracts, notices, fetch-idevice-tools
 ui/                           SHIPPED frontend (frontendDist): index.html app.js styles/ lib/ api/ screens/ components/ types.d.ts
 ui-dev/                       NOT shipped: mock.js (+ mock/), fixtures/contracts/{*.json, index.js} (generated),
                               fixtures/modules.js (large module lists)
@@ -79,7 +81,7 @@ tests/ui/                     node --test files for ui/ modules; e2e/shots.mjs (
 fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <RUN_DIR>, <INPUT>)
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
-scripts/build-idevice-tools.sh  reproducible libimobiledevice build from pinned tarballs (X1)
+scripts/build-idevice-tools.sh  scripted (not bit-reproducible) libimobiledevice build from pinned tarballs (X1)
 .github/workflows/            ci-rust.yml, ci-js.yml, leapp-smoke.yml, release.yml
 docs/                         ARCHITECTURE, CONTRACTS, LEAPP-CLI, IDEVICE-CLI, ROADMAP, USER-GUIDE, QA-CHECKLIST
 ```
@@ -101,7 +103,7 @@ Build only what [ARCHITECTURE.md §2](docs/ARCHITECTURE.md#2-scope) lists. The o
 | `tauri-plugin-opener` 2.x | **free functions only** (`open_path`, `reveal_item_in_dir`); never `.plugin(...)` | src-tauri |
 | `serde` (derive), `serde_json` | | all |
 | `sha2` | | core |
-| `zip` | `default-features = false, features = ["deflate-flate2-zlib-rs"]` | core |
+| `zip` | `default-features = false, features = ["deflate-flate2-zlib-rs"]` | core, xtask |
 | `ureq` 3 | `default-features = false, features = ["rustls"]`; `https_only(true)`; size cap via `body_mut().with_config().limit(n)` | core, xtask |
 | `plist` | `Value::from_reader` (XML and binary) | core |
 | `time` | `formatting`, `parsing` | core |
@@ -201,13 +203,13 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 - **CLI:** accepts LEAPP's flags; writes the LEAPP output layout.
 - **Process shape:**
   - The parent re-execs itself as `--fake-worker` and forwards SIGTERM (Unix).
-  - Writes its own and the worker's PIDs to `FAKE_LEAPP_PIDFILE` if set.
+  - Writes its own and the worker's PIDs to `FAKE_LEAPP_PIDFILE` if set (`parent <pid>` and `worker <pid>` lines, written atomically).
 - **Output behavior:**
   - The worker appends `Screen_Output.html` records at `FAKE_LEAPP_INTERVAL_MS` (default 100) for `FAKE_LEAPP_LINES` (default 50) lines.
   - stdout is fully buffered until exit.
   - Creates `$TMPDIR/_MEIfake<pid>` and removes it on graceful exit.
   - Writes `_lava_data.lava` at the end.
-- **Module list:** `--list-modules-json <tool>` prints a small module list (for the dev override).
+- **Module list:** `--list-modules-json <tool>` prints a small module list as a `ToolModules` JSON object with version `dev-override` (for the dev override).
 - **Scenarios** (`FAKE_LEAPP_SCENARIO`): `success`, `artifact_error`, `invalid_input`, `early_exit`, `argparse_error`, `crash`, `prompt` (opens `/dev/tty` if possible, then reads stdin; EOF → traceback, exit 1), `slow`, `ignore_term` (ignores SIGTERM). Expected outcomes are in CONTRACTS.md §7.4.
 
 **Process tests (all three OSes):**
