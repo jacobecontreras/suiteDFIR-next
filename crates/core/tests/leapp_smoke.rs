@@ -11,6 +11,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 use sha2::{Digest, Sha256};
 use suitedfir_core::contracts::{
@@ -47,9 +48,11 @@ fn install_and_introspect(tool: ToolId, known: &str) -> (InstallRecord, ModulesF
     };
 
     let mut stages = Vec::new();
+    let never = AtomicBool::new(false);
     let record = install::install(
         pinned,
         Source::Download,
+        &never,
         &mut |event| match event {
             InstallEvent::Stage { stage } => stages.push(stage),
             InstallEvent::Message { text } => report(&format!("  install message: {text}")),

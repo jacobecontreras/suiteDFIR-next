@@ -8,7 +8,8 @@
 //! **Install pipeline** ([`install`]), all inside `<tools_dir>/<tool>/.staging-<rand>/`:
 //! 1. Get the asset: download it from the manifest URLs in order (HTTPS only, redirects included;
 //!    the body is capped at `asset_size`) or copy the offline-import file (opened read-only). The
-//!    SHA-256 is computed on the way and checked before anything is extracted.
+//!    SHA-256 is computed on the way and checked before anything is extracted. A download that
+//!    receives nothing for 60 s fails as stalled (`download_failed`).
 //! 2. Extract: a zip yields **only** `entry` (a regular file with a plain relative name; absolute
 //!    paths, `..` and symlinks are rejected), mode 0755 on Unix. An AppImage is made executable and
 //!    run once with `--appimage-extract` (Linux only), and `squashfs-root/<entry>` must exist.
@@ -16,10 +17,12 @@
 //!    manifest has `null` (AppImages until ROADMAP E3), the hash is recorded in `install.json`.
 //! 4. Introspect through the caller's callback (ROADMAP A3), then write `modules.json` and
 //!    `install.json`.
-//! 5. Rename the staging dir to `<version>` (replacing an earlier install of that version).
+//! 5. Rename the staging dir to `<version>` (replacing an earlier install of that version, which is
+//!    moved to `.old-<rand>` first and removed afterwards).
 //!
 //! Any failure removes the staging dir, and the tool dirs if the install created them, so a failed
-//! install leaves nothing behind.
+//! install leaves nothing behind. The cancel flag is checked while downloading, copying and
+//! extracting and between the steps; a cancelled install also leaves nothing behind.
 //!
 //! **Checks.** [`status`] is cheap (no hashing): `installed_unverified` when the tool is installed
 //! per CONTRACTS.md §4. [`verify`] re-hashes the entry: `verified` or `verification_failed`.
@@ -27,7 +30,10 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
@@ -50,6 +56,20 @@ const READ_BUFFER: usize = 64 * 1024;
 const PROGRESS_STEP: u64 = 1 << 20;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
+/// A download that receives no body bytes for this long fails as stalled. Unit tests use a short
+/// value so the stall test is quick.
+const STALL_TIMEOUT: Duration = if cfg!(test) {
+    Duration::from_secs(2)
+} else {
+    Duration::from_secs(60)
+};
+/// How often a waiting download checks the cancel flag and the stall clock.
+const DOWNLOAD_POLL: Duration = Duration::from_millis(100);
+/// The body budget given to ureq, so that a reader left blocked on a stalled connection (after
+/// the download already failed as stalled or cancelled) ends eventually: at least 10 minutes, or
+/// the asset at 16 KiB/s. Slower links should use offline import.
+const MIN_BODY_BUDGET: Duration = Duration::from_secs(600);
+const MIN_BODY_RATE: u64 = 16 * 1024;
 /// How long renaming the staging dir is retried (Windows: a just-scanned or just-run file may
 /// still be open for a moment).
 const RENAME_RETRY: Duration = Duration::from_secs(5);
@@ -81,13 +101,17 @@ pub enum InstallError {
         #[source]
         source: io::Error,
     },
+    /// The cancel flag was set. CONTRACTS.md §12 has no cancel code; this reports as
+    /// `download_failed` with a message saying the install was cancelled.
+    #[error("the installation was cancelled")]
+    Cancelled,
 }
 
 impl InstallError {
     pub fn code(&self) -> ErrorCode {
         match self {
             Self::UnsupportedPlatform { .. } => ErrorCode::UnsupportedPlatform,
-            Self::Download(_) => ErrorCode::DownloadFailed,
+            Self::Download(_) | Self::Cancelled => ErrorCode::DownloadFailed,
             Self::HashMismatch { .. } => ErrorCode::HashMismatch,
             Self::Extract(_) => ErrorCode::ExtractFailed,
             Self::Introspection { .. } => ErrorCode::IntrospectionFailed,
@@ -162,11 +186,13 @@ pub enum Source<'a> {
 }
 
 /// Installs the pinned build (see the module docs). `introspect` receives the absolute path of the
-/// staged entry and returns the tool's module list. Events: `stage` in pipeline order,
+/// staged entry, after its hash was checked, and returns the tool's module list. Setting `cancel`
+/// stops the install (`InstallError::Cancelled`). Events: `stage` in pipeline order,
 /// `download_progress` while downloading, and a `message` for each URL that failed.
 pub fn install(
     pinned: Pinned<'_>,
     source: Source<'_>,
+    cancel: &AtomicBool,
     on_event: &mut dyn FnMut(InstallEvent),
     introspect: &mut dyn FnMut(&Path) -> Result<ModulesFile, InstallError>,
 ) -> Result<InstallRecord, InstallError> {
@@ -183,9 +209,15 @@ pub fn install(
     let result = fs::create_dir(&staging)
         .map_err(InstallError::io(format!("creating {}", staging.display())))
         .and_then(|()| {
-            let record = stage(
-                pinned, platform, asset, source, &staging, on_event, introspect,
-            )?;
+            let job = Staging {
+                pinned,
+                platform,
+                asset,
+                dir: &staging,
+                cancel,
+            };
+            let record = job.run(source, on_event, introspect)?;
+            job.check_cancel()?;
             commit(&staging, &pinned.version_dir())?;
             Ok(record)
         });
@@ -213,97 +245,118 @@ fn stage_event(stage: InstallStage) -> InstallEvent {
     InstallEvent::Stage { stage }
 }
 
-/// Steps 1–4 of the pipeline, inside `staging`.
-fn stage(
-    pinned: Pinned<'_>,
+/// One install's staging dir and what it must produce there.
+struct Staging<'a> {
+    pinned: Pinned<'a>,
     platform: PlatformKey,
-    asset: &PlatformAsset,
-    source: Source<'_>,
-    staging: &Path,
-    on_event: &mut dyn FnMut(InstallEvent),
-    introspect: &mut dyn FnMut(&Path) -> Result<ModulesFile, InstallError>,
-) -> Result<InstallRecord, InstallError> {
-    let asset_path = staging.join(&asset.asset_name);
-    let (install_source, source_detail) = match source {
-        Source::Download => (
-            InstallSource::Download,
-            download(asset, &asset_path, on_event)?,
-        ),
-        Source::File(path) => {
-            on_event(stage_event(InstallStage::Verifying));
-            copy_verified(path, asset, &asset_path)?;
-            (
-                InstallSource::OfflineImport,
-                path.to_string_lossy().into_owned(),
-            )
+    asset: &'a PlatformAsset,
+    dir: &'a Path,
+    cancel: &'a AtomicBool,
+}
+
+impl Staging<'_> {
+    fn check_cancel(&self) -> Result<(), InstallError> {
+        if self.cancel.load(Ordering::Relaxed) {
+            Err(InstallError::Cancelled)
+        } else {
+            Ok(())
         }
-    };
-
-    on_event(stage_event(InstallStage::Extracting));
-    let entry_path = extract(asset, &asset_path, staging)?;
-    fs::remove_file(&asset_path).map_err(InstallError::io(format!(
-        "removing {}",
-        asset_path.display()
-    )))?;
-
-    on_event(stage_event(InstallStage::Hashing));
-    // Native separators: this path is what introspection runs.
-    let entry = join_parts(staging, &entry_path.split('/').collect::<Vec<_>>());
-    let entry_sha256 =
-        sha256_file(&entry).map_err(InstallError::io(format!("hashing {}", entry.display())))?;
-    if let Some(expected) = &asset.entry_sha256
-        && *expected != entry_sha256
-    {
-        return Err(InstallError::HashMismatch {
-            what: format!("{} (extracted from {})", asset.entry, asset.asset_name),
-            expected: expected.clone(),
-            actual: entry_sha256,
-        });
     }
 
-    on_event(stage_event(InstallStage::Introspecting));
-    let modules = introspect(&entry)?;
-    if modules.tool != pinned.tool || modules.version != pinned.manifest.version {
-        return Err(InstallError::Introspection {
-            message: format!(
-                "introspection returned modules of {} {}, expected {} {}",
-                modules.tool, modules.version, pinned.tool, pinned.manifest.version
+    /// Steps 1–4 of the pipeline, inside the staging dir.
+    fn run(
+        &self,
+        source: Source<'_>,
+        on_event: &mut dyn FnMut(InstallEvent),
+        introspect: &mut dyn FnMut(&Path) -> Result<ModulesFile, InstallError>,
+    ) -> Result<InstallRecord, InstallError> {
+        let (pinned, asset, staging) = (self.pinned, self.asset, self.dir);
+        self.check_cancel()?;
+        let asset_path = staging.join(&asset.asset_name);
+        let (install_source, source_detail) = match source {
+            Source::Download => (
+                InstallSource::Download,
+                download(asset, &asset_path, self.cancel, on_event)?,
             ),
-            detail: None,
-        });
+            Source::File(path) => {
+                on_event(stage_event(InstallStage::Verifying));
+                copy_verified(path, asset, &asset_path, self.cancel)?;
+                (
+                    InstallSource::OfflineImport,
+                    path.to_string_lossy().into_owned(),
+                )
+            }
+        };
+
+        self.check_cancel()?;
+        on_event(stage_event(InstallStage::Extracting));
+        let entry_path = extract(asset, &asset_path, staging, self.cancel)?;
+        fs::remove_file(&asset_path).map_err(InstallError::io(format!(
+            "removing {}",
+            asset_path.display()
+        )))?;
+
+        self.check_cancel()?;
+        on_event(stage_event(InstallStage::Hashing));
+        // Native separators: this path is what introspection runs.
+        let entry = join_parts(staging, &entry_path.split('/').collect::<Vec<_>>());
+        let entry_sha256 = sha256_file(&entry)
+            .map_err(InstallError::io(format!("hashing {}", entry.display())))?;
+        if let Some(expected) = &asset.entry_sha256
+            && *expected != entry_sha256
+        {
+            return Err(InstallError::HashMismatch {
+                what: format!("{} (extracted from {})", asset.entry, asset.asset_name),
+                expected: expected.clone(),
+                actual: entry_sha256,
+            });
+        }
+
+        self.check_cancel()?;
+        on_event(stage_event(InstallStage::Introspecting));
+        let modules = introspect(&entry)?;
+        if modules.tool != pinned.tool || modules.version != pinned.manifest.version {
+            return Err(InstallError::Introspection {
+                message: format!(
+                    "introspection returned modules of {} {}, expected {} {}",
+                    modules.tool, modules.version, pinned.tool, pinned.manifest.version
+                ),
+                detail: None,
+            });
+        }
+        let module_count =
+            u32::try_from(modules.modules.len()).map_err(|_| InstallError::Introspection {
+                message: "introspection returned too many modules".to_owned(),
+                detail: None,
+            })?;
+        let record = InstallRecord {
+            schema_version: InstallRecord::SCHEMA_VERSION,
+            tool: pinned.tool,
+            version: pinned.manifest.version.clone(),
+            platform: self.platform,
+            asset_name: asset.asset_name.clone(),
+            asset_sha256: asset.asset_sha256.clone(),
+            entry_path,
+            entry_sha256,
+            source: install_source,
+            source_detail,
+            installed_at: Timestamp::now(),
+            module_count,
+        };
+        for (name, result) in [
+            (
+                MODULES_FILE,
+                write_json_atomic(&staging.join(MODULES_FILE), &modules),
+            ),
+            (
+                INSTALL_FILE,
+                write_json_atomic(&staging.join(INSTALL_FILE), &record),
+            ),
+        ] {
+            result.map_err(InstallError::io(format!("writing {name}")))?;
+        }
+        Ok(record)
     }
-    let module_count =
-        u32::try_from(modules.modules.len()).map_err(|_| InstallError::Introspection {
-            message: "introspection returned too many modules".to_owned(),
-            detail: None,
-        })?;
-    let record = InstallRecord {
-        schema_version: InstallRecord::SCHEMA_VERSION,
-        tool: pinned.tool,
-        version: pinned.manifest.version.clone(),
-        platform,
-        asset_name: asset.asset_name.clone(),
-        asset_sha256: asset.asset_sha256.clone(),
-        entry_path,
-        entry_sha256,
-        source: install_source,
-        source_detail,
-        installed_at: Timestamp::now(),
-        module_count,
-    };
-    for (name, result) in [
-        (
-            MODULES_FILE,
-            write_json_atomic(&staging.join(MODULES_FILE), &modules),
-        ),
-        (
-            INSTALL_FILE,
-            write_json_atomic(&staging.join(INSTALL_FILE), &record),
-        ),
-    ] {
-        result.map_err(InstallError::io(format!("writing {name}")))?;
-    }
-    Ok(record)
 }
 
 // ---- getting the asset ----
@@ -331,14 +384,15 @@ fn agent() -> ureq::Agent {
 fn download(
     asset: &PlatformAsset,
     dest: &Path,
+    cancel: &AtomicBool,
     on_event: &mut dyn FnMut(InstallEvent),
 ) -> Result<String, InstallError> {
     on_event(stage_event(InstallStage::Downloading));
     let agent = agent();
-    let mut last = None;
+    let mut last: Option<InstallError> = None;
     for url in &asset.urls {
         let result = if url_allowed(url) {
-            download_from(&agent, url, asset, dest, on_event)
+            download_from(&agent, url, asset, dest, cancel, on_event)
         } else {
             Err(InstallError::Download(format!(
                 "{url} is not an https:// URL"
@@ -346,6 +400,7 @@ fn download(
         };
         match result {
             Ok(()) => return Ok(url.clone()),
+            Err(InstallError::Cancelled) => return Err(InstallError::Cancelled),
             Err(error) => {
                 on_event(InstallEvent::Message {
                     text: format!("{url}: {error}"),
@@ -357,16 +412,28 @@ fn download(
     Err(last.unwrap_or_else(|| InstallError::Download("the manifest lists no URL".to_owned())))
 }
 
+/// What the body-reading thread hands over.
+enum Chunk {
+    Data(Vec<u8>),
+    End,
+    Failed(io::Error),
+}
+
 fn download_from(
     agent: &ureq::Agent,
     url: &str,
     asset: &PlatformAsset,
     dest: &Path,
+    cancel: &AtomicBool,
     on_event: &mut dyn FnMut(InstallEvent),
 ) -> Result<(), InstallError> {
     let size = asset.asset_size;
-    let mut response = agent
+    let budget = MIN_BODY_BUDGET.max(Duration::from_secs(size / MIN_BODY_RATE));
+    let response = agent
         .get(url)
+        .config()
+        .timeout_recv_body(Some(budget))
+        .build()
         .call()
         .map_err(|e| InstallError::Download(format!("GET {url}: {e}")))?;
     if let Some(announced) = response.body().content_length()
@@ -378,32 +445,75 @@ fn download_from(
     }
     // ureq's limit fails the read after `limit` bytes, even at the end of the body, so allow one
     // byte more and let the count below reject anything beyond `size`.
-    let mut body = response.body_mut().with_config().limit(size + 1).reader();
+    let mut body = response
+        .into_body()
+        .into_with_config()
+        .limit(size + 1)
+        .reader();
     let mut file =
         File::create(dest).map_err(InstallError::io(format!("creating {}", dest.display())))?;
+
+    // The body is read on its own thread, so a cancel or a stalled connection is noticed while a
+    // read blocks. When this function returns early, the thread ends at its next read (at the
+    // latest when ureq's body budget runs out).
+    let (sender, chunks) = mpsc::sync_channel::<Chunk>(4);
+    thread::Builder::new()
+        .name("leapp-download".to_owned())
+        .spawn(move || {
+            let mut buffer = vec![0u8; READ_BUFFER];
+            loop {
+                let chunk = match body.read(&mut buffer) {
+                    Ok(0) => Chunk::End,
+                    Ok(read) => Chunk::Data(buffer[..read].to_vec()),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => Chunk::Failed(e),
+                };
+                let more = matches!(chunk, Chunk::Data(_));
+                if sender.send(chunk).is_err() || !more {
+                    break;
+                }
+            }
+        })
+        .map_err(InstallError::io("starting the download thread"))?;
+
     let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; READ_BUFFER];
     let mut done = 0u64;
     let mut reported = 0u64;
+    let mut last_data = Instant::now();
     loop {
-        let read = match body.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => read,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(InstallError::Cancelled);
+        }
+        let bytes = match chunks.recv_timeout(DOWNLOAD_POLL) {
+            Ok(Chunk::Data(bytes)) => bytes,
+            Ok(Chunk::End) => break,
+            Ok(Chunk::Failed(e)) => {
                 return Err(InstallError::Download(format!(
                     "reading {url} after {done} bytes: {e}"
                 )));
             }
+            Err(RecvTimeoutError::Timeout) if last_data.elapsed() >= STALL_TIMEOUT => {
+                return Err(InstallError::Download(format!(
+                    "{url} sent nothing for {} s after {done} bytes (stalled download)",
+                    STALL_TIMEOUT.as_secs()
+                )));
+            }
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(InstallError::Download(format!(
+                    "reading {url} stopped unexpectedly after {done} bytes"
+                )));
+            }
         };
-        done += read as u64;
+        last_data = Instant::now();
+        done += bytes.len() as u64;
         if done > size {
             return Err(InstallError::Download(format!(
                 "{url} sent more than the pinned {size} bytes"
             )));
         }
-        hasher.update(&buffer[..read]);
-        file.write_all(&buffer[..read])
+        hasher.update(&bytes);
+        file.write_all(&bytes)
             .map_err(InstallError::io(format!("writing {}", dest.display())))?;
         if done - reported >= PROGRESS_STEP || done == size {
             reported = done;
@@ -426,7 +536,12 @@ fn download_from(
 
 /// Offline import: copies the file to `dest` (reading it through a read-only handle), capped at
 /// the pinned size, and checks its SHA-256.
-fn copy_verified(src: &Path, asset: &PlatformAsset, dest: &Path) -> Result<(), InstallError> {
+fn copy_verified(
+    src: &Path,
+    asset: &PlatformAsset,
+    dest: &Path,
+    cancel: &AtomicBool,
+) -> Result<(), InstallError> {
     let mut file =
         File::open(src).map_err(InstallError::io(format!("opening {}", src.display())))?;
     let metadata = file
@@ -456,6 +571,9 @@ fn copy_verified(src: &Path, asset: &PlatformAsset, dest: &Path) -> Result<(), I
     let mut buffer = vec![0u8; READ_BUFFER];
     let mut copied = 0u64;
     loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(InstallError::Cancelled);
+        }
         let read = match file.read(&mut buffer) {
             Ok(0) => break,
             Ok(read) => read,
@@ -497,6 +615,7 @@ fn extract(
     asset: &PlatformAsset,
     asset_path: &Path,
     staging: &Path,
+    cancel: &AtomicBool,
 ) -> Result<String, InstallError> {
     let parts = relative_components(&asset.entry).ok_or_else(|| {
         InstallError::Extract(format!(
@@ -505,7 +624,7 @@ fn extract(
         ))
     })?;
     match asset.archive_kind {
-        ArchiveKind::Zip => extract_zip_entry(asset_path, &asset.entry, &parts, staging),
+        ArchiveKind::Zip => extract_zip_entry(asset_path, &asset.entry, &parts, staging, cancel),
         ArchiveKind::Appimage => extract_appimage(asset_path, &parts, staging),
     }
 }
@@ -522,6 +641,7 @@ fn extract_zip_entry(
     entry: &str,
     parts: &[&str],
     staging: &Path,
+    cancel: &AtomicBool,
 ) -> Result<String, InstallError> {
     let fail = |what: String| InstallError::Extract(format!("{}: {what}", zip_path.display()));
     let file = File::open(zip_path).map_err(|e| fail(e.to_string()))?;
@@ -548,7 +668,20 @@ fn extract_zip_entry(
         .create_new(true)
         .open(&out_path)
         .map_err(|e| fail(format!("creating {}: {e}", out_path.display())))?;
-    io::copy(&mut file, &mut out).map_err(|e| fail(format!("extracting {entry:?}: {e}")))?;
+    let mut buffer = vec![0u8; READ_BUFFER];
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(InstallError::Cancelled);
+        }
+        let read = match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(fail(format!("extracting {entry:?}: {e}"))),
+        };
+        out.write_all(&buffer[..read])
+            .map_err(|e| fail(format!("writing {}: {e}", out_path.display())))?;
+    }
     out.flush().map_err(|e| fail(e.to_string()))?;
     drop(out);
     make_executable(&out_path).map_err(|e| fail(format!("chmod {}: {e}", out_path.display())))?;
@@ -667,11 +800,12 @@ fn commit(staging: &Path, version_dir: &Path) -> Result<(), InstallError> {
     }
 }
 
+/// A rename, retried briefly on Windows while a just-run or just-scanned file is still open.
 fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
     retry_transient(|| fs::rename(from, to))
 }
 
-/// Removes a directory tree without following symlinks.
+/// Removes a directory tree without following symlinks, retried like [`rename_with_retry`].
 fn remove_tree(path: &Path) -> io::Result<()> {
     retry_transient(|| fs::remove_dir_all(path))
 }
@@ -884,7 +1018,8 @@ fn installed(
 mod tests {
     use std::io::BufRead;
     use std::net::TcpListener;
-    use std::thread::{self, JoinHandle};
+    use std::sync::Arc;
+    use std::thread::JoinHandle;
 
     use zip::write::SimpleFileOptions;
 
@@ -892,6 +1027,7 @@ mod tests {
     use crate::contracts::{ModuleInfo, examples};
 
     const ENTRY_BYTES: &[u8] = b"#!fake ileapp onefile binary\n";
+    static NO_CANCEL: AtomicBool = AtomicBool::new(false);
     const VERSION: &str = "v2026.4.2";
 
     fn sha256_of(bytes: &[u8]) -> String {
@@ -964,11 +1100,13 @@ mod tests {
         file
     }
 
-    /// Records events and the entry path the introspection callback saw.
+    /// Records events and the entry path the introspection callback saw; `cancel` is the install's
+    /// cancel flag.
     #[derive(Default)]
     struct Run {
         events: Vec<InstallEvent>,
         introspected: Option<PathBuf>,
+        cancel: Arc<AtomicBool>,
     }
 
     impl Run {
@@ -980,10 +1118,12 @@ mod tests {
             let Run {
                 events,
                 introspected,
+                cancel,
             } = self;
             install(
                 pinned,
                 source,
+                cancel,
                 &mut |event| events.push(event),
                 &mut |entry| {
                     assert!(entry.is_absolute() || entry.starts_with(pinned.tools_dir));
@@ -1018,6 +1158,12 @@ mod tests {
         /// 200 without a Content-Length: the body ends when the connection closes.
         CloseDelimited(Vec<u8>),
         Status(u16),
+        /// 200 announcing `declared` bytes, then `body`, then silence for `hold` before closing.
+        Stall {
+            declared: usize,
+            body: Vec<u8>,
+            hold: Duration,
+        },
     }
 
     /// A plain-HTTP server on 127.0.0.1 answering one request per reply, in order. Returns its
@@ -1038,6 +1184,7 @@ mod tests {
                         length.map_or_else(String::new, |n| format!("Content-Length: {n}\r\n"));
                     format!("HTTP/1.1 {status}\r\n{length}Connection: close\r\n\r\n")
                 };
+                let mut hold = Duration::ZERO;
                 let bytes = match reply {
                     Reply::Body(body) => [head("200 OK", Some(body.len())).into_bytes(), body],
                     Reply::Truncated { declared, body } => {
@@ -1048,9 +1195,18 @@ mod tests {
                         head(&format!("{code} Nope"), Some(0)).into_bytes(),
                         Vec::new(),
                     ],
+                    Reply::Stall {
+                        declared,
+                        body,
+                        hold: silence,
+                    } => {
+                        hold = silence;
+                        [head("200 OK", Some(declared)).into_bytes(), body]
+                    }
                 };
                 let _ = stream.write_all(&bytes.concat());
                 let _ = stream.flush();
+                thread::sleep(hold);
             }
         });
         (base, handle)
@@ -1195,6 +1351,98 @@ mod tests {
             .filter(|e| matches!(e, InstallEvent::Message { .. }))
             .collect();
         assert_eq!(messages.len(), 1, "{messages:?}");
+        // The 404 failed while downloading, so the stage never left `downloading`.
+        assert_eq!(
+            run.stages()[..2],
+            [InstallStage::Downloading, InstallStage::Verifying]
+        );
+    }
+
+    #[test]
+    fn a_stalled_download_fails_in_bounded_time() {
+        let asset = good_zip();
+        let hold = STALL_TIMEOUT * 2;
+        let (base, server) = serve(vec![Reply::Stall {
+            declared: asset.len(),
+            body: asset[..asset.len() / 2].to_vec(),
+            hold,
+        }]);
+        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let tools_dir = case.tools_dir();
+        let started = Instant::now();
+        let error = Run::default()
+            .install(pinned(&tools_dir, &case.manifest), Source::Download)
+            .unwrap_err();
+        let took = started.elapsed();
+        assert_eq!(error.code(), ErrorCode::DownloadFailed, "{error}");
+        assert!(error.to_string().contains("stalled download"), "{error}");
+        // Noticed after the stall timeout, well before the server gives up.
+        assert!(took >= STALL_TIMEOUT && took < hold, "{took:?}");
+        case.assert_nothing_left();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn an_install_can_be_cancelled() {
+        // While a download waits for data.
+        let asset = good_zip();
+        let hold = STALL_TIMEOUT + Duration::from_secs(1);
+        let (base, server) = serve(vec![Reply::Stall {
+            declared: asset.len(),
+            body: asset[..10].to_vec(),
+            hold,
+        }]);
+        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let tools_dir = case.tools_dir();
+        let mut run = Run::default();
+        let cancel = Arc::clone(&run.cancel);
+        let canceller = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(300));
+            cancel.store(true, Ordering::Relaxed);
+        });
+        let started = Instant::now();
+        let error = run
+            .install(pinned(&tools_dir, &case.manifest), Source::Download)
+            .unwrap_err();
+        assert!(matches!(error, InstallError::Cancelled), "{error}");
+        assert!(started.elapsed() < STALL_TIMEOUT, "{:?}", started.elapsed());
+        let app: AppError = error.into();
+        assert_eq!(app.code, ErrorCode::DownloadFailed);
+        assert_eq!(app.message, "the installation was cancelled");
+        canceller.join().unwrap();
+        case.assert_nothing_left();
+        server.join().unwrap();
+
+        // Before an offline import starts.
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("asset.zip");
+        fs::write(&src, &asset).unwrap();
+        let run = Run::default();
+        run.cancel.store(true, Ordering::Relaxed);
+        let mut run = run;
+        let error = run
+            .install(pinned(&tools_dir, &case.manifest), Source::File(&src))
+            .unwrap_err();
+        assert!(matches!(error, InstallError::Cancelled), "{error}");
+        assert!(run.introspected.is_none());
+        case.assert_nothing_left();
+    }
+
+    #[test]
+    fn the_copy_and_extract_loops_stop_on_cancel() {
+        let asset = good_zip();
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("asset.zip");
+        fs::write(&src, &asset).unwrap();
+        let manifest = tool_manifest(&asset, "ileapp", None);
+        let pinned_asset = &manifest.platforms[&PlatformKey::MacosAarch64];
+        let cancelled = AtomicBool::new(true);
+        let copy = copy_verified(&src, pinned_asset, &dir.path().join("copy.zip"), &cancelled);
+        assert!(matches!(copy, Err(InstallError::Cancelled)));
+        let staging = dir.path().join("staging");
+        fs::create_dir(&staging).unwrap();
+        let extracted = extract(pinned_asset, &src, &staging, &cancelled);
+        assert!(matches!(extracted, Err(InstallError::Cancelled)));
     }
 
     #[test]
@@ -1436,6 +1684,7 @@ mod tests {
         let error = install(
             pinned(&tools_dir, &case.manifest),
             Source::File(&src),
+            &NO_CANCEL,
             &mut |_| {},
             &mut |_| {
                 Err(InstallError::Introspection {
@@ -1454,6 +1703,7 @@ mod tests {
         let error = install(
             pinned(&tools_dir, &case.manifest),
             Source::File(&src),
+            &NO_CANCEL,
             &mut |_| {},
             &mut |_| {
                 let mut other = modules(3);
@@ -1681,6 +1931,7 @@ mod tests {
         let record = install(
             linux_pinned(&tools_dir, &case.manifest),
             Source::File(&src),
+            &NO_CANCEL,
             &mut |_| {},
             &mut |entry| {
                 assert_eq!(fs::read_to_string(entry).unwrap(), entry_bytes);
@@ -1710,6 +1961,7 @@ mod tests {
         let error = install(
             linux_pinned(&tools_dir, &case.manifest),
             Source::File(&src),
+            &NO_CANCEL,
             &mut |_| {},
             &mut |_| Ok(modules(3)),
         )
@@ -1719,6 +1971,7 @@ mod tests {
         let error = install(
             linux_pinned(&tools_dir, &case.manifest),
             Source::File(&src),
+            &NO_CANCEL,
             &mut |_| {},
             &mut |_| Ok(modules(3)),
         )
