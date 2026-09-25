@@ -300,14 +300,14 @@ const SCREENS = [
     },
   },
   {
-    // UTC shown on keyboard focus (Tab from the last column header to the first row's time).
+    // UTC shown on keyboard focus (Tab from the first row's label link to its time).
     name: "case-runs-utc-focus",
     query: "?mock",
     hash: caseHash(NIGHTJAR),
     element: ".table-wrap",
     setup: async (page) => {
       await page.locator(".runs-table").waitFor();
-      await page.getByRole("button", { name: /^Duration/ }).press("Tab");
+      await page.locator(".runs-table tbody tr").first().locator(".cell-label a").press("Tab");
       await page.locator(".runs-table time:focus").waitFor();
     },
   },
