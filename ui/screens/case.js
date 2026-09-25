@@ -6,9 +6,10 @@
 import { appError, errorSlot } from "../components/app-error.js";
 import { caseForm } from "../components/case-form.js";
 import { modal } from "../components/dialog.js";
-import { editableFields, folderLabel } from "../lib/cases.js";
+import { editableFields, folderLabel, updatedRunSummary } from "../lib/cases.js";
 import { h } from "../lib/dom.js";
 import { formatBytes, formatCount, formatDuration } from "../lib/format.js";
+import { jobKey } from "../lib/jobs.js";
 import { routeHref } from "../lib/router.js";
 import { DEFAULT_RUN_SORT, nextSort, sortRuns } from "../lib/sort.js";
 import { watch } from "../lib/store.js";
@@ -310,25 +311,34 @@ export function caseScreen(ctx) {
       .finally(() => content.removeAttribute("aria-busy"));
   }
 
-  // Refresh the runs when the active job ends (e.g. a run started from New run finished).
+  // When a run of this case stops being the active job (it finished), re-read just that run with
+  // run_get and update its row. case_open is not called again: it would run recovery and reorder
+  // the recent-cases list.
+  let lastJob = store.get().activeJob;
   cleanups.push(
     watch(
       store,
-      (s) => s.activeJob,
-      (job) => {
-        if (!job && detail) void refreshRuns();
+      (s) => jobKey(s.activeJob),
+      () => {
+        const job = store.get().activeJob;
+        const previous = lastJob;
+        lastJob = job;
+        if (previous?.kind !== "run" || previous.case_path !== (detail?.path ?? path)) return;
+        if (job?.kind === "run" && job.run_id === previous.run_id) return;
+        void refreshRun(previous.run_id);
       },
     ),
   );
 
-  async function refreshRuns() {
+  /** @param {string} runId */
+  async function refreshRun(runId) {
     try {
-      const fresh = await api.case_open({ path });
-      if (disposed) return;
-      detail = fresh;
+      const record = await api.run_get({ case_path: detail?.path ?? path, run_id: runId });
+      if (disposed || !detail) return;
+      detail = { ...detail, runs: detail.runs.map((r) => (r.run_id === runId ? updatedRunSummary(r, record) : r)) };
       renderRuns();
     } catch {
-      // Keep the table as it is; opening again shows the error.
+      // Keep the table as it is; reopening the case shows the current state.
     }
   }
 

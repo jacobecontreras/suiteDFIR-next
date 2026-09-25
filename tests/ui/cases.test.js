@@ -3,11 +3,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { editableFields, folderLabel, validateCaseFields } from "../../ui/lib/cases.js";
+import { editableFields, folderLabel, updatedRunSummary, validateCaseFields } from "../../ui/lib/cases.js";
 import { createStore } from "../../ui/lib/store.js";
 import { FALLBACK_TIMEZONES, loadTimezones, pickTimezone, timezoneList } from "../../ui/lib/timezones.js";
 import { installedTools } from "../../ui/lib/tools.js";
-import { CaseFile, ToolModules, ToolStatus } from "../../ui-dev/fixtures/contracts/index.js";
+import { CaseFile, RunRecord, RunSummary, ToolModules, ToolStatus } from "../../ui-dev/fixtures/contracts/index.js";
 
 /** @typedef {import("../../ui/lib/context").AppState} AppState */
 /** @typedef {import("../../ui/types").ToolStatus} Status */
@@ -118,4 +118,15 @@ test("installedTools keeps verified, unverified and dev-override tools only", ()
     ["installed_unverified", "verified", "dev_override"],
   );
   assert.deepEqual(installedTools(null), []);
+});
+
+test("updatedRunSummary takes the outcome from run.json and keeps the row's identity", () => {
+  /** @type {import("../../ui/types").RunSummary} */
+  const running = { ...RunSummary, status: "running", ended_at: null, duration_ms: null, report_available: false };
+  const updated = updatedRunSummary(running, structuredClone(RunRecord));
+  assert.deepEqual(updated, { ...RunSummary, report_available: RunRecord.leapp_result?.index_html_found === true });
+  const noReport = updatedRunSummary(running, { ...structuredClone(RunRecord), leapp_result: null, status: "failed" });
+  assert.equal(noReport.report_available, false);
+  assert.equal(noReport.status, "failed");
+  assert.equal(noReport.run_dir, running.run_dir);
 });

@@ -3,6 +3,8 @@
 
 /** @typedef {import("../types").CaseFields} CaseFields */
 /** @typedef {import("../types").CaseFile} CaseFile */
+/** @typedef {import("../types").RunRecord} RunRecord */
+/** @typedef {import("../types").RunSummary} RunSummary */
 
 /** `case.json` `name`: 1–120 characters (CONTRACTS.md §6). */
 export const CASE_NAME_MAX = 120;
@@ -44,4 +46,23 @@ export function editableFields(file) {
  */
 export function folderLabel(path) {
   return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+}
+
+/**
+ * A runs-table row updated from the run's re-read `run.json` (after the run finished), without
+ * re-opening the case. Fields that cannot change (id, folder, tool, input) are kept.
+ * @param {RunSummary} summary
+ * @param {RunRecord} record
+ * @returns {RunSummary}
+ */
+export function updatedRunSummary(summary, record) {
+  return {
+    ...summary,
+    label: record.label,
+    status: record.status,
+    started_at: record.started_at,
+    ended_at: record.ended_at,
+    duration_ms: record.duration_ms,
+    report_available: record.leapp_result?.index_html_found === true,
+  };
 }
