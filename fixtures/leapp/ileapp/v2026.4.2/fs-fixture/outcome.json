@@ -1,0 +1,12 @@
+{
+  "always_run": [
+    "last_build"
+  ],
+  "exit_code": 0,
+  "index_html": true,
+  "input_type": "fs",
+  "reasons": [],
+  "status": "succeeded",
+  "tool": "ileapp",
+  "version": "v2026.4.2"
+}

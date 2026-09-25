@@ -1,0 +1,103 @@
+{
+    "lava_schema_version": 2,
+    "parser_info": {
+        "leapp_name": "ALEAPP",
+        "leapp_version": "2026.4.1",
+        "leapp_mode": "CLI",
+        "package": "Binary",
+        "OS": "macOS-15.1-arm64-arm-64bit-Mach-O",
+        "start_timestamp": 1790372713,
+        "end_timestamp": 1790372714
+    },
+    "param_input": "<INPUT>",
+    "param_output": "<RUN_DIR>/report",
+    "param_type": "fs",
+    "param_profile": "<RUN_DIR>/profile.alprofile",
+    "profile_used": true,
+    "processing_status": "Complete",
+    "lava_db_name": "_lava_artifacts.db",
+    "modules": [
+        {
+            "module_name": "etc_hosts",
+            "module_status": "Complete",
+            "artifact_name": "get_etc_hosts",
+            "file_count": 1
+        },
+        {
+            "module_name": "usagestatsVersion",
+            "module_status": "Complete",
+            "artifact_name": "usagestatsVersion",
+            "file_count": 1
+        }
+    ],
+    "artifacts": {
+        "Device Information": [
+            {
+                "artifact_key": "usagestatsVersion",
+                "name": "OS Version",
+                "tablename": "usagestatsversion",
+                "module": "usagestatsVersion",
+                "column_map": {
+                    "property": "Property",
+                    "property_value": "Property Value"
+                },
+                "artifact_icon": "chart-bar",
+                "record_count": 3,
+                "source_path": "system/usagestats/0/version"
+            }
+        ],
+        "Etc Hosts": [
+            {
+                "artifact_key": "get_etc_hosts",
+                "name": "Etc_hosts",
+                "tablename": "get_etc_hosts",
+                "module": "etc_hosts",
+                "column_map": {
+                    "ip_address": "IP Address",
+                    "hostname": "Hostname"
+                },
+                "artifact_icon": "file",
+                "record_count": 1,
+                "source_path": "system/etc/hosts"
+            }
+        ]
+    },
+    "meta": {
+        "modules": [
+            {
+                "module_name": "usagestatsVersion",
+                "module_filename": "usagestatsVersion.py",
+                "artifacts": [
+                    {
+                        "artifact_key": "usagestatsversion",
+                        "tablename": "usagestatsversion",
+                        "name": "OS Version",
+                        "description": "Extracts OS Version from Usagestats",
+                        "author": "@AlexisBrignoni",
+                        "created_date": "2021-04-15",
+                        "last_updated_date": "2026-08-01",
+                        "notes": "Each line of the version file is split on ';' and the fields are named by position from the observed format: first the Android version, then the codename, then the build version, then a fourth field reported as Country Specific Code; those names are this parser's labels for the positions and no platform source for the field order is cited here. The country specific code is only reported when a line holds exactly five fields, and a fifth field, where present, is not reported.",
+                        "category": "Device Information"
+                    }
+                ]
+            },
+            {
+                "module_name": "etc_hosts",
+                "module_filename": "etc_hosts.py",
+                "artifacts": [
+                    {
+                        "artifact_key": "get_etc_hosts",
+                        "tablename": "get_etc_hosts",
+                        "name": "Etc_hosts",
+                        "description": "Parses host-to-IP mappings (IP address and hostname) from the system etc/hosts file.",
+                        "author": "@ydkhatri",
+                        "created_date": "2020-10-09",
+                        "last_updated_date": "2020-10-09",
+                        "notes": "",
+                        "category": "Etc Hosts"
+                    }
+                ]
+            }
+        ]
+    }
+}

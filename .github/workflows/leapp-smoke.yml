@@ -1,25 +1,49 @@
-# Real-LEAPP smoke tests (ROADMAP A3; E3 adds runs): the ignored tests in
-# crates/core/tests/leapp_smoke.rs download the pinned LEAPP builds for the runner's platform,
-# install them through the core and introspect them.
+# Real-LEAPP smoke tests (ROADMAP A3, E3): the ignored tests in crates/core/tests/leapp_smoke.rs
+# download the pinned LEAPP builds for the runner's platform, install them through the core,
+# introspect them and run them through the runner (fixture runs, cancel, refusals).
 #
-# While the repository is private this workflow is dispatch-only and Linux-only (DEVELOPMENT.md §6):
-#   gh workflow run leapp-smoke.yml --ref <branch>
-# macOS and Windows smoke runs happen on local machines (mac-gate.sh --smoke, win-test.sh --smoke).
-# Once the repository is public: add a weekly `schedule` and `pull_request` with paths
-# leapp-manifest.json, crates/core/src/leapp/**, crates/core/src/process/**,
-# crates/core/tests/leapp_smoke.rs and this file, plus the macos-15, macos-15-intel, windows-2025
-# and ubuntu-24.04-arm (+ the same container) runners.
+# Triggers (the repository is public, so Actions minutes are free):
+# - a weekly schedule, on main;
+# - pull requests that touch the pinned builds or the code that installs and runs them (drafts are
+#   skipped);
+# - dispatch, for the legs chosen by `os`:  gh workflow run leapp-smoke.yml --ref <branch> -f os=linux
 #
-# The container is NOT the app's ubuntu:22.04 build baseline (ci-rust.yml, ARCHITECTURE.md §10):
-# the pinned upstream Linux LEAPP builds need glibc >= 2.43 (iLEAPP) and >= 2.42 (aLEAPP), and fail
-# to start on 22.04 (glibc 2.35), see LEAPP-CLI.md §2. ubuntu:26.04 ships glibc 2.43.
+# Legs: Linux x64 and arm64 in an ubuntu:26.04 container; macos-15 (arm64), macos-15-intel and
+# windows-2025 natively. The container is NOT the app's ubuntu:22.04 build baseline (ci-rust.yml,
+# ARCHITECTURE.md §10): the pinned upstream Linux LEAPP builds need glibc >= 2.43 (iLEAPP) and
+# >= 2.42 (aLEAPP) and fail to start on 22.04 (glibc 2.35), see LEAPP-CLI.md §2. ubuntu:26.04
+# ships glibc 2.43.
 name: leapp-smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      os:
+        description: "Which smoke legs to run"
+        type: choice
+        options: [linux, macos, windows, all]
+        default: linux
+  schedule:
+    # Mondays 04:23 UTC.
+    - cron: "23 4 * * 1"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "leapp-manifest.json"
+      - "crates/core/src/leapp/**"
+      - "crates/core/src/process/**"
+      - "crates/core/src/runner.rs"
+      - "crates/core/tests/leapp_smoke.rs"
+      - ".github/workflows/leapp-smoke.yml"
 
 permissions:
   contents: read
+
+# Pull request runs share one group per PR, and a newer run cancels the superseded one. Every other
+# run (schedule, dispatch) gets its own group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,11 +54,29 @@ defaults:
 
 jobs:
   linux:
-    name: LEAPP smoke (Linux x64)
-    runs-on: ubuntu-24.04
+    name: LEAPP smoke (Linux ${{ matrix.arch }})
+    # Dispatch with os = linux or all; every schedule; pull requests that are not drafts.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'linux' || inputs.os == 'all')) ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            rustup_target: x86_64-unknown-linux-gnu
+            # SHA-256 of rustup-init 1.29.1 (equal to the published rustup-init.sha256).
+            rustup_sha256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            rustup_target: aarch64-unknown-linux-gnu
+            rustup_sha256: 15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
+    runs-on: ${{ matrix.runner }}
     # glibc 2.43: new enough for every pinned Linux LEAPP build (see the header).
     container: ubuntu:26.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       # The toolchain and the cargo registry belong to the unprivileged `builder` user (see below).
       CARGO_HOME: /home/builder/.cargo
@@ -88,13 +130,14 @@ jobs:
 
       - name: Install Rust (pinned rustup-init; toolchain from rust-toolchain.toml)
         env:
-          # Same pinned rustup-init as ci-rust.yml.
+          # Same pinned rustup-init version as ci-rust.yml.
           RUSTUP_INIT_VERSION: "1.29.1"
-          RUSTUP_INIT_SHA256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+          RUSTUP_INIT_TARGET: ${{ matrix.rustup_target }}
+          RUSTUP_INIT_SHA256: ${{ matrix.rustup_sha256 }}
         run: |
           dl="$(mktemp -d)"
           curl --proto '=https' --tlsv1.2 -fsSL -o "$dl/rustup-init" \
-            "https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+            "https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/${RUSTUP_INIT_TARGET}/rustup-init"
           # Compared by hand rather than with `sha256sum -c`: 26.04's coreutils are uutils.
           actual="$(sha256sum "$dl/rustup-init" | cut -d ' ' -f 1)"
           if [ "$actual" != "$RUSTUP_INIT_SHA256" ]; then
@@ -120,7 +163,86 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: leapp-smoke-linux-x64
+          name: leapp-smoke-linux-${{ matrix.arch }}
+          path: leapp-smoke.log
+          if-no-files-found: warn
+          retention-days: 1
+
+  macos:
+    name: LEAPP smoke (${{ matrix.runner }})
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'macos' || inputs.os == 'all')) ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    strategy:
+      fail-fast: false
+      matrix:
+        # Apple Silicon and Intel.
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (toolchain from rust-toolchain.toml)
+        run: |
+          rustup set profile minimal
+          rustup toolchain install
+          rustc --version
+
+      - name: Build the smoke tests
+        run: cargo test -p suitedfir-core --test leapp_smoke --locked --no-run
+
+      - name: Real-LEAPP smoke tests
+        run: |
+          cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1 \
+            2>&1 | tee leapp-smoke.log
+
+      - name: Upload the smoke log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: leapp-smoke-${{ matrix.runner }}
+          path: leapp-smoke.log
+          if-no-files-found: warn
+          retention-days: 1
+
+  windows:
+    name: LEAPP smoke (windows-2025)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'windows' || inputs.os == 'all')) ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (toolchain from rust-toolchain.toml)
+        run: |
+          rustup set profile minimal
+          rustup toolchain install
+          rustc --version
+
+      - name: Build the smoke tests
+        run: cargo test -p suitedfir-core --test leapp_smoke --locked --no-run
+
+      - name: Real-LEAPP smoke tests
+        run: |
+          cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1 \
+            2>&1 | tee leapp-smoke.log
+
+      - name: Upload the smoke log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: leapp-smoke-windows-2025
           path: leapp-smoke.log
           if-no-files-found: warn
           retention-days: 1

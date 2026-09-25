@@ -1,0 +1,12 @@
+{
+  "always_run": [
+    "usagestatsVersion"
+  ],
+  "exit_code": 0,
+  "index_html": true,
+  "input_type": "fs",
+  "reasons": [],
+  "status": "succeeded",
+  "tool": "aleapp",
+  "version": "v2026.4.1"
+}

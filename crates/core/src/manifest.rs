@@ -257,8 +257,14 @@ mod tests {
                         entry.upstream_repo, entry.version, asset.asset_name
                     )]
                 );
-                // AppImage entry hashes stay null until ROADMAP E3 reports them.
-                assert_eq!(asset.entry_sha256.is_some(), kind == ArchiveKind::Zip);
+                // AppImage entry hashes are filled from the smoke runs (ROADMAP E3): linux-x86_64
+                // from leapp-smoke run 36176500110; linux-aarch64 stays null until a smoke run on
+                // that platform reports it.
+                assert_eq!(
+                    asset.entry_sha256.is_some(),
+                    *platform != PlatformKey::LinuxAarch64,
+                    "{tool} {platform}"
+                );
             }
         }
     }

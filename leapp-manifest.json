@@ -71,7 +71,7 @@
           "asset_sha256": "3cfbb92709166524572848df4064e4c702d33a999e0405c549cfab0794769c95",
           "archive_kind": "appimage",
           "entry": "usr/bin/ileapp",
-          "entry_sha256": null,
+          "entry_sha256": "c23c4bdcc8eaa464f4141c29ee1cd7682afeafc2d012ba9c40c1573bbd66ed44",
           "urls": [
             "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-Linux_x86_64.AppImage"
           ]
@@ -157,7 +157,7 @@
           "asset_sha256": "0344db7fce169772b807a88fde3ee2eb7ff06c12c9c360b29928d50e7fc854be",
           "archive_kind": "appimage",
           "entry": "usr/bin/aleapp",
-          "entry_sha256": null,
+          "entry_sha256": "c12e82ce55b50d0bab1d49edfd910f47369a5a12a880ecaeadf27284462090fd",
           "urls": [
             "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-Linux_x86_64.AppImage"
           ]

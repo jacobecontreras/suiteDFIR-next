@@ -554,6 +554,15 @@ impl RunControl {
         lock(&self.state).phase
     }
 
+    /// LEAPP's process id (Unix: also its process group id) once it was spawned, for diagnostics
+    /// and the real-LEAPP smoke tests.
+    pub fn process_id(&self) -> Option<u32> {
+        lock(&self.state)
+            .process
+            .as_ref()
+            .map(|handle| handle.pid())
+    }
+
     fn cancel_requested(&self) -> bool {
         lock(&self.state).cancel_requested
     }

@@ -1,0 +1,71 @@
+{
+    "lava_schema_version": 2,
+    "parser_info": {
+        "leapp_name": "iLEAPP",
+        "leapp_version": "2026.4.2",
+        "leapp_mode": "CLI",
+        "package": "Binary",
+        "OS": "macOS-15.1-arm64-arm-64bit-Mach-O",
+        "start_timestamp": 1790372679,
+        "end_timestamp": 1790372679
+    },
+    "param_input": "<INPUT>",
+    "param_output": "<RUN_DIR>/report",
+    "param_type": "fs",
+    "param_profile": "<RUN_DIR>/profile.ilprofile",
+    "profile_used": true,
+    "processing_status": "Complete",
+    "lava_db_name": "_lava_artifacts.db",
+    "modules": [
+        {
+            "module_name": "deviceName",
+            "module_status": "Complete",
+            "artifact_name": "deviceName",
+            "file_count": 1
+        },
+        {
+            "module_name": "lastBuild",
+            "module_status": "Complete",
+            "artifact_name": "last_build",
+            "file_count": 1
+        }
+    ],
+    "artifacts": {
+        "IOS Build": [
+            {
+                "artifact_key": "last_build",
+                "name": "iOS Information",
+                "tablename": "last_build",
+                "module": "lastBuild",
+                "column_map": {
+                    "property": "Property",
+                    "property_value": "Property Value"
+                },
+                "artifact_icon": "git-commit",
+                "record_count": 3,
+                "source_path": "private/var/installd/Library/MobileInstallation/LastBuildInfo.plist"
+            }
+        ]
+    },
+    "meta": {
+        "modules": [
+            {
+                "module_name": "lastBuild",
+                "module_filename": "lastBuild.py",
+                "artifacts": [
+                    {
+                        "artifact_key": "last_build",
+                        "tablename": "last_build",
+                        "name": "iOS Information",
+                        "description": "Extract iOS information from the LastBuildInfo.plist file",
+                        "author": "@AlexisBrignoni - @ydkhatri - @stark4n6",
+                        "created_date": "2020-04-30",
+                        "last_updated_date": "2025-03-28",
+                        "notes": "",
+                        "category": "IOS Build"
+                    }
+                ]
+            }
+        ]
+    }
+}
