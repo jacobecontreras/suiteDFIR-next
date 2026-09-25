@@ -6,18 +6,18 @@
       "modules": 1300,
       "runs": 7,
       "render_ms_median": 11.8,
-      "filter_ms_median": 4.1,
-      "total_ms_median": 15.8,
-      "total_ms_max": 33.4
+      "filter_ms_median": 4.6,
+      "total_ms_median": 16.4,
+      "total_ms_max": 32.9
     },
     {
       "query": "a",
       "modules": 1300,
       "runs": 7,
-      "render_ms_median": 11.2,
-      "filter_ms_median": 21.2,
-      "total_ms_median": 32.1,
-      "total_ms_max": 53.5
+      "render_ms_median": 10.7,
+      "filter_ms_median": 18,
+      "total_ms_median": 28.9,
+      "total_ms_max": 42.4
     }
   ]
 }
