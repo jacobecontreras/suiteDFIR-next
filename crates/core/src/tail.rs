@@ -58,41 +58,49 @@ impl ScreenOutputTail {
     /// The lines of the records completed since the last poll. A file that does not exist (yet)
     /// yields no lines.
     pub fn poll(&mut self) -> io::Result<Vec<String>> {
-        let bytes = self.read_new(Some(MAX_READ_PER_POLL))?;
+        let (bytes, _) = self.read_new(MAX_READ_PER_POLL)?;
         Ok(self.consume(&bytes))
     }
 
-    /// Everything left, including a last record without a separator. Call it once the writer has
-    /// exited.
+    /// The rest, once the writer has exited: like `poll` (at most 4 MiB), plus a last record
+    /// without a separator. If more than that is left (a writer far ahead of the polls), the rest
+    /// is skipped and a last line says how many bytes were not shown.
     pub fn finish(&mut self) -> io::Result<Vec<String>> {
-        let bytes = self.read_new(None)?;
+        let (bytes, unread) = self.read_new(MAX_READ_PER_POLL)?;
         let mut lines = self.consume(&bytes);
         if !self.pending.is_empty() {
             push_record(&self.pending, &mut lines);
             self.pending.clear();
         }
+        if unread > 0 {
+            self.offset += unread;
+            let name = self.path.file_name().unwrap_or(self.path.as_os_str());
+            lines.push(format!(
+                "… {unread} more bytes are not shown here; see {}",
+                name.to_string_lossy()
+            ));
+        }
         Ok(lines)
     }
 
-    fn read_new(&mut self, limit: Option<u64>) -> io::Result<Vec<u8>> {
+    /// Up to `limit` new bytes, and how many more the file had when it was read.
+    fn read_new(&mut self, limit: u64) -> io::Result<(Vec<u8>, u64)> {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), 0)),
             Err(e) => return Err(e),
         };
-        if file.metadata()?.len() < self.offset {
+        let len = file.metadata()?.len();
+        if len < self.offset {
             // The file was replaced or truncated (LEAPP never does this): start over.
             self.offset = 0;
             self.pending.clear();
         }
         file.seek(SeekFrom::Start(self.offset))?;
         let mut bytes = Vec::new();
-        match limit {
-            Some(limit) => file.take(limit).read_to_end(&mut bytes)?,
-            None => file.read_to_end(&mut bytes)?,
-        };
+        file.take(limit).read_to_end(&mut bytes)?;
         self.offset += bytes.len() as u64;
-        Ok(bytes)
+        Ok((bytes, len.saturating_sub(self.offset)))
     }
 
     /// Adds bytes read from the file and returns the lines of the records they complete.
@@ -144,24 +152,28 @@ fn push_record(record: &[u8], lines: &mut Vec<String>) {
     }
 }
 
-/// Removes markup: a `<` followed by a letter, `/`, `!` or `?` up to the next `>`. Any other `<`
-/// (as in `a < b`) is text.
+/// Removes markup: a `<` followed by a letter, `/`, `!` or `?`, up to the next `>`. Any other
+/// `<` (as in `a < b`, or with no `>` after it) is text. Linear in the input: every byte is
+/// scanned at most twice, and once no `>` is left, the rest is copied as it is.
 fn strip_tags(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(open) = rest.find('<') {
-        out.push_str(&rest[..open]);
         let after = &rest[open + 1..];
         let is_tag = after
             .chars()
             .next()
             .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, '/' | '!' | '?'));
-        match after.find('>') {
-            Some(close) if is_tag => rest = &after[close + 1..],
-            _ => {
-                out.push('<');
-                rest = after;
-            }
+        if is_tag {
+            let Some(close) = after.find('>') else {
+                // No `>` anywhere after this point, so nothing more can be a tag.
+                break;
+            };
+            out.push_str(&rest[..open]);
+            rest = &after[close + 1..];
+        } else {
+            out.push_str(&rest[..=open]);
+            rest = after;
         }
     }
     out.push_str(rest);
@@ -344,6 +356,45 @@ mod tests {
         ] {
             assert_eq!(strip_tags(html), text, "{html:?}");
         }
+    }
+
+    #[test]
+    fn many_angle_brackets_strip_in_linear_time() {
+        let started = std::time::Instant::now();
+        // 4 MiB of tag starts and no `>`: nothing is a tag.
+        let open = "<a".repeat(2 << 20);
+        assert_eq!(strip_tags(&open), open);
+        // One `>` at the very end closes the first tag, which swallows everything.
+        assert_eq!(strip_tags(&format!("{open}>")), "");
+        // Brackets that cannot start a tag.
+        let loose = "a < b <".repeat(1 << 19);
+        assert_eq!(strip_tags(&loose), loose);
+        // Through the tail: a 1 MiB record of `<a`.
+        let mut record = "<a".repeat(1 << 19).into_bytes();
+        record.extend_from_slice(b"<br>\n");
+        let lines = tail().consume(&record);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].ends_with('…'));
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "stripping took {took:?}");
+    }
+
+    #[test]
+    fn finish_reads_at_most_one_poll_worth() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Screen_Output.html");
+        // 5 MiB of 1 KiB records.
+        let record = format!("{}<br>\n", "x".repeat(1019));
+        assert_eq!(record.len(), 1024);
+        fs::write(&path, record.repeat(5 * 1024)).unwrap();
+        let mut t = ScreenOutputTail::new(&path);
+        let lines = t.finish().unwrap();
+        assert_eq!(lines.len(), 4 * 1024 + 1);
+        assert_eq!(
+            lines[4 * 1024],
+            "… 1048576 more bytes are not shown here; see Screen_Output.html"
+        );
+        assert!(t.finish().unwrap().is_empty());
     }
 
     #[test]
