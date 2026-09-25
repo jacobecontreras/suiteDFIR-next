@@ -1,0 +1,17 @@
+# Real-LEAPP smoke tests (ROADMAP E3). Skeleton: it exists on main so later tasks can dispatch
+# their branch's version with `gh workflow run leapp-smoke.yml --ref <branch>` (DEVELOPMENT.md §6).
+name: leapp-smoke
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  smoke:
+    name: LEAPP smoke (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Not implemented
+        run: echo "not implemented"

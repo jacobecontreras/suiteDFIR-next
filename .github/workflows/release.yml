@@ -1,0 +1,17 @@
+# Release builds (ROADMAP F1). Skeleton: it exists on main so later tasks can dispatch their
+# branch's version with `gh workflow run release.yml --ref <branch>` (DEVELOPMENT.md §6).
+name: release
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  release:
+    name: Release (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Not implemented
+        run: echo "not implemented"
