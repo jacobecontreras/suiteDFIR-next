@@ -1,0 +1,14 @@
+{
+  "app_version": "0.2.0",
+  "platform": "macos-aarch64",
+  "os": "macos",
+  "arch": "aarch64",
+  "dev_override": false,
+  "paths": {
+    "app_data": "/Users/examiner/Library/Application Support/com.suitedfir.desktop",
+    "app_config": "/Users/examiner/Library/Application Support/com.suitedfir.desktop",
+    "app_cache": "/Users/examiner/Library/Caches/com.suitedfir.desktop",
+    "app_log": "/Users/examiner/Library/Logs/com.suitedfir.desktop",
+    "tools_dir": "/Users/examiner/Library/Application Support/com.suitedfir.desktop/leapp"
+  }
+}

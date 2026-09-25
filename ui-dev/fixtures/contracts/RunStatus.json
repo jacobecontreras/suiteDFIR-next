@@ -1,0 +1,8 @@
+[
+  "running",
+  "succeeded",
+  "completed_with_errors",
+  "failed",
+  "cancelled",
+  "interrupted"
+]

@@ -1,0 +1,8 @@
+{
+  "case_path": "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar",
+  "udid": "00008101-000A1B2C3D4E001E",
+  "label": "Suspect iPhone 12",
+  "enable_encryption": true,
+  "encryption_password": "example-backup-password",
+  "restore_encryption": true
+}

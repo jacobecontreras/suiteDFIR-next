@@ -1,0 +1,5 @@
+{
+  "code": "tool_not_installed",
+  "message": "iLEAPP v2026.4.2 is not installed.",
+  "detail": "/Users/examiner/Library/Application Support/com.suitedfir.desktop/leapp/ileapp/v2026.4.2/install.json does not exist"
+}

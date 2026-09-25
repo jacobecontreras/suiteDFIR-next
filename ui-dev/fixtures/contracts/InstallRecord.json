@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "tool": "ileapp",
+  "version": "v2026.4.2",
+  "platform": "macos-aarch64",
+  "asset_name": "ileapp-v2026.4.2-macOS_Apple_Silicon.zip",
+  "asset_sha256": "d99f2d05dbde20ee997de477c38443d4f019d60326a8c6b9456058c6cf590386",
+  "entry_path": "bin/ileapp",
+  "entry_sha256": "71dda0d3326d5f5f22a081a296fa2b09292f071680084ab5154d7429e73c2e06",
+  "source": "download",
+  "source_detail": "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-macOS_Apple_Silicon.zip",
+  "installed_at": "2026-09-24T18:00:00Z",
+  "module_count": 1176
+}

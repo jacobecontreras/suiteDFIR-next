@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "version": "1.4.0",
+  "sources": [
+    {
+      "name": "libplist",
+      "version": "2.7.0",
+      "url": "https://github.com/libimobiledevice/libplist/releases/download/2.7.0/libplist-2.7.0.tar.bz2",
+      "sha256": "ca9148186e174b282a7312e85432af596ecad720cb02ad9c4d7fe545cbb3f4d6"
+    },
+    {
+      "name": "mbedtls",
+      "version": "3.6.7",
+      "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2",
+      "sha256": "89f09682896c18f8ca00f14e4798d4a9c4472576511168d03762bb495ffe7f79"
+    },
+    {
+      "name": "libimobiledevice",
+      "version": "1.4.0",
+      "url": "https://github.com/libimobiledevice/libimobiledevice/releases/download/1.4.0/libimobiledevice-1.4.0.tar.bz2",
+      "sha256": "22b4c3a1a00fad35f330cd8c1aceea5a7dd9d4795018e0585e2e89b1f530184c"
+    }
+  ],
+  "platforms": {
+    "macos-aarch64": {
+      "bundle": "idevice-tools-1.4.0-macos-aarch64.zip",
+      "bundle_sha256": "a1458f77c5c69cefa9c592a4e5c1463451e6336b463e2358991901d53c8c7fa4",
+      "files": {
+        "idevice_id": "b205f1505de0f041fae51cf1c19d7965c474c3dd0c506e5522036fa656438a43",
+        "idevicebackup2": "8691395cc0ff98829db1b609b4081b63c1b1ae34949d10a221f43afb061749e4",
+        "ideviceinfo": "b95e8b380e7efefb68da71bb46872b41d668bdc0a9a5e782d03240a2bcdc0872",
+        "idevicepair": "8de3b68bae105d0a0cb7a70f1a051a6b6934b89be094d5c506224281f67b6036"
+      }
+    },
+    "macos-x86_64": {
+      "bundle": "idevice-tools-1.4.0-macos-x86_64.zip",
+      "bundle_sha256": "9519c31c343ce5cd7c3c644b87fd9444c05c9c428e46b32d588c2c0984ae020b",
+      "files": {
+        "idevice_id": "078e35a2f03b5291400090f4aaf4116edf5e01889d8cfda6aa2c8927946cc97a",
+        "idevicebackup2": "c38b7a79fb8bf6e2a8a9dc753f11e3e17e235eb1f9892eb8207c92237e41a62e",
+        "ideviceinfo": "9c402b7c5ab09b20d96d232d49d2a28ccec4aff4b443a925d8274d63b27b3bbc",
+        "idevicepair": "0a4968d91b49c2ebea28a0622f078c6bb069df95386b541154772d2f6c8c976d"
+      }
+    },
+    "windows-x86_64": {
+      "bundle": "idevice-tools-1.4.0-windows-x86_64.zip",
+      "bundle_sha256": "847f6fe341b376d573a4251ffcd65e41cca233eff436aa59e5095a985a5d0b3d",
+      "files": {
+        "idevice_id.exe": "7e8ef377c1b8afe561695c4ba2bfacc99cb5eba5dca35a8dba739b1e1af6711b",
+        "idevicebackup2.exe": "ecac6389ceb6c04fc98c16ba91595423130bdf54f2ebc87cfd13727c6f9a3389",
+        "ideviceinfo.exe": "45148d2504403de48dab965a94097d2e87863e313730ef12760f8582e86d23fd",
+        "idevicepair.exe": "673427dbc3c13d48ae4893b90e754d43c5350fb96c6216090ce03fd619100d82",
+        "libimobiledevice-1.0.dll": "a08e679b1f715200cd438adaa644ba90f5b5bcb7a95164dd1590f8808e32c4f8"
+      }
+    }
+  },
+  "system_platforms": [
+    "linux-x86_64",
+    "linux-aarch64"
+  ]
+}

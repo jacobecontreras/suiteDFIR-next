@@ -1,0 +1,15 @@
+[
+  {
+    "type": "stage",
+    "stage": "downloading"
+  },
+  {
+    "type": "download_progress",
+    "bytes_done": 10485760,
+    "bytes_total": 55085487
+  },
+  {
+    "type": "message",
+    "text": "Verifying the asset hash"
+  }
+]

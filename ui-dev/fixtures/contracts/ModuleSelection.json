@@ -1,0 +1,16 @@
+[
+  {
+    "mode": "all"
+  },
+  {
+    "mode": "profile",
+    "profile_name": "Messaging"
+  },
+  {
+    "mode": "custom",
+    "modules": [
+      "callHistory",
+      "sms"
+    ]
+  }
+]

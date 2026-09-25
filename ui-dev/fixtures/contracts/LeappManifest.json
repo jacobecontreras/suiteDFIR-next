@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "ileapp": {
+      "display_name": "iLEAPP",
+      "upstream_repo": "abrignoni/iLEAPP",
+      "version": "v2026.4.2",
+      "license": "MIT",
+      "profile_ext": "ilprofile",
+      "profile_leapp_id": "ileapp",
+      "input_types": [
+        "fs",
+        "tar",
+        "zip",
+        "gz",
+        "itunes",
+        "file",
+        "raw"
+      ],
+      "supports_timezone": true,
+      "supports_keychain": true,
+      "supports_itunes_password": true,
+      "platforms": {
+        "macos-aarch64": {
+          "asset_name": "ileapp-v2026.4.2-macOS_Apple_Silicon.zip",
+          "asset_size": 55085487,
+          "asset_sha256": "d99f2d05dbde20ee997de477c38443d4f019d60326a8c6b9456058c6cf590386",
+          "archive_kind": "zip",
+          "entry": "ileapp",
+          "entry_sha256": "71dda0d3326d5f5f22a081a296fa2b09292f071680084ab5154d7429e73c2e06",
+          "urls": [
+            "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-macOS_Apple_Silicon.zip"
+          ]
+        }
+      }
+    },
+    "aleapp": {
+      "display_name": "aLEAPP",
+      "upstream_repo": "abrignoni/ALEAPP",
+      "version": "v2026.4.1",
+      "license": "MIT",
+      "profile_ext": "alprofile",
+      "profile_leapp_id": "aleapp",
+      "input_types": [
+        "fs",
+        "tar",
+        "zip",
+        "gz",
+        "raw"
+      ],
+      "supports_timezone": false,
+      "supports_keychain": false,
+      "supports_itunes_password": false,
+      "platforms": {
+        "linux-x86_64": {
+          "asset_name": "aleapp-v2026.4.1-Linux_x86_64.AppImage",
+          "asset_size": 63834616,
+          "asset_sha256": "0344db7fce169772b807a88fde3ee2eb7ff06c12c9c360b29928d50e7fc854be",
+          "archive_kind": "appimage",
+          "entry": "usr/bin/aleapp",
+          "entry_sha256": null,
+          "urls": [
+            "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-Linux_x86_64.AppImage"
+          ]
+        }
+      }
+    }
+  }
+}

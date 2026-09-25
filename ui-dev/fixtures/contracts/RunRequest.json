@@ -1,0 +1,18 @@
+{
+  "case_path": "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar",
+  "tool": "ileapp",
+  "input_path": "/Volumes/Evidence/00008101-000A1B2C3D4E",
+  "input_type": "itunes",
+  "modules": {
+    "mode": "custom",
+    "modules": [
+      "callHistory",
+      "sms"
+    ]
+  },
+  "timezone": "America/Chicago",
+  "itunes_password": "example-backup-password",
+  "keychain_path": null,
+  "hash_input": false,
+  "label": "iPhone 12 Finder backup"
+}

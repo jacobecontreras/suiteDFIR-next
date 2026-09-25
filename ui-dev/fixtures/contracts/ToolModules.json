@@ -1,0 +1,34 @@
+{
+  "tool": "ileapp",
+  "version": "v2026.4.2",
+  "always_run": {
+    "default": [
+      "last_build"
+    ],
+    "itunes": [
+      "itunes_backup_info",
+      "itunes_backup_installed_applications"
+    ]
+  },
+  "timezones": [
+    "Africa/Abidjan",
+    "America/Chicago",
+    "UTC"
+  ],
+  "modules": [
+    {
+      "name": "callHistory",
+      "module_name": "callHistory",
+      "category": "Call History",
+      "display_name": "Call History",
+      "description": null
+    },
+    {
+      "name": "sms",
+      "module_name": "sms",
+      "category": "SMS & iMessage",
+      "display_name": "SMS & iMessage",
+      "description": "Messages from sms.db"
+    }
+  ]
+}
