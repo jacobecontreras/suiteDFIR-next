@@ -1,97 +1,136 @@
 # libimobiledevice CLI reference (iOS USB acquisition)
 
-Facts about the libimobiledevice command-line tools that suiteDFIR uses for iOS backup acquisition (feature F11). Everything below was read from source at tag **libimobiledevice 1.4.0** (released 2025-10-10) on 2026-09-24. **Nothing has been verified against a real device yet.** Items marked UNVERIFIED must be confirmed in human QA (H4/G2) and by the X-track tests. §8 is the running list.
+Facts about the libimobiledevice command-line tools that suiteDFIR uses for iOS backup acquisition (feature F11). Everything below was read from source at tag **libimobiledevice 1.4.0** (released 2025-10-10), including `tools/*.c`, `src/lockdown.c` and `common/userpref.c`, on 2026-09-24. Line numbers refer to `tools/idevicebackup2.c` unless another file is named.
 
-## 1. Pinned sources
+**Nothing has been verified against a real device yet.** Items in §8 must be confirmed by human QA (H4/G2). Before relying on a message string, the X-track tasks must copy it verbatim from the pinned source.
 
-The tools are built from these upstream source tarballs (GitHub `libimobiledevice/*` releases). ROADMAP X1 pins their SHA-256 hashes in `idevice-tools.json`.
+## 1. Pinned sources and licenses
+
+The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256 in `idevice-tools.json`.
 
 | Project | Version | Asset |
 |---|---|---|
-| libplist | 2.7.0 | `libplist-2.7.0.tar.bz2` |
+| libplist | 2.7.0 | `libplist-2.7.0.tar.bz2` (no GitHub digest; X1 computes one) |
 | libimobiledevice-glue | 1.3.2 | `libimobiledevice-glue-1.3.2.tar.bz2` |
 | libusbmuxd | 2.1.1 | `libusbmuxd-2.1.1.tar.bz2` |
-| libtatsu | 1.0.5 | `libtatsu-1.0.5.tar.bz2` (requires libcurl) |
-| libimobiledevice | 1.4.0 | `libimobiledevice-1.4.0.tar.bz2` (TLS: OpenSSL by default; `--with-mbedtls` supported) |
+| libtatsu | 1.0.5 | `libtatsu-1.0.5.tar.bz2` (requires libcurl, `configure.ac:39`) |
+| mbedtls | 3.6.x (pin exact) | upstream release tarball (TLS backend via `--with-mbedtls`) |
+| libimobiledevice | 1.4.0 | `libimobiledevice-1.4.0.tar.bz2` (`--with-mbedtls` and `--without-cython` are valid, `configure.ac:130/176`) |
 
 **Licenses:**
-- The libraries are LGPL-2.1-or-later (`COPYING.LESSER`).
-- The **tools are GPL-2.0-or-later** (`COPYING`).
-- Distributing the tool binaries requires shipping the license texts and offering the corresponding source. X1 records exact tarball URLs and hashes, and the notices point to them.
+- The source headers and README say LGPL-2.1-or-later. The repo also ships a GPL-2 `COPYING`.
+- **Ship both texts** (`COPYING`, `COPYING.LESSER`), plus the `3rd_party/` notices and the mbedtls (Apache-2.0) notice.
+- The source obligation is met by attaching the exact source tarballs and the build script to each app release (ROADMAP F1/F2). A link to upstream is not enough.
 
-**Runtime connection service (usbmuxd):**
+**Runtime service (usbmuxd):**
 - **macOS:** built into the OS.
-- **Windows:** Apple's "Apple Mobile Device Service", installed with the Apple Devices app or iTunes.
-- **Linux:** the `usbmuxd` daemon from the distro (needs udev rules). On Linux suiteDFIR uses the system-installed tools (`libimobiledevice-utils` or the equivalent package) instead of bundling them.
+- **Windows:** Apple Mobile Device Service (Apple Devices app or iTunes).
+- **Linux:** the distro's `usbmuxd` daemon. On Linux suiteDFIR uses the distro's tools rather than bundling its own.
 
-## 2. Tools and flags used
+## 2. Tools and invocations
 
-| Tool | Invocation | Output |
+| Purpose | Invocation | Notes |
 |---|---|---|
-| `idevice_id` | `idevice_id -l` | One UDID per line (USB devices only; `-n` would list network devices, never used). Exit 0 even when the list is empty. |
-| `ideviceinfo` | `ideviceinfo -u <udid> -x` | XML plist of all lockdown values (parse with `plist::Value::from_reader`). Useful keys: `DeviceName`, `ProductType`, `ProductVersion`, `BuildVersion`, `SerialNumber`, `UniqueDeviceID`. |
-| | `ideviceinfo -u <udid> -q com.apple.mobile.backup -k WillEncrypt -x` | Boolean: whether backups will be encrypted. |
-| | `ideviceinfo -u <udid> -q com.apple.disk_usage -x` | `TotalDataCapacity`, `TotalDataAvailable`, … (used to estimate backup size). |
-| | `ideviceinfo -u <udid> -s -x` | "Simple" connection that avoids auto-pairing. Use it to read basic identity before pairing. |
-| `idevicepair` | `idevicepair -u <udid> validate` / `pair` | Prints `SUCCESS: …` or `ERROR: …` lines (§4). |
-| `idevicebackup2` | `idevicebackup2 -u <udid> backup --full <dir>` | Creates `<dir>/<udid>/` (§5). |
-| | `idevicebackup2 -u <udid> encryption on <pw>` / `encryption off <pw>` | Prints `Backup encryption has been enabled successfully.` / `…disabled successfully.` |
+| List USB devices | `idevice_id -l` | One UDID per line; exit 0 even when empty. `-n` (network) is never used. |
+| Pre-pairing identity | `ideviceinfo -u <udid> -s -x` | "Simple" connection, no session. Returns only the pre-session subset of values, so name and serial **may be null**. |
+| Host pair record present? | `idevicepair -u <udid> hostid` | Reads the host's record via usbmuxd **without opening a device session** (`idevicepair.c:390-404`). A non-UUID or `(null)` result means no record → `not_paired`. |
+| System BUID | `idevicepair systembuid` | No side effects; recorded in `pairing`. |
+| Validate pairing | `idevicepair -u <udid> validate` | **Only call when a host record exists.** It uses `lockdownd_client_new_with_handshake` (`idevicepair.c:452`), which **pairs** if no record exists (`lockdown.c:728-733`) and triggers the Trust dialog. |
+| Pair | `idevicepair -u <udid> pair` | Only via the explicit `device_pair` command. |
+| Full identity (paired) | `ideviceinfo -u <udid> -x` | XML plist (`plist::Value::from_reader`). Saved as `device-info.plist`; contains IMEI and phone number, so never log it. |
+| Encryption state | `ideviceinfo -u <udid> -q com.apple.mobile.backup -k WillEncrypt -x` | Boolean. The backup tool treats an **absent** value as false (1843-1851). |
+| Disk usage | `ideviceinfo -u <udid> -q com.apple.disk_usage -x` | `TotalDataCapacity`, `TotalDataAvailable`; used capacity = difference. |
+| Backup | `idevicebackup2 -u <udid> backup --full <dir>` | `<dir>` **must exist**: otherwise `ERROR: Backup directory "<dir>" does not exist!` and exit 255 (1730-1733). Creates `<dir>/<udid>/`. |
+| Encryption on | `idevicebackup2 -u <udid> encryption on` + env `BACKUP_PASSWORD_NEW=<pw>` | Env variables are read at 1458-1459 and 1758-1768. Never pass the password in argv. |
+| Encryption off | `idevicebackup2 -u <udid> encryption off` + env `BACKUP_PASSWORD=<pw>` | |
 
-Never pass `-i/--interactive`. Without it, missing passwords produce `ERROR: Can't get password input in non-interactive mode…` instead of a prompt.
+**`ideviceinfo` failure mode:** when the value read fails, it can exit 0 with **empty stdout** (`ideviceinfo.c:235-259`). Treat empty output as a failure.
+
+**Prompts:** never pass `-i/--interactive`. Without it, a missing password produces `ERROR: Can't get password input in non-interactive mode…` instead of a terminal prompt.
 
 ## 3. Exit codes and signals
 
-- `idevice_id`: 0 = success; negative return values on errors (e.g. usbmuxd unavailable).
-- `ideviceinfo`: 0 = success; non-zero on connection/lockdown errors.
-- `idevicepair`: 0 = success; non-zero with an `ERROR:` line.
-- `idevicebackup2`:
-  - The exit status is `result_code`: 0 on success, otherwise the device error code (negated in source, so the shell sees a non-zero byte).
-  - **SIGINT/SIGTERM/SIGQUIT set a quit flag, and the tool aborts gracefully** (`clean_exit`, prints `Exiting...` to stderr).
-  - SIGPIPE is ignored.
+- **`idevice_id`:** 0 on success; non-zero on errors (e.g. usbmuxd unavailable).
+- **`idevicepair`:** prints to **stdout** and exits 1 on errors. `No device found with udid …` → `device_not_found`.
+- **`ideviceinfo`:** non-zero on connection/lockdown errors; see the empty-output caveat in §2.
+- **`idevicebackup2`:** `main` returns `result_code`, which is negative on error.
+  - On Unix the shell sees `(-N) & 0xFF` (105 → 151, -1 → 255, multiples of 256 → **0**).
+  - On Windows the exit code is the negative value.
+  - **Never treat the numeric exit code as success on its own**; use the messages in §5.
+- **SIGINT/SIGTERM/SIGQUIT** set a quit flag (`clean_exit`, prints `Exiting...` to stderr). The flag is checked per data block and per message, and receives time out, so a running backup aborts reasonably promptly. SIGPIPE is ignored.
 
-## 4. Pairing messages (`idevicepair`)
+## 4. Pairing messages (`idevicepair`, `idevicepair.c:114-143` and following)
 
-| Message | Meaning → suiteDFIR state |
+| Message | → `PairState` / error |
 |---|---|
-| `SUCCESS: Paired with device <udid>` / `SUCCESS: Validated pairing with device <udid>` | Paired. |
-| `ERROR: Please accept the trust dialog on the screen of device <udid>, then attempt to pair again.` | `awaiting_trust`: show instructions and retry. |
-| `ERROR: Could not validate with device <udid> because a passcode is set. Please enter the passcode on the device and retry.` | `locked`: ask the user to unlock the device. |
-| `ERROR: Device <udid> is not paired with this host` | `not_paired`: offer Pair. |
-| `ERROR: Device <udid> said that the user denied the trust dialog.` | `trust_denied`. |
-| `ERROR: Pairing with device <udid> failed.` / other `ERROR:` | `pairing_failed`, with the message shown. |
+| `SUCCESS: Paired with device <udid>` / `SUCCESS: Validated pairing with device <udid>` | `paired` |
+| `ERROR: Please accept the trust dialog on the screen of device <udid>, then attempt to pair again.` | `awaiting_trust` |
+| `ERROR: Could not validate with device <udid> because a passcode is set. Please enter the passcode on the device and retry.` | `locked` |
+| `ERROR: Device <udid> is not paired with this host` | `not_paired` (a host record exists but the device rejects it) |
+| `ERROR: Device <udid> said that the user denied the trust dialog.` | `trust_denied` |
+| `ERROR: Pairing with device <udid> failed.` / other `ERROR:` | `pairing_failed` (show the message) |
+| `No device found with udid …` | error `device_not_found` |
 
 ## 5. Backup behavior (`idevicebackup2 backup --full`)
 
-- **Progress** is written to stdout as `\r[====      ]  45% (1.2 GB/2.7 GB)` via `print_progress_real`, **followed by `fflush(stdout)`**, so it streams through a pipe. Other verbose lines (`Receiving files`, `Sending '<path>' (<size>)`, …) are plain `printf` and may be buffered until the next flush. Parse with the regex `\]\s+(\d+)%` on records split by `\r` or `\n`.
-- **Final message:** `Backup Successful.` / `Backup Aborted.` / `Backup Failed (Error Code N).`
-- **Output layout:** `<dir>/<udid>/` containing `Info.plist`, `Manifest.plist`, `Manifest.db`, `Status.plist`, plus hashed-name subfolders. `Status.plist` has `SnapshotState` (source reads it in `idevicebackup2.c:613-630`). A finished backup is expected to have `SnapshotState == "finished"` (UNVERIFIED on current iOS).
-- **Encryption:** if `WillEncrypt` is true, the device encrypts with the owner's backup password. No password is needed to *take* the backup, but it is needed to *parse* it (iLEAPP `--itunes_password`).
-- **Enabling encryption changes a device setting.** Record it, and offer to turn it off again afterwards (needs the same password). If the device already has an unknown backup password, it can only be removed by "Reset All Settings" on the device. suiteDFIR never does that; it only warns.
-- **User prompts on the device:** newer iOS versions ask for the device passcode on screen before a backup starts or encryption changes (UNVERIFIED which versions). The UI must tell the examiner to watch the device.
+**Progress:**
+- `\r[====   ]  45% (1.2 MB/2.7 MB)` lines are **per upload batch** (`DLMessageUploadFiles`, 1017-1018, 1115-1118); they cycle 0 → 100% repeatedly. **Ignore their sizes.**
+- **Overall progress** is printed as `print_progress_real(overall, 0)` followed by ` Finished` (2524-2525), and is not always flushed. Parse overall percent only from `\]\s+(\d+)%\s+Finished`.
+- Output may arrive in bursts, so handle records split by `\r` or `\n` across chunk boundaries.
+
+**Device prompts:**
+- iOS ≥ 16.1 prints lines beginning `*** Waiting for passcode` before a backup (2055-2062).
+- iOS ≥ 13 prints a `Please confirm … passcode` line for encryption changes (≈ 2256), and the tool waits **without a time limit** (2236-2266).
+- Map these lines to `device_prompt` events. X3a copies the exact strings from source into this section.
+
+**Final messages** (2569-2575):
+- `Backup Successful.` only if the device reported ErrorCode 0 **and** `SnapshotState == "finished"`.
+- Otherwise: `Backup Failed (Error Code N).` (N may be 0 when the snapshot isn't finished; the exit code can then be 0) or `Backup Aborted.`
+
+**Abort causes.** `Backup Aborted.` follows any of:
+- an examiner SIGTERM;
+- a cancel on the device (preceded by `User has cancelled the backup process on the device.`, line 115);
+- a device disconnect (the quit flag is set at ≈ 2297).
+
+**Other messages:**
+- **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (≈ 1951). If Finder or iTunes holds it, the tool prints a lock failure (1967/1973) and fails. X3a copies the exact string.
+- **File errors:** `Received an error message from device:` (≈ 1153) → counted as `device_file_errors`.
+- **Unchecked writes:** local write results are not checked (`fwrite`, ≈ 1111), so check free space after the backup.
+
+**Output layout:**
+- `<dir>/<udid>/` with `Info.plist`, `Manifest.plist`, `Manifest.db` (or `Manifest.mbdb` on very old iOS), `Status.plist` (`SnapshotState`, read at 613-630), and hashed-name subfolders.
+- A fresh folder per acquisition means every backup is full (1938/1945).
+
+**Encryption:**
+- If `WillEncrypt` is true, the device encrypts with the owner's backup password. No password is needed to *take* the backup, but it is needed to *parse* it (iLEAPP `--itunes_password`).
+- Changing the setting changes device state. suiteDFIR records it, restores it by default, and never resets device settings; an unknown existing password can only be removed by "Reset All Settings" on the device.
+
+**Windows paths:** the tools use ANSI file APIs (`fopen`, `mkdir`, `DeleteFile`, `GetDiskFreeSpaceEx`; ≈ 175, 221, 2315). Non-ASCII or long target paths may fail, so suiteDFIR refuses them (ARCHITECTURE §6b step 4).
 
 ## 6. How suiteDFIR decides acquisition success
 
 **Succeeded** requires all of these:
-- exit code 0;
 - `Backup Successful.` seen on stdout;
-- `<dir>/<udid>/Manifest.db` (or `Manifest.mbdb` for very old iOS), `Info.plist` and `Status.plist` all exist;
+- exit code 0;
+- `<dir>/<udid>/Manifest.db` (or `Manifest.mbdb`), `Info.plist` and `Status.plist` all exist;
 - `SnapshotState == "finished"`.
 
-**Otherwise:**
-- `cancelled` if the examiner cancelled;
-- `failed` with reasons (CONTRACTS.md §13.3).
+**Otherwise:** `cancelled` (examiner) or `failed` with reasons (CONTRACTS.md §13.3).
 
 ## 7. Known limitations
 
-- Wi-Fi (network) devices are not supported in phase 1: USB only.
-- Windows arm64: not supported for acquisition in phase 1 (no pinned build).
-- Only one device is backed up at a time. The one-active-job rule covers this.
+- USB only; Wi-Fi devices are not supported in phase 1.
+- Windows arm64: no pinned build, so no acquisition.
+- One device at a time (one-active-job rule).
+- Host pair records (`/var/db/lockdown` on macOS, `%ProgramData%\Apple\Lockdown` on Windows, `/var/lib/lockdown` on Linux) are created by pairing and are not managed by the app.
 
-## 8. UNVERIFIED items (X4 tests + human QA must resolve)
+## 8. UNVERIFIED items (X3a/X3b tests + human QA must resolve)
 
-1. `SnapshotState == "finished"` on current iOS; `Manifest.db` presence on iOS 17/18/26.
-2. The exact on-device prompts (passcode for backup / encryption change) per iOS version, and their effect on timing.
-3. Progress line format on a real device (sizes appear only when known).
-4. Windows: the tools connect to the Apple Mobile Device Service without extra configuration; the error text when the service is missing.
+1. `SnapshotState == "finished"` and `Manifest.db` presence on iOS 17/18/26.
+2. Exact on-device prompts (passcode for backup / encryption) per iOS version, and their console lines.
+3. Real-device progress output cadence (bursts, `Finished` lines).
+4. Windows: the tools reach Apple Mobile Device Service without extra configuration; the exact error when it is missing.
 5. Linux: minimum distro package version that supports current iOS.
-6. Graceful abort time after SIGTERM on a large backup (the grace period is set to 30 s).
+6. Graceful abort time after SIGTERM on a large backup (grace = 30 s).
+7. `ideviceinfo -s` field subset on current iOS for an unpaired device.
+8. The sync-lock failure string, and the behavior when Finder/iTunes is open.
