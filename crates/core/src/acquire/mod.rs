@@ -14,7 +14,8 @@
 //!   `restoring_encryption` the cancel is ignored; during `validating` and `sealing` the seal stops.
 //!   Encryption is restored (when enabled and asked for) whatever the backup outcome.
 //! - Discovery, listing and recovery on case open, and the `input.acquisition_id` helper: [`record`].
-//! - [`restore_later`]: `acq_restore_encryption`, which writes `encryption-restore.json`.
+//! - [`restore_later`]: `acq_restore_encryption`; each attempt writes its own read-only
+//!   `encryption-restore[-N].json`, and a failed attempt can be retried.
 //!
 //! The backup password lives in a [`Password`] from `acq_start` until the restore step (or the
 //! enable step when no restore follows), reaches the tool only through the environment, and is
@@ -53,8 +54,9 @@ use crate::process::{self, SpawnSpec};
 
 pub use record::{
     ACQ_FILE, ACQUISITIONS_DIR, BACKUP_DIR, BACKUP_MANIFEST, DEVICE_INFO_FILE, DiscoveredAcq,
-    RESTORE_FILE, acquisition_id_for_input, discover, is_acq_id, load, new_acq_id, recover_case,
-    summary,
+    RESTORE_FILE, RestoreAttempt, acquisition_id_for_input, discover, is_acq_id,
+    later_restore_succeeded, load, new_acq_id, recover_case, restore_attempt_number,
+    restore_attempts, restore_file_name, summary,
 };
 
 /// Backup passwords are at least this many characters (ARCHITECTURE.md §6b step 4).
@@ -132,8 +134,8 @@ pub enum AcqError {
 pub enum RestoreRefusal {
     /// The record has neither `encryption_left_enabled` nor `encryption_state_unknown`.
     NoEncryptionWarning,
-    /// `encryption-restore.json` already exists (it is read-only, so only one is recorded).
-    AlreadyRecorded,
+    /// A later-restore attempt file already records `restored: true`.
+    AlreadyRestored,
 }
 
 impl std::fmt::Display for RestoreRefusal {
@@ -142,7 +144,7 @@ impl std::fmt::Display for RestoreRefusal {
             Self::NoEncryptionWarning => {
                 "the record has neither encryption_left_enabled nor encryption_state_unknown"
             }
-            Self::AlreadyRecorded => "encryption-restore.json already records a later restore",
+            Self::AlreadyRestored => "a later restore already recorded restored: true",
         })
     }
 }
@@ -215,10 +217,9 @@ impl AcqError {
                      only to acquisitions whose record shows that encryption was left on or in \
                      an unknown state, and this record shows neither."
                     .to_owned(),
-                RestoreRefusal::AlreadyRecorded => "A later restore is already recorded for this \
-                     acquisition (encryption-restore.json), and only one can be recorded. If it \
-                     did not turn backup encryption off, the setting may still be on: check the \
-                     device."
+                RestoreRefusal::AlreadyRestored => "Backup encryption was already turned off for \
+                     this acquisition by a later restore (recorded in its encryption-restore \
+                     file)."
                     .to_owned(),
             },
             Self::Io { .. } => "The acquisition folder could not be read or written.".to_owned(),
@@ -1259,11 +1260,12 @@ struct BackupRun {
 // ---- later restore ----
 
 /// `acq_restore_encryption`: turns backup encryption off for an acquisition whose record has
-/// `encryption_left_enabled` or `encryption_state_unknown` (else `restore_not_applicable`, as when
-/// a later restore was already recorded), with the device connected and paired. Runs step 8 on
-/// its own in a fresh temp dir, prompt lines go to `on_line`, and the outcome is written to a
-/// read-only `encryption-restore.json`; `acquisition.json` is not modified. The one-active-job
-/// rule is the shell's.
+/// `encryption_left_enabled` or `encryption_state_unknown`, as long as no later-restore attempt has
+/// recorded `restored: true` (otherwise `restore_not_applicable`); a failed attempt does not block
+/// a retry. The device must be connected and paired. Runs step 8 on its own in a fresh temp dir,
+/// prompt lines go to `on_line`, and each attempt's outcome is written to its own read-only file,
+/// `encryption-restore.json`, then `encryption-restore-2.json`, … ([`record::write_restore_record`]);
+/// `acquisition.json` is not modified. The one-active-job rule is the shell's.
 pub fn restore_later(
     idevice: &Idevice,
     case_dir: &Path,
@@ -1283,9 +1285,12 @@ pub fn restore_later(
         ));
     }
     let dir = record::acq_dir(case_dir, acq_id);
-    if fs::symlink_metadata(dir.join(RESTORE_FILE)).is_ok() {
+    if record::restore_attempts(&dir, acq_id)?
+        .iter()
+        .any(|attempt| attempt.record.restored)
+    {
         return Err(AcqError::RestoreNotApplicable(
-            RestoreRefusal::AlreadyRecorded,
+            RestoreRefusal::AlreadyRestored,
         ));
     }
     if password.chars() < MIN_PASSWORD_CHARS {
@@ -1414,7 +1419,7 @@ mod tests {
                 ErrorCode::EncryptionAlreadyOn,
             ),
             (
-                AcqError::RestoreNotApplicable(RestoreRefusal::AlreadyRecorded),
+                AcqError::RestoreNotApplicable(RestoreRefusal::AlreadyRestored),
                 ErrorCode::RestoreNotApplicable,
             ),
             (

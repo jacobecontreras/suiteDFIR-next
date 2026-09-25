@@ -1119,7 +1119,10 @@ fn a_later_restore_writes_encryption_restore_json() {
         fs::read(dir.join("acquisition.json")).unwrap(),
         record_bytes
     );
-    // A second later restore is not applicable: it is already recorded.
+    // The Case screen stops offering "Turn backup encryption off".
+    let listed = acquire::summary(&acquire::discover(&case.path).unwrap()[0]);
+    assert_eq!(listed.warnings, ["encryption_restore_failed"]);
+    // Another later restore is not applicable: encryption was already turned off.
     let err = acquire::restore_later(
         &idevice,
         &case.path,
@@ -1131,12 +1134,87 @@ fn a_later_restore_writes_encryption_restore_json() {
     assert_eq!(err.code(), ErrorCode::RestoreNotApplicable);
     assert!(matches!(
         err,
-        AcqError::RestoreNotApplicable(RestoreRefusal::AlreadyRecorded)
+        AcqError::RestoreNotApplicable(RestoreRefusal::AlreadyRestored)
     ));
-    // The message never claims that nothing is left to turn off.
-    let message = err.message();
-    assert!(message.contains("already recorded"), "{message}");
-    assert!(message.contains("may still be on"), "{message}");
+    assert!(
+        err.message().contains("already turned off"),
+        "{}",
+        err.message()
+    );
+    assert!(!dir.join("encryption-restore-2.json").exists());
+    lab.assert_no_temp_dirs();
+}
+
+/// Owner decision (B1): every attempt gets its own numbered, read-only file; a failed attempt does
+/// not block a retry; after a successful one, further attempts are refused and the listing stops
+/// offering the restore.
+#[test]
+fn a_failed_later_restore_can_be_retried() {
+    let lab = Lab::new("restore_fail");
+    let (case, outcome, _) = simple(&lab, Some(PASSWORD));
+    let acq_id = outcome.record.acq_id.clone();
+    let dir = acq_dir(&outcome);
+    let record_bytes = fs::read(dir.join("acquisition.json")).unwrap();
+    let listed = || acquire::summary(&acquire::discover(&case.path).unwrap()[0]).warnings;
+    let offered = ["encryption_restore_failed", "encryption_left_enabled"];
+    assert_eq!(listed(), offered);
+    let later = |idevice: &suitedfir_core::idevice::Idevice| {
+        acquire::restore_later(
+            idevice,
+            &case.path,
+            &acq_id,
+            PASSWORD.to_owned(),
+            &mut |_| {},
+        )
+    };
+    let read_attempt = |name: &str| -> EncryptionRestoreRecord {
+        let file = dir.join(name);
+        assert!(
+            fs::metadata(&file).unwrap().permissions().readonly(),
+            "{name}"
+        );
+        parse_versioned(&fs::read(&file).unwrap()).unwrap()
+    };
+
+    // 1. The device still refuses: the attempt is recorded, and the restore is still offered.
+    let failed = later(&lab.reopen("restore_fail")).unwrap();
+    assert!(!failed.restored);
+    assert_eq!(failed.will_encrypt_after, Some(true));
+    let first = read_attempt("encryption-restore.json");
+    assert!(!first.restored);
+    assert_ne!(first.exit_code, Some(0));
+    assert_eq!(listed(), offered, "a failed attempt keeps the offer");
+    let first_bytes = fs::read(dir.join("encryption-restore.json")).unwrap();
+
+    // 2. A retry succeeds: its own file; the first one is untouched.
+    let retried = later(&lab.reopen("success")).unwrap();
+    assert!(retried.restored);
+    let second = read_attempt("encryption-restore-2.json");
+    assert!(second.restored);
+    assert_eq!(second.will_encrypt_after, Some(false));
+    assert_eq!(second.argv[1..], ["-u", UDID, "encryption", "off"]);
+    assert_eq!(
+        fs::read(dir.join("encryption-restore.json")).unwrap(),
+        first_bytes
+    );
+    assert_eq!(listed(), ["encryption_restore_failed"], "the offer is gone");
+
+    // 3. A third attempt is refused, and writes nothing.
+    let err = later(&lab.reopen("success")).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            AcqError::RestoreNotApplicable(RestoreRefusal::AlreadyRestored)
+        ),
+        "{err}"
+    );
+    assert!(!dir.join("encryption-restore-3.json").exists());
+    // acquisition.json was never modified.
+    assert_eq!(
+        fs::read(dir.join("acquisition.json")).unwrap(),
+        record_bytes
+    );
+    assert_eq!(acquire::restore_attempts(&dir, &acq_id).unwrap().len(), 2);
     lab.assert_no_temp_dirs();
 }
 

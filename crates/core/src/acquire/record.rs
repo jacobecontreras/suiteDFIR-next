@@ -1,7 +1,7 @@
 //! The `acquisition.json` lifecycle (CONTRACTS.md §13.3): acquisition ids and folders, the initial
 //! write, atomic rewrites while the job runs, finalize (atomic, then read-only), recovery on case
-//! open, discovery and listing summaries, `encryption-restore.json`, and the `input.acquisition_id`
-//! helper for runs.
+//! open, discovery and listing summaries, the later-restore attempt files
+//! (`encryption-restore[-N].json`), and the `input.acquisition_id` helper for runs.
 
 use std::fs;
 use std::io;
@@ -320,24 +320,133 @@ fn read_record(file: &Path) -> Result<AcquisitionRecord, AcqError> {
     })
 }
 
-/// Writes `encryption-restore.json` (a later restore) and makes it read-only. It must not exist.
+// ---- later-restore attempts ----
+//
+// Every `acq_restore_encryption` attempt writes its own read-only record, with the schema of
+// `EncryptionRestoreRecord`: `encryption-restore.json` for the first, then
+// `encryption-restore-2.json`, `-3.json`, … (CONTRACTS.md §13.3 "Later restore"). A file is never
+// overwritten or rewritten, and `acquisition.json` is never touched.
+
+/// The file name of later-restore attempt `n` (1-based): `encryption-restore.json` for 1,
+/// `encryption-restore-<n>.json` after that.
+pub fn restore_file_name(n: u32) -> String {
+    if n <= 1 {
+        RESTORE_FILE.to_owned()
+    } else {
+        format!("encryption-restore-{n}.json")
+    }
+}
+
+/// The attempt number of a later-restore file name, if `name` is one: 1 for
+/// `encryption-restore.json`, `n` for `encryption-restore-<n>.json` with `n` ≥ 2 written without
+/// leading zeros. Anything else is not an attempt file.
+pub fn restore_attempt_number(name: &str) -> Option<u32> {
+    if name == RESTORE_FILE {
+        return Some(1);
+    }
+    let digits = name
+        .strip_prefix("encryption-restore-")?
+        .strip_suffix(".json")?;
+    if digits.is_empty() || digits.starts_with('0') || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<u32>().ok().filter(|&n| n >= 2)
+}
+
+/// A later-restore attempt found in an acquisition folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RestoreAttempt {
+    pub number: u32,
+    pub file: PathBuf,
+    pub record: EncryptionRestoreRecord,
+}
+
+/// The numbers of every entry named like an attempt file, readable or not (for numbering: a name
+/// that is taken is never reused).
+fn taken_attempt_numbers(acq_dir: &Path) -> Result<Vec<u32>, AcqError> {
+    let entries = match fs::read_dir(acq_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(AcqError::io(acq_dir, e)),
+    };
+    let mut numbers = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| AcqError::io(acq_dir, e))?;
+        if let Some(number) = entry.file_name().to_str().and_then(restore_attempt_number) {
+            numbers.push(number);
+        }
+    }
+    numbers.sort_unstable();
+    Ok(numbers)
+}
+
+/// The later-restore attempts recorded for acquisition `acq_id` in `acq_dir`, in attempt order.
+/// Entries that are not attempt files are ignored; attempt files that cannot be read, are not
+/// valid or name another acquisition are skipped with a logged warning.
+pub fn restore_attempts(acq_dir: &Path, acq_id: &str) -> Result<Vec<RestoreAttempt>, AcqError> {
+    let mut attempts = Vec::new();
+    for number in taken_attempt_numbers(acq_dir)? {
+        let file = acq_dir.join(restore_file_name(number));
+        let parsed = fs::read(&file)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| {
+                parse_versioned::<EncryptionRestoreRecord>(&bytes).map_err(|e| e.to_string())
+            });
+        match parsed {
+            Ok(record) if record.acq_id == acq_id => attempts.push(RestoreAttempt {
+                number,
+                file,
+                record,
+            }),
+            Ok(record) => log::warn!(
+                "ignoring {}: it names acquisition {:?}",
+                file.display(),
+                record.acq_id
+            ),
+            Err(reason) => log::warn!("ignoring {}: {reason}", file.display()),
+        }
+    }
+    Ok(attempts)
+}
+
+/// Whether a later-restore attempt of acquisition `acq_id` recorded `restored: true`. Unreadable
+/// attempt files count as not restored.
+pub fn later_restore_succeeded(acq_dir: &Path, acq_id: &str) -> bool {
+    match restore_attempts(acq_dir, acq_id) {
+        Ok(attempts) => attempts.iter().any(|a| a.record.restored),
+        Err(e) => {
+            log::warn!("cannot read the later restores of {acq_id}: {e}");
+            false
+        }
+    }
+}
+
+/// Writes a later-restore attempt under the next free number: one above the highest attempt name
+/// already taken (so gaps are not refilled and attempts stay in order), then makes it read-only.
+/// Returns the file written. An existing file is never replaced: the name is checked first, and
+/// the atomic write refuses a read-only target (every attempt file is read-only), with only one
+/// job running app-wide.
 pub fn write_restore_record(
     acq_dir: &Path,
     record: &EncryptionRestoreRecord,
-) -> Result<(), AcqError> {
+) -> Result<PathBuf, AcqError> {
     check_folder(acq_dir, &record.acq_id)?;
-    let file = acq_dir.join(RESTORE_FILE);
+    let next = taken_attempt_numbers(acq_dir)?
+        .last()
+        .map_or(Some(1), |last| last.checked_add(1))
+        .ok_or_else(|| AcqError::NoFreeId {
+            path: acq_dir.display().to_string(),
+        })?;
+    let file = acq_dir.join(restore_file_name(next));
     if fs::symlink_metadata(&file).is_ok() {
         return Err(AcqError::io(
             &file,
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "a later restore is already recorded",
-            ),
+            io::Error::new(io::ErrorKind::AlreadyExists, "the attempt file exists"),
         ));
     }
     fsutil::write_json_atomic(&file, record).map_err(|e| AcqError::io(&file, e))?;
-    fsutil::set_read_only(&file).map_err(|e| AcqError::io(&file, e))
+    fsutil::set_read_only(&file).map_err(|e| AcqError::io(&file, e))?;
+    Ok(file)
 }
 
 // ---- reading ----
@@ -424,9 +533,20 @@ pub fn discover(case_dir: &Path) -> Result<Vec<DiscoveredAcq>, AcqError> {
     Ok(found)
 }
 
-/// The listing entry of an acquisition (`CaseDetail.acquisitions`, the `finished` event).
+/// The warning codes that offer "Turn backup encryption off" on the Case screen.
+const RESTORE_OFFER_CODES: [&str; 2] = ["encryption_left_enabled", "encryption_state_unknown"];
+
+/// The listing entry of an acquisition (`CaseDetail.acquisitions`, the `finished` event). Its
+/// `warnings` are the record's codes, except that once a later restore recorded `restored: true`,
+/// `encryption_left_enabled` and `encryption_state_unknown` are left out, so the Case screen stops
+/// offering "Turn backup encryption off". `acquisition.json` itself is not changed.
 pub fn summary(acq: &DiscoveredAcq) -> AcqSummary {
     let record = &acq.record;
+    let restored_later = record
+        .warnings
+        .iter()
+        .any(|w| RESTORE_OFFER_CODES.contains(&w.code.as_str()))
+        && later_restore_succeeded(&acq.dir, &record.acq_id);
     let backup_path = (record.status == AcqStatus::Succeeded).then(|| {
         acq.dir
             .join(BACKUP_DIR)
@@ -447,7 +567,12 @@ pub fn summary(acq: &DiscoveredAcq) -> AcqSummary {
         ended_at: record.ended_at,
         duration_ms: record.duration_ms,
         backup_path,
-        warnings: record.warnings.iter().map(|w| w.code.clone()).collect(),
+        warnings: record
+            .warnings
+            .iter()
+            .filter(|w| !(restored_later && RESTORE_OFFER_CODES.contains(&w.code.as_str())))
+            .map(|w| w.code.clone())
+            .collect(),
     }
 }
 
@@ -844,16 +969,173 @@ mod tests {
     }
 
     #[test]
-    fn restore_records_are_written_once_read_only() {
+    fn restore_attempt_file_names() {
+        assert_eq!(restore_file_name(1), "encryption-restore.json");
+        assert_eq!(restore_file_name(2), "encryption-restore-2.json");
+        assert_eq!(restore_file_name(10), "encryption-restore-10.json");
+        for n in [1, 2, 3, 10, 999] {
+            assert_eq!(restore_attempt_number(&restore_file_name(n)), Some(n));
+        }
+        for other in [
+            "encryption-restore-1.json",
+            "encryption-restore-0.json",
+            "encryption-restore-02.json",
+            "encryption-restore-.json",
+            "encryption-restore-x.json",
+            "encryption-restore-2.json.tmp-0123456789abcdef",
+            "encryption-restore-2.JSON",
+            "encryption-restore-99999999999.json",
+            "acquisition.json",
+            "notes.txt",
+        ] {
+            assert_eq!(restore_attempt_number(other), None, "{other:?}");
+        }
+    }
+
+    fn attempt(restored: bool) -> EncryptionRestoreRecord {
+        let mut record = examples::encryption_restore_record();
+        record.restored = restored;
+        record.will_encrypt_after = Some(!restored);
+        record
+    }
+
+    fn make_all_writable(dir: &Path) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_file() {
+                make_writable(&path);
+            }
+        }
+    }
+
+    #[test]
+    fn attempts_are_numbered_read_only_and_never_overwritten() {
         let case = tempfile::tempdir().unwrap();
         let dir = dir_for(case.path(), ACQ_ID);
-        let record = examples::encryption_restore_record();
-        write_restore_record(&dir, &record).unwrap();
-        let file = dir.join(RESTORE_FILE);
-        assert!(fs::metadata(&file).unwrap().permissions().readonly());
-        let back: EncryptionRestoreRecord = parse_versioned(&fs::read(&file).unwrap()).unwrap();
-        assert_eq!(back, record);
-        assert!(write_restore_record(&dir, &record).is_err());
-        make_writable(&file);
+        assert!(restore_attempts(&dir, ACQ_ID).unwrap().is_empty());
+        assert!(!later_restore_succeeded(&dir, ACQ_ID));
+
+        let first = write_restore_record(&dir, &attempt(false)).unwrap();
+        assert_eq!(first, dir.join("encryption-restore.json"));
+        let second = write_restore_record(&dir, &attempt(true)).unwrap();
+        assert_eq!(second, dir.join("encryption-restore-2.json"));
+        for file in [&first, &second] {
+            assert!(fs::metadata(file).unwrap().permissions().readonly());
+        }
+        let attempts = restore_attempts(&dir, ACQ_ID).unwrap();
+        assert_eq!(
+            attempts
+                .iter()
+                .map(|a| (a.number, a.record.restored))
+                .collect::<Vec<_>>(),
+            [(1, false), (2, true)]
+        );
+        assert_eq!(
+            attempts[1].record,
+            attempt(true),
+            "the same schema, as written"
+        );
+        assert!(later_restore_succeeded(&dir, ACQ_ID));
+        make_all_writable(&dir);
+    }
+
+    #[test]
+    fn numbering_skips_gaps_and_taken_names() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = dir_for(case.path(), ACQ_ID);
+        // Attempt 1 exists, 2 is missing, 3 is a partial (unparsable) file left by a crash, and a
+        // directory takes the name of attempt 5.
+        write_restore_record(&dir, &attempt(false)).unwrap();
+        fs::write(dir.join("encryption-restore-3.json"), "{\"schema_ver").unwrap();
+        fs::create_dir(dir.join("encryption-restore-5.json")).unwrap();
+        let before: Vec<(PathBuf, Vec<u8>)> =
+            ["encryption-restore.json", "encryption-restore-3.json"]
+                .iter()
+                .map(|name| (dir.join(name), fs::read(dir.join(name)).unwrap()))
+                .collect();
+
+        let next = write_restore_record(&dir, &attempt(false)).unwrap();
+        assert_eq!(
+            next,
+            dir.join("encryption-restore-6.json"),
+            "after the highest taken name"
+        );
+        for (file, bytes) in &before {
+            assert_eq!(
+                &fs::read(file).unwrap(),
+                bytes,
+                "{} untouched",
+                file.display()
+            );
+        }
+        assert!(
+            !dir.join("encryption-restore-2.json").exists(),
+            "gaps are not refilled"
+        );
+        // Only the readable attempts count; none restored.
+        let numbers: Vec<u32> = restore_attempts(&dir, ACQ_ID)
+            .unwrap()
+            .iter()
+            .map(|a| a.number)
+            .collect();
+        assert_eq!(numbers, [1, 6]);
+        assert!(!later_restore_succeeded(&dir, ACQ_ID));
+        // Another acquisition's record under an attempt name does not count as a restore.
+        let mut foreign = attempt(true);
+        foreign.acq_id = "20260924-171200Z-ios-000000".to_owned();
+        fs::write(
+            dir.join("encryption-restore-7.json"),
+            serde_json::to_vec(&foreign).unwrap(),
+        )
+        .unwrap();
+        assert!(!later_restore_succeeded(&dir, ACQ_ID));
+        assert_eq!(
+            write_restore_record(&dir, &attempt(true)).unwrap(),
+            dir.join("encryption-restore-8.json")
+        );
+        assert!(later_restore_succeeded(&dir, ACQ_ID));
+        make_all_writable(&dir);
+    }
+
+    #[test]
+    fn discovery_recovery_and_summary_with_attempt_files() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = dir_for(case.path(), ACQ_ID);
+        let mut record = running();
+        record.warnings = vec![
+            Reason {
+                code: "encryption_restore_failed".to_owned(),
+                message: "m".to_owned(),
+            },
+            Reason {
+                code: "encryption_left_enabled".to_owned(),
+                message: "m".to_owned(),
+            },
+        ];
+        write_initial(&dir, &record).unwrap();
+        // Attempt files, a gap, and unrelated files.
+        write_restore_record(&dir, &attempt(false)).unwrap();
+        fs::write(dir.join("encryption-restore-4.json"), "garbage").unwrap();
+        fs::write(dir.join("encryption-restore-x.json"), "{}").unwrap();
+        fs::write(dir.join("notes.txt"), "x").unwrap();
+        fs::create_dir(dir.join("encryption-restore-9.json")).unwrap();
+
+        let recovered = recover_case(case.path(), None, at("2026-09-25T08:00:00Z")).unwrap();
+        assert_eq!(recovered, [ACQ_ID]);
+        let found = discover(case.path()).unwrap();
+        assert_eq!(found.len(), 1);
+        let codes = |summary: &AcqSummary| summary.warnings.clone();
+        // A failed attempt keeps the offer.
+        assert_eq!(
+            codes(&summary(&found[0])),
+            ["encryption_restore_failed", "encryption_left_enabled"]
+        );
+        // A successful one drops it from the listing; acquisition.json is untouched.
+        let record_bytes = fs::read(dir.join(ACQ_FILE)).unwrap();
+        write_restore_record(&dir, &attempt(true)).unwrap();
+        assert_eq!(codes(&summary(&found[0])), ["encryption_restore_failed"]);
+        assert_eq!(fs::read(dir.join(ACQ_FILE)).unwrap(), record_bytes);
+        assert_eq!(discover(case.path()).unwrap()[0].record, found[0].record);
+        make_all_writable(&dir);
     }
 }
