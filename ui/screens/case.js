@@ -251,7 +251,16 @@ export function caseScreen(ctx) {
       "tr",
       null,
       h("td", null, statusBadge(run.status)),
-      h("td", { class: "cell-label" }, run.label ? run.label : dash()),
+      // The label opens the Run screen: progress and log while running, the result afterwards.
+      h(
+        "td",
+        { class: "cell-label" },
+        h(
+          "a",
+          { href: routeHref("run", { case: detail?.path ?? path, id: run.run_id }), title: run.status === "running" ? "Show the run's progress and log" : "Show the run's result" },
+          run.label ?? h("span", { class: "untitled" }, "Unlabeled run"),
+        ),
+      ),
       h("td", { class: "nowrap" }, toolName(run.tool), h("span", { class: "muted cell-sub" }, run.tool_version)),
       h(
         "td",

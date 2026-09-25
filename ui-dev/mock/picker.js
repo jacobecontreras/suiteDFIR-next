@@ -39,6 +39,7 @@ export const SAMPLES = [
   { kind: "dir", group: "Run outcomes", path: `${EV}/fail-crash`, note: "→ failed (crash, traceback)" },
   { kind: "dir", group: "Run outcomes", path: `${EV}/slow`, note: "→ runs until cancelled" },
   { kind: "dir", group: "Run outcomes", path: `${EV}/interrupt`, note: "→ interrupted (app 'crashes')" },
+  { kind: "dir", group: "Run outcomes", path: `${EV}/flood`, note: "→ 100,000 log lines, then succeeded" },
   { kind: "file", group: "Evidence files", path: `${EV}/iPhone-12-FFS.zip`, note: "zip, 12.4 GiB" },
   { kind: "file", group: "Evidence files", path: `${EV}/Pixel-7.tar`, note: "tar" },
   { kind: "file", group: "Evidence files", path: `${EV}/Galaxy-S21.E01`, note: "raw (E01)" },

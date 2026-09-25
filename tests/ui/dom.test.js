@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenChildren, h } from "../../ui/lib/dom.js";
+import { fill, flattenChildren, h } from "../../ui/lib/dom.js";
 
 // Node has no DOM. This fake implements exactly the DOM surface h() uses, and keeps text
 // nodes distinguishable from elements so the tests can prove text is never parsed as markup.
@@ -161,6 +161,15 @@ test("class must be a string, and className is refused", () => {
 test("attribute names keep working when the DOM lowercases them", () => {
   const el = fh("input", { ariaLabel: "x", "aria-describedby": "hint", maxLength: 5 });
   assert.deepEqual(Object.fromEntries(el.attributes), { arialabel: "x", "aria-describedby": "hint", maxlength: "5" });
+});
+
+test("fill replaces the children with the same rules as h(): text stays text, skipped values vanish", () => {
+  /** @type {unknown[]} */
+  let replaced = [];
+  const el = /** @type {Element} */ (/** @type {unknown} */ ({ replaceChildren: (/** @type {unknown[]} */ ...nodes) => (replaced = nodes) }));
+  const node = /** @type {Node} */ (/** @type {unknown} */ (new FakeText("n")));
+  assert.equal(fill(el, "<b>x</b>", null, false, [node, 2]), el);
+  assert.deepEqual(replaced, ["<b>x</b>", node, "2"]);
 });
 
 test("flattenChildren keeps nodes and order", () => {

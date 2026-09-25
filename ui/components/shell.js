@@ -14,7 +14,7 @@ import { icon, phaseLabel, toolName } from "../lib/view.js";
 /** @typedef {import("../types").ActiveJob} ActiveJob */
 
 const NAV = [
-  { name: "cases", label: "Cases", matches: ["cases", "case", "new-run"] },
+  { name: "cases", label: "Cases", matches: ["cases", "case", "new-run", "run"] },
   { name: "settings", label: "Settings", matches: ["settings"] },
 ];
 
@@ -113,9 +113,10 @@ function devOverride(s) {
 function jobIndicator(job) {
   if (!job) return null;
   const what = job.kind === "run" ? `Run in progress: ${toolName(job.tool)}` : "Acquisition in progress";
+  const href = job.kind === "run" ? routeHref("run", { case: job.case_path, id: job.run_id }) : routeHref("case", { path: job.case_path });
   return h(
     "a",
-    { class: "job-indicator", href: routeHref("case", { path: job.case_path }), title: "Open the case of the active job" },
+    { class: "job-indicator", href, title: "Show the active job" },
     h("span", { class: "pulse", "aria-hidden": "true" }),
     h("span", null, what),
     h("span", { class: "job-phase" }, phaseLabel(job.phase)),

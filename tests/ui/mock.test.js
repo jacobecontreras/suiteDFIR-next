@@ -84,6 +84,14 @@ for (const [suffix, status, reasons] of /** @type {const} */ ([
   });
 }
 
+test("a flood run streams 100,000 log lines in batches of at most 500, then succeeds", async () => {
+  const { fin, events } = await runToEnd(`${EV}/flood`);
+  const batches = events.filter((e) => e.type === "log").map((e) => (e.type === "log" ? e.lines.length : 0));
+  assert.ok(batches.every((n) => n <= 500));
+  assert.ok(batches.reduce((a, b) => a + b, 0) >= 100_000);
+  assert.equal(fin.status, "succeeded");
+});
+
 test("a cancelled run finishes cancelled", async () => {
   const { fin } = await runToEnd(`${EV}/slow`, async (runId, events) => {
     while (!events.some((e) => e.type === "log")) await new Promise((resolve) => setTimeout(resolve, 2));

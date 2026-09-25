@@ -28,6 +28,9 @@ const ICONS = {
   "chevron-down": [["polyline", { points: "6 9 12 15 18 9" }]],
   search: [["circle", { cx: "11", cy: "11", r: "7" }], ["line", { x1: "20", y1: "20", x2: "16.2", y2: "16.2" }]],
   folder: [["path", { d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+  circle: [["circle", { cx: "12", cy: "12", r: "9" }]],
+  lock: [["rect", { x: "4", y: "11", width: "16", height: "10", rx: "2" }], ["path", { d: "M8 11V7a4 4 0 0 1 8 0v4" }]],
+  smartphone: [["rect", { x: "6", y: "2", width: "12", height: "20", rx: "2" }], ["line", { x1: "11", y1: "18", x2: "13", y2: "18" }]],
 };
 
 /**

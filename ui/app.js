@@ -7,6 +7,7 @@ import { loadApi } from "./api/index.js";
 import { appError } from "./components/app-error.js";
 import { shell } from "./components/shell.js";
 import { h } from "./lib/dom.js";
+import { createJobStreams } from "./lib/jobstream.js";
 import { pollActiveJob } from "./lib/jobs.js";
 import { parseRoute } from "./lib/router.js";
 import { createStore } from "./lib/store.js";
@@ -14,6 +15,7 @@ import { caseScreen } from "./screens/case.js";
 import { casesScreen } from "./screens/cases.js";
 import { newRunScreen } from "./screens/new-run.js";
 import { notFoundScreen } from "./screens/not-found.js";
+import { runScreen } from "./screens/run.js";
 
 /** @typedef {import("./lib/context").AppState} AppState */
 /** @typedef {import("./lib/context").ScreenContext} ScreenContext */
@@ -24,6 +26,7 @@ const ROUTES = {
   cases: casesScreen,
   case: caseScreen,
   "new-run": newRunScreen,
+  run: runScreen,
 };
 
 /** How often `job_active` is polled while a job is active. */
@@ -62,6 +65,7 @@ async function main() {
   }
 
   pollActiveJob(api, store, JOB_POLL_MS);
+  const jobs = createJobStreams(store);
 
   /** @type {View | null} */
   let current = null;
@@ -70,7 +74,7 @@ async function main() {
     const route = parseRoute(window.location.hash);
     current?.dispose();
     const factory = ROUTES[route.name] ?? notFoundScreen;
-    current = factory({ api, store, params: route.params, navigate });
+    current = factory({ api, store, params: route.params, navigate, jobs });
     chrome.main.replaceChildren(current.node);
     chrome.setRoute(route.name);
     // Move focus to the new screen's heading so keyboard and screen-reader users follow the change.

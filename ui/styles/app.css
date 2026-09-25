@@ -165,9 +165,13 @@ code,
   cursor: help;
 }
 
+/* The tooltip is visual only: the UTC time is already in the element's visually hidden text, so the
+   generated content gets an empty alternative (`/ ""`) and is not read a second time. Engines
+   without that syntax ignore the second declaration and keep the first. */
 .time-local:hover::after,
 .time-local:focus-visible::after {
   content: attr(data-utc);
+  content: attr(data-utc) / "";
   position: absolute;
   left: 50%;
   bottom: calc(100% + 6px);
@@ -1087,6 +1091,10 @@ input[type="radio"] {
   min-width: 120px;
 }
 
+.untitled {
+  font-style: italic;
+}
+
 /* ---- Dialogs ---- */
 
 .modal {
@@ -1373,4 +1381,251 @@ input[type="radio"] {
 
 .picker-unknown ul {
   columns: 2;
+}
+
+/* ---- Progress, steps (Run, Acquire, Settings) ---- */
+
+.progress-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.progress-label {
+  font-weight: 600;
+}
+
+.progress {
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--accent);
+  overflow: hidden;
+}
+
+.progress::-webkit-progress-bar {
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+
+.progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.progress::-moz-progress-bar {
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+/* Indeterminate: a striped track (readable without animation). */
+.progress:indeterminate,
+.progress:indeterminate::-webkit-progress-bar {
+  background: repeating-linear-gradient(-45deg, var(--surface-2) 0 8px, var(--info-border) 8px 16px);
+}
+
+.phase-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.phase-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.phase-step-done {
+  color: var(--ok);
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.phase-step-current {
+  color: var(--info);
+  border-color: var(--info);
+  background: var(--info-bg);
+  font-weight: 600;
+}
+
+.phase-step-skipped {
+  border-style: dashed;
+}
+
+.phase-step-note {
+  font-size: 12px;
+  font-style: italic;
+}
+
+.phase-step-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- Run screen ---- */
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.run-facts {
+  padding: 14px 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.run-facts .cell-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.progress-slot:empty {
+  display: none;
+}
+
+.result-card h3 {
+  font-size: 13px;
+}
+
+.reason-list-reasons li code {
+  color: var(--danger);
+}
+
+.reason-list-warnings li code {
+  color: var(--warn);
+}
+
+.parser-output summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ---- Log view (virtualized; the fixed row height comes from --log-row) ---- */
+
+.log-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.log-toolbar-spacer {
+  flex: 1;
+}
+
+.log-count {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-copy-status:empty {
+  display: none;
+}
+
+.log-frame {
+  position: relative;
+}
+
+.log-viewport {
+  height: 380px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  overscroll-behavior: contain;
+}
+
+.log-spacer {
+  position: relative;
+  min-width: 100%;
+}
+
+.log-rows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 100%;
+  will-change: transform;
+}
+
+.log-row {
+  height: var(--log-row, 20px);
+  line-height: var(--log-row, 20px);
+  white-space: pre;
+  padding-right: 12px;
+}
+
+.log-no {
+  display: inline-block;
+  min-width: 8ch;
+  margin-right: 10px;
+  padding: 0 8px 0 4px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+
+.log-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.clipboard-helper {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }

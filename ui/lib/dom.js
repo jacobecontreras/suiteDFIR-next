@@ -47,6 +47,18 @@ export function h(tag, props, ...children) {
 }
 
 /**
+ * Replaces the children of `el`, with the same child rules as `h()` (text stays text; `false`,
+ * `null` and `undefined` are skipped).
+ * @param {Element} el
+ * @param {...Child} children
+ * @returns {Element}
+ */
+export function fill(el, ...children) {
+  el.replaceChildren(...flattenChildren(children));
+  return el;
+}
+
+/**
  * Flattens nested child arrays, drops skipped values and turns numbers into strings.
  * @param {Child[]} children
  * @returns {(Node | string)[]}

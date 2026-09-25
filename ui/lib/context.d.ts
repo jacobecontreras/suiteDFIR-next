@@ -2,6 +2,7 @@
 // are in ui/types.d.ts).
 
 import type { ActiveJob, AppInfo, Settings, ToolStatus } from "../types";
+import type { JobStreams } from "./jobstream.js";
 import type { Store } from "./store.js";
 
 export type Api = typeof import("../api/ipc.js");
@@ -25,6 +26,8 @@ export type ScreenContext = {
   params: Record<string, string>;
   /** Goes to a `#/…` href (lib/router.js `routeHref`). */
   navigate: (href: string) => void;
+  /** The active job's event stream (lib/jobstream.js), shared by New run, Run and Acquire. */
+  jobs: JobStreams;
 };
 
 /** What every screen and stateful component returns (DEVELOPMENT.md §4.6). */

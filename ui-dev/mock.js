@@ -11,10 +11,13 @@
 //   `dev_override`, `active_run` (a slow run is already active at load), `install_fail`,
 //   `no_devices`, `idevice_missing`, `usbmuxd_unavailable`, `idevice_verification_failed`,
 //   `idevice_unsupported`, `preflight_warn`, `preflight_block`.
+//   `hold_<phase>` (e.g. `hold_analyzing`, `hold_sealing_report`): a run stops in that phase until
+//   it is cancelled, so every phase can be screenshotted.
 // - Runs: the final status is chosen by the input path's last segment without extension:
 //   `errors`, `fail-invalid`, `fail-early`, `fail-argparse`, `fail-crash`, `slow` (runs until
-//   cancelled), `interrupt` (the "app crashes": the next case_open marks it interrupted); anything
-//   else succeeds. `run_cancel` gives `cancelled`.
+//   cancelled), `interrupt` (the "app crashes": the next case_open marks it interrupted), `flood`
+//   (100,000 log lines in batches of 500, then success); anything else succeeds. `run_cancel`
+//   gives `cancelled`.
 // - Inputs: `…/denied` → permission_denied, `…/missing…` → invalid_input, anything overlapping a
 //   case (ARCHITECTURE.md §6 step 1) → input_overlaps_case.
 // - Acquisitions: chosen by a label suffix `/<scenario>` (fake-idevice names, CONTRACTS.md §13.4):
@@ -83,6 +86,20 @@ function tick() {
 
 /** @param {number} ms */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * With the `hold_<phase>` flag, keeps the job in `phase` until it is cancelled.
+ * @param {{ cancelRequested: boolean }} j
+ * @param {string} phase
+ */
+async function holdIn(j, phase) {
+  if (!has(`hold_${phase}`)) return;
+  while (!j.cancelRequested) await sleep(Math.max(tick(), 50));
+}
+
+/** `flood` runs: lines and batch size (the core sends at most 500 lines per `log` event). */
+const FLOOD_LINES = 100_000;
+const FLOOD_BATCH = 500;
 
 /**
  * @param {ErrorCode} code
@@ -945,6 +962,7 @@ async function simulateRun(j, scenario, resolved) {
   const tool = TOOLS[rec.tool.id];
   runPhase(j, "preparing");
   await sleep(t);
+  await holdIn(j, "preparing");
   rec.started_at = isoNow();
   runPhase(j, "running");
   emitLog(j, [
@@ -953,6 +971,17 @@ async function simulateRun(j, scenario, resolved) {
     `File/Directory selected: ${rec.input.path}`,
     `Artifact categories to parse: ${resolved.length}`,
   ]);
+  if (scenario === "flood") {
+    for (let n = 0; n < FLOOD_LINES && !j.cancelRequested; n += FLOOD_BATCH) {
+      const lines = [];
+      for (let k = n; k < n + FLOOD_BATCH; k++) {
+        const name = resolved[k % Math.max(resolved.length, 1)] ?? "last_build";
+        lines.push(`[${String(k + 1).padStart(6, "0")}] ${name}: parsed ${k % 97} records from ${rec.input.path}/private/var/mobile/Library/${name}.db`);
+      }
+      emitLog(j, lines);
+      await sleep(5);
+    }
+  }
   const hashing = rec.input.hash.status === "pending";
   const bytesTotal = rec.input.size_bytes ?? 1;
   const batches = scenario === "slow" ? Number.POSITIVE_INFINITY : scenario === "interrupt" ? 5 : 14;
@@ -998,20 +1027,27 @@ async function simulateRun(j, scenario, resolved) {
   if (hashing && !cancelled) {
     runPhase(j, "hashing_input");
     await sleep(t);
+    if (has("hold_hashing_input")) {
+      emit(j, { type: "hash_progress", bytes_done: Math.round(bytesTotal * 0.93), bytes_total: bytesTotal });
+      await holdIn(j, "hashing_input");
+    }
     emit(j, { type: "hash_progress", bytes_done: bytesTotal, bytes_total: bytesTotal });
   }
   runPhase(j, "analyzing");
   await sleep(t);
+  await holdIn(j, "analyzing");
   if (outcome.report) {
     runPhase(j, "sealing_report");
     const files = outcome.index ? 5321 : 214;
     for (let i = 1; i <= 3; i++) {
       await sleep(t);
       emit(j, { type: "seal_progress", files_done: Math.round((files * i) / 3), files_total: files });
+      if (i === 1) await holdIn(j, "sealing_report");
     }
   }
   runPhase(j, "finalizing");
   await sleep(t);
+  await holdIn(j, "finalizing");
   finalizeRunRecord(rec, outcome, { startedAt: rec.started_at, exitedAt, endedAt: isoNow() });
   job = null;
   emit(j, { type: "finished", status: rec.status, reasons: rec.status_reasons, warnings: rec.warnings, summary: runSummary(j.casePath, rec) });

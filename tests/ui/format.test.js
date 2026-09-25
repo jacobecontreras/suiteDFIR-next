@@ -3,7 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  elapsedSince,
   formatBytes,
+  formatElapsed,
   formatCount,
   formatDuration,
   formatLocalTime,
@@ -47,6 +49,25 @@ test("middleEllipsis keeps the start and more of the end", () => {
   assert.equal(a, "/Volumes/Evid…0008101-000A1B2C3D4E");
   assert.ok(a.includes("…"));
   assert.equal(middleEllipsis("abcdefghij", 5), "a…hij");
+});
+
+test("elapsedSince measures from a timestamp to now, never negative", () => {
+  const start = Date.parse("2026-09-24T18:30:05Z");
+  assert.equal(elapsedSince("2026-09-24T18:30:05Z", start + 83_000), 83_000);
+  assert.equal(formatDuration(elapsedSince("2026-09-24T18:30:05Z", start + 83_000)), "1 min 23 s");
+  assert.equal(elapsedSince("2026-09-24T18:30:05Z", start - 5000), 0, "a clock behind the core's");
+  assert.equal(elapsedSince(null, start), null);
+  assert.equal(elapsedSince("yesterday", start), null);
+});
+
+test("formatElapsed counts whole seconds", () => {
+  assert.equal(formatElapsed(0), "0 s");
+  assert.equal(formatElapsed(368), "0 s");
+  assert.equal(formatElapsed(1999), "1 s");
+  assert.equal(formatElapsed(83_900), "1 min 23 s");
+  assert.equal(formatElapsed(3_725_000), "1 h 02 min 05 s");
+  assert.equal(formatElapsed(null), "—");
+  assert.equal(formatElapsed(-1), "—");
 });
 
 test("plural picks the noun by count", () => {

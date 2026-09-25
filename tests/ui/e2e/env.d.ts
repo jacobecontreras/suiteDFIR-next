@@ -58,6 +58,7 @@ declare module "playwright" {
     count(): Promise<number>;
   }
   interface Page {
+    keyboard: { press(key: string): Promise<void> };
     goto(url: string): Promise<unknown>;
     on(event: "console", listener: (message: ConsoleMessage) => void): void;
     on(event: "pageerror", listener: (error: Error) => void): void;

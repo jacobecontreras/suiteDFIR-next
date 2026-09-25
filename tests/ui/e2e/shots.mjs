@@ -10,10 +10,13 @@
 // page load), set up, and saved as <out>/<screen>-<light|dark>.png.
 //
 // It also runs behavior checks (`check-*`, no screenshot), e.g. that Enter in a New run field never
-// starts a run. It fails (exit 1) on a failed check, on any console CSP violation, console error or
-// uncaught page error (screens, checks and perf alike), and when the module-picker measurement
-// (`perf`: render + filter of 1,300 fixture modules) is not under 100 ms. The measurement is written
-// to <out>/perf.json.
+// starts a run and that cancelling needs a confirmation. It fails (exit 1) on a failed check, on any
+// console CSP violation, console error or uncaught page error (screens, checks and measurements
+// alike), and when a measurement misses its budget:
+// - `perf`: render + filter of 1,300 fixture modules in the module picker, under 100 ms
+//   (<out>/perf.json);
+// - `perf-log`: the Run screen with a 100,000-line mock run; no long task, scroll jump or scroll
+//   frame reaches 100 ms, and the log stays virtualized (<out>/perf-log.json).
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -27,6 +30,8 @@ const NIGHTJAR = "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar";
 const MISSING = "/Volumes/Archive/suiteDFIR Cases/Riverside 2025";
 const HARBOR = "/Users/examiner/Documents/suiteDFIR Cases/Harbor Lights";
 const PERF_BUDGET_MS = 100;
+/** "Stays interactive" at 100,000 log lines: no main-thread task, jump or frame reaches 100 ms. */
+const LOG_BUDGET_MS = 100;
 
 /**
  * @typedef {object} Screen
@@ -64,6 +69,65 @@ async function customMode(page) {
   await newRunReady(page);
   await page.getByRole("radio", { name: /Custom selection/ }).check();
   await page.locator(".picker").waitFor();
+}
+
+/**
+ * Starts a run from New run on a sample input and waits for the Run screen.
+ * @param {Page} page
+ * @param {string} buttonName "Choose file…" or "Choose folder…"
+ * @param {string} sample
+ */
+async function startRun(page, buttonName, sample) {
+  await newRunReady(page);
+  await pickInput(page, buttonName, sample);
+  await page.locator(".ready-text").waitFor();
+  await page.getByRole("button", { name: "Start run" }).click();
+  await page.locator(".run-screen .phase-steps").waitFor();
+}
+
+/**
+ * Waits until the log view holds at least `n` lines.
+ * @param {Page} page
+ * @param {number} n
+ * @param {number} [timeoutMs]
+ */
+async function waitForLines(page, n, timeoutMs = 60000) {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const count = await page.evaluate(() => Number(document.querySelector(".log-viewport")?.getAttribute("data-count") ?? 0));
+    if (count >= n) return;
+    if (Date.now() > until) throw new Error(`the log has ${count} lines, expected at least ${n}`);
+    await page.waitForTimeout(100);
+  }
+}
+
+/**
+ * Waits for the Run screen's result panel with the given status label.
+ * @param {Page} page
+ * @param {string} status e.g. "Succeeded"
+ */
+async function runResult(page, status) {
+  await page.locator(".result-card:not([hidden]) .card-head .badge", { hasText: status }).waitFor({ timeout: 30000 });
+}
+
+/**
+ * A Run screen held in `phase` by the mock's `hold_<phase>` flag.
+ * @param {string} phase
+ * @param {string} label The phase's label in the step list.
+ * @param {string} buttonName
+ * @param {string} sample
+ * @returns {Screen}
+ */
+function runPhaseScreen(phase, label, buttonName, sample) {
+  return {
+    name: `run-phase-${phase.replaceAll("_", "-")}`,
+    query: `?mock&scenario=hold_${phase}`,
+    hash: newRunHash,
+    setup: async (page) => {
+      await startRun(page, buttonName, sample);
+      await page.locator(".phase-step-current", { hasText: label }).waitFor();
+    },
+  };
 }
 
 /** @type {Screen[]} */
@@ -194,11 +258,7 @@ const SCREENS = [
     query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
-      await newRunReady(page);
-      await pickInput(page, "Choose folder…", "Evidence/interrupt");
-      await page.locator(".ready-text").waitFor();
-      await page.getByRole("button", { name: "Start run" }).click();
-      await page.locator(".runs-table .badge-running").waitFor();
+      await startRun(page, "Choose folder…", "Evidence/interrupt");
       await page.locator(".job-indicator").waitFor({ state: "detached", timeout: 15000 });
       await page.getByRole("link", { name: "Cases", exact: true }).first().click();
       await page.locator(".case-list").waitFor();
@@ -426,7 +486,7 @@ const SCREENS = [
       await page.getByLabel(/Backup password/).fill("examiner-secret");
       await page.getByLabel("Label").fill("Encrypted backup, second pass");
       await page.getByRole("button", { name: "Start run" }).click();
-      await page.locator(".runs-table .badge-running").waitFor();
+      await page.locator(".run-screen .phase-steps").waitFor();
       await page.locator(".job-indicator").waitFor();
     },
   },
@@ -438,6 +498,99 @@ const SCREENS = [
       await newRunReady(page);
       await pickInput(page, "Choose file…", "iPhone-12-FFS.zip");
       await page.locator(".ready-text").waitFor();
+    },
+  },
+  // ---- D4a: Run screen, every phase and every RunStatus ----
+  runPhaseScreen("preparing", "Preparing", "Choose folder…", "Pixel-7-extraction"),
+  {
+    name: "run-phase-running",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/slow");
+      await waitForLines(page, 40);
+    },
+  },
+  runPhaseScreen("hashing_input", "Hashing input", "Choose file…", "iPhone-12-FFS.zip"),
+  runPhaseScreen("analyzing", "Analyzing", "Choose folder…", "Pixel-7-extraction"),
+  runPhaseScreen("sealing_report", "Sealing report", "Choose folder…", "Pixel-7-extraction"),
+  runPhaseScreen("finalizing", "Finalizing", "Choose folder…", "Pixel-7-extraction"),
+  {
+    name: "run-cancel-confirm",
+    query: "?mock",
+    hash: newRunHash,
+    viewport: true,
+    setup: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/slow");
+      await waitForLines(page, 10);
+      await page.locator(".screen-head").getByRole("button", { name: "Cancel run" }).click();
+      await page.locator("dialog").getByRole("button", { name: "Keep running" }).waitFor();
+    },
+  },
+  {
+    name: "run-succeeded",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await startRun(page, "Choose file…", "iPhone-12-FFS.zip");
+      await runResult(page, "Succeeded");
+      await page.getByText(/complete, 0 error/).waitFor();
+    },
+  },
+  {
+    name: "run-completed-with-errors",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/errors");
+      await runResult(page, "Completed with errors");
+      await page.getByText("Modules with errors").waitFor();
+    },
+  },
+  {
+    name: "run-failed",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/fail-crash");
+      await runResult(page, "Failed");
+    },
+  },
+  {
+    name: "run-cancelled",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/slow");
+      await waitForLines(page, 20);
+      await page.locator(".screen-head").getByRole("button", { name: "Cancel run" }).click();
+      await page.locator("dialog").getByRole("button", { name: "Cancel run" }).click();
+      await runResult(page, "Cancelled");
+    },
+  },
+  {
+    name: "run-interrupted",
+    query: "?mock",
+    hash: caseHash(NIGHTJAR),
+    setup: async (page) => {
+      await page.getByRole("link", { name: "Before the power cut" }).click();
+      await runResult(page, "Interrupted");
+    },
+  },
+  {
+    // 100,000 lines (the flood scenario), scrolled to the middle: auto-scroll turns itself off.
+    name: "run-log-100k",
+    query: "?mock",
+    hash: newRunHash,
+    element: ".log-view",
+    setup: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/flood");
+      await waitForLines(page, 100_000);
+      await page.evaluate(() => {
+        const vp = document.querySelector(".log-viewport");
+        if (vp) vp.scrollTop = 50_000 * 20 - 100;
+      });
+      await page.locator(".log-view input[type=checkbox]:not(:checked)").waitFor();
     },
   },
 ];
@@ -491,7 +644,43 @@ const CHECKS = [
       await assertNoRun("password");
       // Explicit keyboard activation of Start run does start the run.
       await page.getByRole("button", { name: "Start run" }).press("Enter");
-      await page.locator(".runs-table .badge-running").waitFor();
+      await page.locator(".run-screen .phase-steps").waitFor();
+    },
+  },
+  {
+    // Cancelling a run needs an explicit confirmation: Escape, "Keep running" and Enter on the
+    // initially focused button all leave it running; only the dialog's "Cancel run" cancels.
+    name: "check-run-cancel-confirm",
+    hash: newRunHash,
+    run: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/slow");
+      await waitForLines(page, 10);
+      const open = async () => {
+        await page.locator(".screen-head").getByRole("button", { name: "Cancel run" }).click();
+        await page.locator("dialog").getByRole("button", { name: "Keep running" }).waitFor();
+      };
+      /** @param {string} how */
+      const assertRunning = async (how) => {
+        await page.locator("dialog").waitFor({ state: "detached" });
+        await page.waitForTimeout(1200);
+        const state = await page.evaluate(() => ({
+          badge: document.querySelector(".run-status .badge")?.textContent ?? "",
+          cancel: document.querySelector(".screen-head .btn-danger:not([hidden])")?.textContent ?? "",
+        }));
+        if (state.badge !== "Running" || state.cancel !== "Cancel run") throw new Error(`${how} cancelled the run: ${JSON.stringify(state)}`);
+      };
+      await open();
+      await page.keyboard.press("Escape");
+      await assertRunning("Escape");
+      await open();
+      await page.locator("dialog").getByRole("button", { name: "Keep running" }).click();
+      await assertRunning("Keep running");
+      await open();
+      await page.keyboard.press("Enter");
+      await assertRunning("Enter on the focused button");
+      await open();
+      await page.locator("dialog").getByRole("button", { name: "Cancel run" }).click();
+      await runResult(page, "Cancelled");
     },
   },
 ];
@@ -632,14 +821,91 @@ async function measurePicker(page, query) {
   };
 }
 
+/**
+ * The Run screen with a 100,000-line mock run (`…/flood`: 200 `log` events of 500 lines, the
+ * core's maximum batch), measured in the page (ROADMAP D4a, DEVELOPMENT.md §4.6):
+ * - streaming: wall time until all lines are in the log view, and main-thread long tasks (> 50 ms,
+ *   PerformanceObserver "longtask") while they arrive;
+ * - jumps: 50 scrollTop changes spread over the whole log, each timed until two animation frames
+ *   later (the scroll event, then the render), with a check that the row for the new position is
+ *   rendered with the right line number;
+ * - continuous scrolling: 120 frames moving 700 px each, the interval between frames;
+ * - the number of row elements in the DOM.
+ * @param {Page} page
+ */
+async function measureLog(page) {
+  await newRunReady(page);
+  await pickInput(page, "Choose folder…", "Evidence/flood");
+  await page.locator(".ready-text").waitFor();
+  await page.evaluate(() => {
+    const w = /** @type {any} */ (window);
+    w.__longTasks = [];
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) w.__longTasks.push(Math.round(entry.duration));
+    }).observe({ type: "longtask" });
+  });
+  const t0 = Date.now();
+  await page.getByRole("button", { name: "Start run" }).click();
+  await page.locator(".run-screen .log-viewport").waitFor();
+  await waitForLines(page, 100_000);
+  const streamMs = Date.now() - t0;
+  const streamLongTasks = await page.evaluate(() => /** @type {number[]} */ (/** @type {any} */ (window).__longTasks.splice(0)));
+  const scroll = await page.evaluate(async () => {
+    const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+    const rowHeight = 20;
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    /** @type {number[]} */
+    const jumps = [];
+    let wrongRows = 0;
+    const max = vp.scrollHeight - vp.clientHeight;
+    for (let i = 0; i < 50; i++) {
+      const target = Math.round((max * ((i * 37) % 50)) / 49);
+      const t = performance.now();
+      vp.scrollTop = target;
+      await frame();
+      await frame();
+      jumps.push(performance.now() - t);
+      const expected = Math.floor(vp.scrollTop / rowHeight) + 1;
+      const numbers = [...vp.querySelectorAll(".log-row:not([hidden]) .log-no")].map((e) => Number(e.textContent));
+      if (!numbers.includes(expected)) wrongRows += 1;
+    }
+    vp.scrollTop = 0;
+    await frame();
+    /** @type {number[]} */
+    const intervals = [];
+    let last = performance.now();
+    for (let i = 0; i < 120; i++) {
+      vp.scrollTop += 700;
+      await frame();
+      const now = performance.now();
+      intervals.push(now - last);
+      last = now;
+    }
+    return { jumps, intervals, wrongRows, rows: vp.querySelectorAll(".log-row").length, lines: Number(vp.dataset.count) };
+  });
+  const scrollLongTasks = await page.evaluate(() => /** @type {number[]} */ (/** @type {any} */ (window).__longTasks.splice(0)));
+  const round = (/** @type {number} */ v) => Number(v.toFixed(1));
+  return {
+    lines: scroll.lines,
+    row_elements: scroll.rows,
+    stream_ms: streamMs,
+    stream_long_tasks: { count: streamLongTasks.length, max_ms: Math.max(0, ...streamLongTasks) },
+    jump_ms: { runs: scroll.jumps.length, median: round(median(scroll.jumps)), max: round(Math.max(...scroll.jumps)) },
+    jump_wrong_rows: scroll.wrongRows,
+    scroll_frame_ms: { frames: scroll.intervals.length, median: round(median(scroll.intervals)), max: round(Math.max(...scroll.intervals)) },
+    scroll_long_tasks: { count: scrollLongTasks.length, max_ms: Math.max(0, ...scrollLongTasks) },
+  };
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const wanted = opts.screens;
   const screens = wanted ? SCREENS.filter((s) => wanted.includes(s.name)) : SCREENS;
   const checks = wanted ? CHECKS.filter((c) => wanted.includes(c.name)) : CHECKS;
   const runPerf = !wanted || wanted.includes("perf");
+  const runLogPerf = !wanted || wanted.includes("perf-log");
   if (wanted) {
-    const known = new Set(["perf", ...SCREENS.map((s) => s.name), ...CHECKS.map((c) => c.name)]);
+    const known = new Set(["perf", "perf-log", ...SCREENS.map((s) => s.name), ...CHECKS.map((c) => c.name)]);
     const unknown = wanted.filter((n) => !known.has(n));
     if (unknown.length) throw new Error(`unknown screens: ${unknown.join(", ")}`);
   }
@@ -711,6 +977,34 @@ async function main() {
       process.stdout.write(`perf ${JSON.stringify(report)}\n`);
       for (const r of results) {
         if (r.total_ms_max >= PERF_BUDGET_MS) problems.push(`perf: render + filter "${r.query}" took up to ${r.total_ms_max} ms (budget ${PERF_BUDGET_MS} ms)`);
+      }
+    }
+
+    if (runLogPerf) {
+      const context = await newContext(browser, "light");
+      const page = await context.newPage();
+      watchPage(page, "perf-log", problems);
+      try {
+        await page.goto(`${base}?mock${newRunHash}`);
+        const r = await measureLog(page);
+        const report = { budget_ms: LOG_BUDGET_MS, ...r };
+        await writeFile(path.join(opts.out, "perf-log.json"), `${JSON.stringify(report, null, 2)}\n`);
+        process.stdout.write(`perf-log ${JSON.stringify(report)}\n`);
+        if (r.lines < 100_000) problems.push(`perf-log: only ${r.lines} lines reached the log view`);
+        if (r.row_elements > 80) problems.push(`perf-log: ${r.row_elements} row elements in the DOM (not virtualized?)`);
+        if (r.jump_wrong_rows > 0) problems.push(`perf-log: ${r.jump_wrong_rows} jumps rendered the wrong rows`);
+        for (const [what, ms] of /** @type {const} */ ([
+          ["longest task while streaming", r.stream_long_tasks.max_ms],
+          ["longest task while scrolling", r.scroll_long_tasks.max_ms],
+          ["slowest jump", r.jump_ms.max],
+          ["slowest scroll frame", r.scroll_frame_ms.max],
+        ])) {
+          if (ms >= LOG_BUDGET_MS) problems.push(`perf-log: ${what} took ${ms} ms (budget ${LOG_BUDGET_MS} ms)`);
+        }
+      } catch (err) {
+        problems.push(`perf-log: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        await context.close();
       }
     }
   } finally {

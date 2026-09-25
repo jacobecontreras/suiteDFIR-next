@@ -44,7 +44,8 @@ export function formatCount(n) {
 
 /**
  * Shortens `text` to at most `max` characters by cutting out the middle, keeping more of the end
- * (for paths, the distinguishing part): `/Volumes/Evi…00008101-000A1B2C3D4E`.
+ * (for paths, the distinguishing part): `/Volumes/Evidence/00008101-000A1B2C3D4E` with `max` 34 is
+ * `/Volumes/Evid…0008101-000A1B2C3D4E`.
  * @param {string} text
  * @param {number} max at least 5
  * @returns {string}
@@ -83,6 +84,28 @@ export function formatDuration(ms) {
   if (h > 0) return `${h} h ${pad2(m)} min ${pad2(s)} s`;
   if (m > 0) return `${m} min ${s} s`;
   return `${s} s`;
+}
+
+/**
+ * An elapsed time in whole seconds: `0 s`, `42 s`, `22 min 36 s`, `1 h 02 min 05 s`. Missing → `—`.
+ * @param {number | null | undefined} ms
+ * @returns {string}
+ */
+export function formatElapsed(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return DASH;
+  return ms < 1000 ? "0 s" : formatDuration(Math.floor(ms / 1000) * 1000);
+}
+
+/**
+ * Milliseconds from `iso` to `nowMs` (never negative), or null if `iso` is not a timestamp. For the
+ * elapsed time of a running job.
+ * @param {string | null | undefined} iso
+ * @param {number} nowMs
+ * @returns {number | null}
+ */
+export function elapsedSince(iso, nowMs) {
+  const date = parseTimestamp(iso);
+  return date ? Math.max(0, nowMs - date.getTime()) : null;
 }
 
 /**

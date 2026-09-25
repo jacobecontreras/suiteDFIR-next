@@ -56,13 +56,16 @@ export function modal(spec) {
 }
 
 /**
- * A confirm dialog. Resolves true if confirmed, false if cancelled or dismissed.
- * @param {{ title: string, message: string, confirmLabel: string, danger?: boolean }} spec
+ * A confirm dialog. Resolves true if confirmed, false if cancelled or dismissed (Escape). Both
+ * buttons are plain buttons: Enter activates only the focused one, which is the dismissing button
+ * when the dialog opens.
+ * @param {{ title: string, message: string | Node, confirmLabel: string, cancelLabel?: string, danger?: boolean }} spec
  * @returns {Promise<boolean>}
  */
 export function confirmDialog(spec) {
   return new Promise((resolve) => {
     let result = false;
+    const dismiss = /** @type {HTMLButtonElement} */ (h("button", { class: "btn", type: "button", onClick: () => m.close() }, spec.cancelLabel ?? "Cancel"));
     const m = modal({
       title: spec.title,
       onClose: () => resolve(result),
@@ -70,11 +73,11 @@ export function confirmDialog(spec) {
         h(
           "div",
           { class: "modal-body" },
-          h("p", null, spec.message),
+          typeof spec.message === "string" ? h("p", null, spec.message) : spec.message,
           h(
             "div",
             { class: "modal-actions" },
-            h("button", { class: "btn", type: "button", onClick: () => m.close() }, "Cancel"),
+            dismiss,
             h(
               "button",
               {
@@ -91,5 +94,6 @@ export function confirmDialog(spec) {
         ),
     });
     m.open();
+    dismiss.focus();
   });
 }

@@ -32,7 +32,10 @@ node scripts/serve-ui.mjs [--root <dir>] [--port 5173]
                                          # serve <root>/ui + <root>/ui-dev (at /dev/) with the CSP from
                                          # <root>/src-tauri/tauri.conf.json (--root defaults to the repo root);
                                          # open http://127.0.0.1:5173/?mock for browser mock mode
-node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots, light and dark
+node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots, light and dark,
+                                         # behaviour checks (check-*: e.g. Enter never starts a job, cancel
+                                         # needs a confirmation) and measurements (perf, perf-log); fails on
+                                         # any CSP violation, console error, failed check or missed budget
                                          # (needs Playwright + Chromium; starts serve-ui itself; not in npm test)
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
