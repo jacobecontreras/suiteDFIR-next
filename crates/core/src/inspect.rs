@@ -569,13 +569,16 @@ mod tests {
                 }
                 let err = inspect(&evidence, &input_types(ToolId::Ileapp), &ctx).unwrap_err();
                 assert_eq!(err.code(), ErrorCode::InputOverlapsCase);
+                // Evidence elsewhere is fine.
+                assert!(check_overlap(&p(&evidence, "dir"), &ctx).is_ok());
             }
             Err(e) if e.raw_os_error() == Some(ERROR_UNTRUSTED_MOUNT_POINT) => {
                 eprintln!(
                     "NOTE: this machine refuses to traverse user-created junctions \
                      (ERROR_UNTRUSTED_MOUNT_POINT); checking that the overlap rule fails closed"
                 );
-                for input in [&evidence, &target] {
+                // The case's runs/ cannot be resolved, so every input is refused for this case.
+                for input in [&evidence, &target, &p(&evidence, "dir")] {
                     let err = check_overlap(input, &ctx).unwrap_err();
                     assert!(
                         matches!(&err, InspectError::Io { source, .. }
@@ -594,7 +597,6 @@ mod tests {
             }
             Err(e) => panic!("{}: {e}", would_be.display()),
         }
-        assert!(check_overlap(&p(&evidence, "dir"), &ctx).is_ok());
     }
 
     #[test]
