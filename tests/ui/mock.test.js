@@ -189,12 +189,26 @@ for (const [scenario, status, warning] of /** @type {const} */ ([
   ["/sync_lock", "failed", null],
 ])) {
   test(`an acquisition labelled "…${scenario}" finishes ${status}`, async () => {
-    const { fin, events } = await acquire(`Handset${scenario}`);
+    const { fin, events, started } = await acquire(`Handset${scenario}`);
     assert.equal(fin.status, status);
     if (warning) assert.ok(fin.warnings.some((w) => w.code === warning));
     assert.ok(events.some((e) => e.type === "device_prompt"));
+    if (warning === "encryption_left_enabled") {
+      // The device still encrypts backups, so turning encryption on again is refused …
+      await assert.rejects(acquire("Handset"), { code: "encryption_already_on" });
+      // … until "Turn backup encryption off" (a later acq_restore_encryption) succeeds.
+      const wrong = await mock.acq_restore_encryption({ case_path: CASE, acq_id: started.acq_id, password: "wrong" });
+      assert.deepEqual(wrong, { restored: false, will_encrypt_after: true });
+      const later = await mock.acq_restore_encryption({ case_path: CASE, acq_id: started.acq_id, password: "1234" });
+      assert.deepEqual(later, { restored: true, will_encrypt_after: false });
+    }
   });
 }
+
+test("a later restore is refused for an acquisition that did not leave encryption on", async () => {
+  const { started } = await acquire("Handset");
+  await assert.rejects(mock.acq_restore_encryption({ case_path: CASE, acq_id: started.acq_id, password: "1234" }), { code: "restore_not_applicable" });
+});
 
 test("a cancelled acquisition finishes cancelled and still restores encryption", async () => {
   const { fin, started } = await acquire("Handset/slow", {}, async (acqId, events) => {

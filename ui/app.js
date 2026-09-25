@@ -7,10 +7,12 @@ import { loadApi } from "./api/index.js";
 import { appError } from "./components/app-error.js";
 import { shell } from "./components/shell.js";
 import { h } from "./lib/dom.js";
+import { handoff } from "./lib/handoff.js";
 import { createJobStreams } from "./lib/jobstream.js";
 import { pollActiveJob } from "./lib/jobs.js";
 import { parseRoute } from "./lib/router.js";
 import { createStore } from "./lib/store.js";
+import { acquireScreen } from "./screens/acquire.js";
 import { caseScreen } from "./screens/case.js";
 import { casesScreen } from "./screens/cases.js";
 import { newRunScreen } from "./screens/new-run.js";
@@ -18,6 +20,7 @@ import { notFoundScreen } from "./screens/not-found.js";
 import { runScreen } from "./screens/run.js";
 import { settingsScreen } from "./screens/settings.js";
 
+/** @typedef {import("./types").AcqStatus} AcqStatus */
 /** @typedef {import("./lib/context").AppState} AppState */
 /** @typedef {import("./lib/context").ScreenContext} ScreenContext */
 /** @typedef {import("./lib/context").View} View */
@@ -29,6 +32,7 @@ const ROUTES = {
   "new-run": newRunScreen,
   run: runScreen,
   settings: settingsScreen,
+  acquire: acquireScreen,
 };
 
 /** How often `job_active` is polled while a job is active. */
@@ -67,7 +71,12 @@ async function main() {
   }
 
   pollActiveJob(api, store, JOB_POLL_MS);
-  const jobs = createJobStreams(store);
+  const jobs = createJobStreams(store, {
+    // A kept backup password is useless once its acquisition failed, or finished unseen.
+    onFinished: (s) => {
+      if (s.kind === "acquisition" && s.id && s.finished) handoff.finished(s.id, /** @type {AcqStatus} */ (s.finished.status));
+    },
+  });
 
   /** @type {View | null} */
   let current = null;

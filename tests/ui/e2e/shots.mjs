@@ -110,6 +110,73 @@ async function runResult(page, status) {
   await page.locator(".result-card:not([hidden]) .card-head .badge", { hasText: status }).waitFor({ timeout: 30000 });
 }
 
+/** @param {string} path */
+const acquireHash = (path) => `#/acquire?case=${encodeURIComponent(path)}`;
+
+/**
+ * Waits for the Acquire screen's device section (devices, a tools problem, or none connected).
+ * @param {Page} page
+ */
+async function acquireReady(page) {
+  await page.locator(".device-list, .tools-banner, .empty-state-sm").first().waitFor();
+}
+
+/**
+ * Ticks "Enable backup encryption" and types the password twice.
+ * @param {Page} page
+ * @param {string} [password]
+ * @param {string} [again]
+ */
+async function enableEncryption(page, password = "examiner-pw", again = password) {
+  await page.getByLabel("Enable backup encryption (recommended)").check();
+  await page.getByLabel(/^Backup password/).fill(password);
+  await page.getByLabel("Password again").fill(again);
+}
+
+/**
+ * On the Acquire screen with the iPhone selected: optional label, optional encryption (with "Parse
+ * with iLEAPP now"), then Start; waits for the progress view.
+ * @param {Page} page
+ * @param {{ label?: string, encrypt?: boolean, keep?: boolean }} [o]
+ */
+async function startAcquisition(page, o = {}) {
+  await acquireReady(page);
+  await page.getByRole("radio", { name: "Alex's iPhone" }).waitFor();
+  if (o.label) await page.getByLabel("Label").fill(o.label);
+  if (o.encrypt) {
+    await enableEncryption(page);
+    if (o.keep) await page.getByLabel("Parse with iLEAPP now").check();
+  }
+  await page.locator(".ready-text").waitFor();
+  await page.getByRole("button", { name: "Start acquisition" }).click();
+  await page.locator(".acquire-screen .phase-steps").waitFor();
+}
+
+/**
+ * @param {Page} page
+ * @param {string} status e.g. "Succeeded"
+ */
+async function acqResult(page, status) {
+  await page.locator(".result-card:not([hidden]) .card-head .badge", { hasText: status }).waitFor({ timeout: 30000 });
+}
+
+/**
+ * The Acquire screen of Operation Nightjar with mock flags.
+ * @param {string} name
+ * @param {string} flags
+ * @param {string} [element]
+ * @returns {Screen}
+ */
+function acquireToolsScreen(name, flags, element) {
+  return {
+    name,
+    query: `?mock&scenario=${flags}`,
+    hash: acquireHash(NIGHTJAR),
+    element,
+    setup: acquireReady,
+  };
+}
+
 /**
  * A Run screen held in `phase` by the mock's `hold_<phase>` flag.
  * @param {string} phase
@@ -682,6 +749,319 @@ const SCREENS = [
     },
   },
   {
+    // After a reload (here: a run already active when the page loads), job_attach returns the
+    // backlog and the Run screen follows the run again.
+    name: "run-attached",
+    query: "?mock&scenario=active_run",
+    hash: "#/cases",
+    setup: async (page) => {
+      await page.locator(".job-indicator").click();
+      await page.locator(".run-screen .phase-steps").waitFor();
+      await waitForLines(page, 10);
+    },
+  },
+  // ---- D5: Acquire ----
+  {
+    name: "acquire-devices",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.locator(".preflight-ok").waitFor();
+    },
+  },
+  {
+    name: "acquire-pair-states",
+    query: "?mock&scenario=pair_states",
+    hash: acquireHash(NIGHTJAR),
+    element: ".device-list",
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.getByText("Trust denied").waitFor();
+    },
+  },
+  {
+    // Pair on the unpaired iPad: the device now shows the Trust dialog.
+    name: "acquire-awaiting-trust",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    element: ".device-list",
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.locator(".device-card", { hasText: "iPad13,4" }).getByRole("button", { name: "Pair" }).click();
+      await page.getByText("Waiting for Trust").waitFor();
+    },
+  },
+  {
+    // Retry after Trust: paired. The iPad's owner had turned backup encryption on.
+    name: "acquire-encryption-already-on",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await acquireReady(page);
+      const card = page.locator(".device-card", { hasText: "iPad13,4" });
+      await card.getByRole("button", { name: "Pair" }).click();
+      await card.getByRole("button", { name: "Retry pairing" }).click();
+      await page.getByRole("radio", { name: "Evidence iPad" }).check();
+      await page.getByText("Backup encryption is already on for this device.").waitFor();
+      await page.locator(".ready-text").waitFor();
+    },
+  },
+  {
+    name: "acquire-encryption-enable",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.getByLabel("Label").fill("Seized iPhone, item 7");
+      await enableEncryption(page);
+      await page.getByLabel("Parse with iLEAPP now").check();
+      await page.locator(".ready-text").waitFor();
+    },
+  },
+  {
+    name: "acquire-password-mismatch",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    element: ".acquire-screen",
+    setup: async (page) => {
+      await acquireReady(page);
+      await enableEncryption(page, "examiner-pw", "examiner-pq");
+      await page.getByLabel("Label").click();
+      await page.locator(".field-error:not([hidden])").waitFor();
+    },
+  },
+  {
+    name: "acquire-encryption-unknown",
+    query: "?mock&scenario=pair_states",
+    hash: acquireHash(NIGHTJAR),
+    element: "section[aria-labelledby=acq-options-heading]",
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.getByRole("radio", { name: "Loaner iPhone" }).check();
+      await page.getByText("setting could not be read").waitFor();
+    },
+  },
+  acquireToolsScreen("acquire-tools-missing", "idevice_missing"),
+  acquireToolsScreen("acquire-tools-usbmuxd-unavailable", "usbmuxd_unavailable"),
+  acquireToolsScreen("acquire-tools-verification-failed", "idevice_verification_failed"),
+  acquireToolsScreen("acquire-tools-unsupported-platform", "idevice_unsupported"),
+  acquireToolsScreen("acquire-no-devices", "no_devices"),
+  {
+    name: "acquire-preflight-warn",
+    query: "?mock&scenario=preflight_warn",
+    hash: acquireHash(NIGHTJAR),
+    element: "section[aria-labelledby=acq-options-heading]",
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.locator(".preflight-warn").waitFor();
+    },
+  },
+  {
+    name: "acquire-preflight-block",
+    query: "?mock&scenario=preflight_block",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.locator(".preflight-block").waitFor();
+    },
+  },
+  {
+    // Another case's acquisition is running: its device is busy, and Start waits for the job.
+    name: "acquire-busy-device",
+    query: "?mock&scenario=active_acq",
+    hash: acquireHash(HARBOR),
+    setup: async (page) => {
+      await acquireReady(page);
+      await page.getByText("In use by the current acquisition.").waitFor();
+    },
+  },
+  {
+    // After a reload: job_attach and the backlog.
+    name: "acquire-attached",
+    query: "?mock&scenario=active_acq",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await page.locator(".acquire-screen .phase-steps").waitFor();
+      await page.locator(".progress-block").waitFor();
+    },
+  },
+  {
+    name: "acquire-prompt-encryption",
+    query: "?mock&scenario=hold_enabling_encryption",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7" });
+      await page.locator(".banner-prompt").waitFor();
+    },
+  },
+  {
+    name: "acquire-prompt-backup",
+    query: "?mock&scenario=hold_backing_up",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { label: "Seized iPhone, item 7" });
+      await page.locator(".banner-prompt").waitFor();
+    },
+  },
+  {
+    name: "acquire-progress",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { label: "Seized iPhone, item 7/slow" });
+      await page.getByText(/^[4-9]%$/).waitFor({ timeout: 15000 });
+    },
+  },
+  {
+    name: "acquire-restoring-encryption",
+    query: "?mock&scenario=hold_restoring_encryption",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7" });
+      await page.locator(".phase-step-current", { hasText: "Restoring encryption" }).waitFor({ timeout: 30000 });
+    },
+  },
+  {
+    name: "acquire-cancel-confirm",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    viewport: true,
+    setup: async (page) => {
+      await startAcquisition(page, { label: "Seized iPhone, item 7/slow" });
+      await page.locator(".progress-block").waitFor();
+      await page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" }).click();
+      await page.locator("dialog").getByRole("button", { name: "Keep going" }).waitFor();
+    },
+  },
+  {
+    name: "acquire-succeeded",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, keep: true, label: "Seized iPhone, item 7" });
+      await acqResult(page, "Succeeded");
+      await page.getByText("Turned on for the backup, then off again").waitFor();
+    },
+  },
+  {
+    name: "acquire-failed",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { label: "Seized iPhone, item 7/backup_fail" });
+      await acqResult(page, "Failed");
+    },
+  },
+  {
+    name: "acquire-cancelled",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { label: "Seized iPhone, item 7/slow" });
+      await page.locator(".progress-block").waitFor();
+      await page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" }).click();
+      await page.locator("dialog").getByRole("button", { name: "Cancel acquisition" }).click();
+      await acqResult(page, "Cancelled");
+    },
+  },
+  {
+    // Turning encryption off after the backup failed: the warnings and the action.
+    name: "acquire-restore-failed",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
+      await acqResult(page, "Succeeded");
+      await page.getByText("Backup encryption may still be on for this device.").waitFor();
+    },
+  },
+  {
+    // The later restore, with a wrong password: encryption stays on.
+    name: "acquire-restore-dialog-still-on",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    viewport: true,
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
+      await acqResult(page, "Succeeded");
+      await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).click();
+      await page.locator("dialog").getByLabel("Backup password").fill("wrong");
+      await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is still on.").waitFor();
+    },
+  },
+  {
+    // "Parse with iLEAPP" after a success with "Parse with iLEAPP now": New run with the backup and
+    // the password filled in.
+    name: "newrun-handoff",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, keep: true, label: "Seized iPhone, item 7" });
+      await acqResult(page, "Succeeded");
+      await page.getByRole("button", { name: "Parse with iLEAPP" }).click();
+      await page.getByText("The backup password set during the acquisition is filled in.").waitFor();
+      await page.locator(".ready-text").waitFor();
+    },
+  },
+  {
+    name: "case-acquisitions",
+    query: "?mock",
+    hash: caseHash(NIGHTJAR),
+    element: "section[aria-labelledby=acquisitions-heading]",
+    setup: async (page) => {
+      await page.locator(".acq-table").waitFor();
+    },
+  },
+  {
+    name: "case-acquisition-details",
+    query: "?mock",
+    hash: caseHash(NIGHTJAR),
+    viewport: true,
+    setup: async (page) => {
+      await page.locator(".acq-table").getByRole("button", { name: "Details" }).first().click();
+      await page.locator(".detail-groups").waitFor();
+    },
+  },
+  {
+    // The app "crashed" during an acquisition that had turned encryption on: interrupted on the
+    // next case open, with "Turn backup encryption off".
+    name: "case-acquisition-interrupted",
+    query: "?mock",
+    hash: acquireHash(NIGHTJAR),
+    element: "section[aria-labelledby=acquisitions-heading]",
+    setup: async (page) => {
+      await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/interrupt" });
+      await page.locator(".job-indicator").waitFor({ state: "detached", timeout: 20000 });
+      await page.getByRole("link", { name: "Cases", exact: true }).first().click();
+      await page.getByRole("link", { name: "Operation Nightjar" }).click();
+      await page.locator(".acq-table .badge-interrupted").waitFor();
+    },
+  },
+  {
+    name: "case-restore-dialog",
+    query: "?mock",
+    hash: caseHash(NIGHTJAR),
+    viewport: true,
+    setup: async (page) => {
+      await page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" }).click();
+      await page.locator("dialog").getByLabel("Backup password").fill("examiner-pw");
+    },
+  },
+  {
+    name: "case-restore-done",
+    query: "?mock",
+    hash: caseHash(NIGHTJAR),
+    viewport: true,
+    setup: async (page) => {
+      await page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" }).click();
+      await page.locator("dialog").getByLabel("Backup password").fill("examiner-pw");
+      await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is off.").waitFor();
+    },
+  },
+  {
     // 100,000 lines (the flood scenario), scrolled to the middle: auto-scroll turns itself off.
     name: "run-log-100k",
     query: "?mock",
@@ -785,6 +1165,133 @@ const CHECKS = [
       await open();
       await page.locator("dialog").getByRole("button", { name: "Cancel run" }).click();
       await runResult(page, "Cancelled");
+    },
+  },
+  {
+    // An acquisition changes the device: Enter in the label or either password field of a ready
+    // form never starts one; only activating Start acquisition does.
+    name: "check-acq-enter-does-not-start",
+    hash: acquireHash(NIGHTJAR),
+    run: async (page) => {
+      await acquireReady(page);
+      await page.getByLabel("Label").fill("Enter must not start");
+      await enableEncryption(page);
+      await page.locator(".ready-text").waitFor();
+      /** @param {string} field */
+      const assertNotStarted = async (field) => {
+        await page.waitForTimeout(800);
+        const state = await page.evaluate(() => ({
+          progress: document.querySelector(".acquire-screen .phase-steps") !== null,
+          indicator: document.querySelector(".job-indicator") !== null,
+          ready: document.querySelector(".ready-text") !== null,
+        }));
+        if (state.progress || state.indicator) throw new Error(`Enter in the ${field} field started an acquisition: ${JSON.stringify(state)}`);
+        if (!state.ready) throw new Error(`the form was not ready, so the check proves nothing: ${JSON.stringify(state)}`);
+      };
+      await page.getByLabel("Label").press("Enter");
+      await assertNotStarted("label");
+      await page.getByLabel(/^Backup password/).press("Enter");
+      await assertNotStarted("password");
+      await page.getByLabel("Password again").press("Enter");
+      await assertNotStarted("password again");
+      await page.getByRole("button", { name: "Start acquisition" }).press("Enter");
+      await page.locator(".acquire-screen .phase-steps").waitFor();
+    },
+  },
+  {
+    name: "check-acq-cancel-confirm",
+    hash: acquireHash(NIGHTJAR),
+    run: async (page) => {
+      await startAcquisition(page, { label: "Check/slow" });
+      await page.locator(".progress-block").waitFor();
+      const open = async () => {
+        await page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" }).click();
+        await page.locator("dialog").getByRole("button", { name: "Keep going" }).waitFor();
+      };
+      /** @param {string} how */
+      const assertRunning = async (how) => {
+        await page.locator("dialog").waitFor({ state: "detached" });
+        await page.waitForTimeout(1200);
+        const badge = await page.evaluate(() => document.querySelector(".acquire-screen .run-status .badge")?.textContent ?? "");
+        if (badge !== "Running") throw new Error(`${how} cancelled the acquisition (${badge})`);
+      };
+      await open();
+      await page.keyboard.press("Escape");
+      await assertRunning("Escape");
+      await open();
+      await page.locator("dialog").getByRole("button", { name: "Keep going" }).click();
+      await assertRunning("Keep going");
+      await open();
+      await page.keyboard.press("Enter");
+      await assertRunning("Enter on the focused button");
+      await open();
+      await page.locator("dialog").getByRole("button", { name: "Cancel acquisition" }).click();
+      await acqResult(page, "Cancelled");
+    },
+  },
+  {
+    // Turning backup encryption off changes the device: Enter in the password field and Escape do
+    // nothing to it; only the button does, and the field is cleared once it is used.
+    name: "check-encryption-off-confirm",
+    hash: caseHash(NIGHTJAR),
+    run: async (page) => {
+      const turnOff = page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" });
+      await turnOff.click();
+      const dialog = page.locator("dialog");
+      const password = dialog.getByLabel("Backup password");
+      await password.fill("examiner-pw");
+      await password.press("Enter");
+      await page.waitForTimeout(1000);
+      const afterEnter = await page.evaluate(() => ({
+        open: document.querySelector("dialog") !== null,
+        result: document.querySelector("dialog .restore-result")?.textContent ?? "",
+      }));
+      if (!afterEnter.open || afterEnter.result !== "") throw new Error(`Enter in the password field acted: ${JSON.stringify(afterEnter)}`);
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "detached" });
+      await turnOff.click();
+      await dialog.getByLabel("Backup password").fill("examiner-pw");
+      await dialog.getByRole("button", { name: "Turn encryption off" }).click();
+      await page.getByText("Backup encryption is off.").waitFor();
+      const value = await page.evaluate(() => /** @type {HTMLInputElement | null} */ (document.querySelector("dialog input[type=password]"))?.value ?? null);
+      if (value !== "") throw new Error(`the password field was not cleared after use: ${JSON.stringify(value)}`);
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await page.getByText("Encryption turned off").waitFor();
+    },
+  },
+  {
+    // Polling never pairs: an unpaired device stays unpaired across several polls.
+    name: "check-no-implicit-pairing",
+    hash: acquireHash(NIGHTJAR),
+    run: async (page) => {
+      await acquireReady(page);
+      const ipad = page.locator(".device-card", { hasText: "iPad13,4" });
+      await ipad.getByText("Not paired").waitFor();
+      await page.waitForTimeout(5000);
+      await ipad.getByText("Not paired").waitFor({ timeout: 1000 });
+      await ipad.getByRole("button", { name: "Pair" }).waitFor({ timeout: 1000 });
+    },
+  },
+  {
+    // The handed-over password lives only in that New run form: closing the form drops it, and a
+    // second "Parse with iLEAPP" for the same backup does not bring it back.
+    name: "check-handoff-cleared",
+    hash: acquireHash(NIGHTJAR),
+    run: async (page) => {
+      await startAcquisition(page, { encrypt: true, keep: true, label: "Handoff check" });
+      await acqResult(page, "Succeeded");
+      await page.getByRole("button", { name: "Parse with iLEAPP" }).click();
+      const password = page.getByLabel(/Backup password/);
+      await password.waitFor();
+      const handed = await page.evaluate(() => /** @type {HTMLInputElement | null} */ (document.querySelector("input[name=itunes_password]"))?.value ?? "");
+      if (handed !== "examiner-pw") throw new Error("the password was not handed over");
+      await page.locator(".start-card").getByRole("link", { name: "Cancel" }).click();
+      await page.locator(".acq-table").waitFor();
+      await page.locator("tr", { hasText: "Handoff check" }).getByRole("button", { name: "Parse with iLEAPP" }).click();
+      await password.waitFor();
+      await page.locator(".start-reasons").getByText("Enter the backup password").waitFor();
+      const again = await page.evaluate(() => /** @type {HTMLInputElement | null} */ (document.querySelector("input[name=itunes_password]"))?.value ?? null);
+      if (again !== "") throw new Error(`the password came back after the form closed: ${JSON.stringify(again)}`);
     },
   },
 ];

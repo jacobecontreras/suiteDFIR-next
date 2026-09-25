@@ -12,8 +12,10 @@
 //   `no_devices`, `idevice_missing`, `usbmuxd_unavailable`, `idevice_verification_failed`,
 //   `idevice_unsupported`, `preflight_warn`, `preflight_block`, `tool_verification_failed` (iLEAPP
 //   fails verification), `tool_unsupported` (no aLEAPP build for the platform).
-//   `hold_<phase>` (e.g. `hold_analyzing`, `hold_sealing_report`): a run stops in that phase until
-//   it is cancelled, so every phase can be screenshotted.
+//   `hold_<phase>` (e.g. `hold_analyzing`, `hold_sealing_report`, `hold_enabling_encryption`,
+//   `hold_backing_up`): a run or acquisition stops in that phase (after its device prompt, if any)
+//   until it is cancelled, so every phase can be screenshotted. `pair_states`: one device in every
+//   PairState. `active_acq`: a slow acquisition of the first device is already active at load.
 // - Runs: the final status is chosen by the input path's last segment without extension:
 //   `errors`, `fail-invalid`, `fail-early`, `fail-argparse`, `fail-crash`, `slow` (runs until
 //   cancelled), `interrupt` (the "app crashes": the next case_open marks it interrupted), `flood`
@@ -33,6 +35,7 @@ import {
   REASONS,
   RUN_OUTCOMES,
   TOOLS,
+  acquisitionIdOf,
   acqSummary,
   finalizeRunRecord,
   initialAcqRecord,
@@ -358,25 +361,56 @@ const profiles = {
   aleapp: new Map([["Android triage", MODULES.aleapp.filter((_, i) => i % 83 === 0).map((m) => m.name)]]),
 };
 
+/**
+ * A device as seen before pairing (`ideviceinfo -s`: no name or serial; no encryption or disk data).
+ * @param {string} udid
+ * @param {string} productType
+ * @param {string} version
+ * @param {import("../ui/types").PairState} state
+ * @param {string | null} message
+ * @returns {DeviceSummary}
+ */
+function unpairedDevice(udid, productType, version, state, message) {
+  return {
+    udid,
+    device_name: null,
+    product_type: productType,
+    product_version: version,
+    serial_number: null,
+    pair_state: state,
+    busy: false,
+    will_encrypt: null,
+    data_used_bytes: null,
+    data_capacity_bytes: null,
+    message,
+  };
+}
+
+const IPAD = unpairedDevice("4e1c2b3a5d6f708192a3b4c5d6e7f8091a2b3c4d", "iPad13,4", "17.5.1", "not_paired", null);
+
 /** @type {DeviceSummary[]} */
 const devices = has("no_devices")
   ? []
-  : [
-      clone(fx.DeviceSummary),
-      {
-        udid: "4e1c2b3a5d6f708192a3b4c5d6e7f8091a2b3c4d",
-        device_name: null,
-        product_type: "iPad13,4",
-        product_version: "17.5.1",
-        serial_number: null,
-        pair_state: "not_paired",
-        busy: false,
-        will_encrypt: null,
-        data_used_bytes: null,
-        data_capacity_bytes: null,
-        message: null,
-      },
-    ];
+  : has("pair_states")
+    ? [
+        clone(fx.DeviceSummary),
+        IPAD,
+        unpairedDevice("00008110-001A2B3C4D5E6F70", "iPhone14,5", "18.5", "awaiting_trust", "ERROR: Please accept the trust dialog on the screen of device 00008110-001A2B3C4D5E6F70, then attempt to pair again."),
+        unpairedDevice("00008120-000C1D2E3F405162", "iPhone15,2", "18.6", "locked", "ERROR: Could not validate with device 00008120-000C1D2E3F405162 because a passcode is set. Please enter the passcode on the device and retry."),
+        unpairedDevice("00008030-0019283746AB5C6D", "iPhone12,1", "17.7", "trust_denied", "ERROR: Device 00008030-0019283746AB5C6D said that the user denied the trust dialog."),
+        unpairedDevice("00008101-0005A4B3C2D1E0F9", "iPhone13,4", "18.6", "pairing_failed", "ERROR: Pairing with device 00008101-0005A4B3C2D1E0F9 failed."),
+        unpairedDevice("00008027-001122334455AABB", "iPad8,9", "16.7.10", "unknown", "idevicepair hostid did not answer within 20 s"),
+        {
+          ...clone(fx.DeviceSummary),
+          udid: "00008140-00AB12CD34EF5601",
+          device_name: "Loaner iPhone",
+          product_type: "iPhone16,1",
+          serial_number: "G7KXXXXXXX",
+          will_encrypt: null,
+          message: "WillEncrypt could not be read",
+        },
+      ]
+    : [clone(fx.DeviceSummary), IPAD];
 /** @type {Map<string, number>} */
 const pairAttempts = new Map();
 
@@ -574,7 +608,11 @@ function inspect(tool, path, casePath) {
   const toolTypes = TOOLS[tool].input_types;
   if (!isFile) {
     const itunes = /backup/i.test(stem) || /^[0-9a-f]{8}-[0-9a-f]{12,16}$/i.test(stem) || /^[0-9a-f]{40}$/i.test(stem);
-    const encrypted = itunes && (path === fx.InputInspection.path || /encrypted/i.test(stem));
+    // An acquired backup is encrypted when the acquisition turned encryption on, or it was on before.
+    const acqId = acquisitionIdOf(casePath, path);
+    const acq = acqId ? cases.get(casePath)?.acqs.find((a) => a.acq_id === acqId) : undefined;
+    const acqEncrypted = acq ? acq.encryption.enabled_by_examiner || acq.encryption.will_encrypt_before === true : false;
+    const encrypted = itunes && (path === fx.InputInspection.path || /encrypted/i.test(stem) || acqEncrypted);
     const canItunes = itunes && toolTypes.includes("itunes");
     return {
       path,
@@ -1149,16 +1187,16 @@ export const temp_cleanup = async () => {
 /** @returns {import("../ui/types").DevicesResult["tools"]} */
 function ideviceTools() {
   if (has("idevice_missing")) {
-    return { source: null, version: null, state: "missing", guidance: "The libimobiledevice tools were not found. Reinstall suiteDFIR." };
+    return { source: null, version: null, state: "missing", guidance: "idevice_id was not found next to the app executable." };
   }
   if (has("usbmuxd_unavailable")) {
-    return { source: "bundled", version: "1.4.0", state: "usbmuxd_unavailable", guidance: "Install the Apple Devices app (or iTunes) so the Apple Mobile Device Service runs." };
+    return { source: "bundled", version: "1.4.0", state: "usbmuxd_unavailable", guidance: "idevice_id -l: ERROR: Unable to retrieve device list!" };
   }
   if (has("idevice_verification_failed")) {
-    return { source: "bundled", version: "1.4.0", state: "verification_failed", guidance: "A bundled tool does not match its pinned hash. Reinstall suiteDFIR." };
+    return { source: "bundled", version: "1.4.0", state: "verification_failed", guidance: "idevicebackup2: SHA-256 7c1e9a04…b25d does not match the pinned 945993e3…a2d2." };
   }
   if (has("idevice_unsupported")) {
-    return { source: null, version: null, state: "unsupported_platform", guidance: "iOS acquisition is not available on Windows on Arm." };
+    return { source: null, version: null, state: "unsupported_platform", guidance: "No iOS tools are pinned for windows-aarch64." };
   }
   return clone(fx.DevicesResult.tools);
 }
@@ -1194,16 +1232,20 @@ export const device_pair = async (req) => {
   await sleep(tick());
   const attempt = (pairAttempts.get(req.udid) ?? 0) + 1;
   pairAttempts.set(req.udid, attempt);
-  if (attempt === 1) {
+  // A device that was never asked shows the Trust dialog first; a retry (the examiner tapped Trust,
+  // unlocked it or reconnected it) pairs.
+  if (attempt === 1 && device.pair_state === "not_paired") {
     device.pair_state = "awaiting_trust";
-    device.message = "Unlock the device and tap Trust, then press Pair again.";
+    device.message = `ERROR: Please accept the trust dialog on the screen of device ${req.udid}, then attempt to pair again.`;
   } else {
+    const ipad = device.product_type?.startsWith("iPad") ?? false;
     Object.assign(device, {
       pair_state: "paired",
       message: null,
-      device_name: "Evidence iPad",
-      serial_number: "DMPXXXXXXXXX",
-      will_encrypt: true,
+      device_name: ipad ? "Evidence iPad" : "Evidence iPhone",
+      serial_number: ipad ? "DMPXXXXXXXXX" : "FFMXXXXXXXXX",
+      // The iPad's owner turned backup encryption on (the "already encrypted" variant).
+      will_encrypt: ipad,
       data_used_bytes: 42949672960,
       data_capacity_bytes: 128849018880,
     });
@@ -1288,8 +1330,10 @@ async function simulateAcq(j, scenario, req) {
   const rec = j.record;
   const tool = rec.tools.binaries.idevicebackup2.path;
   const udid = rec.device.udid;
+  const device = devices.find((d) => d.udid === udid);
   acqPhase(j, "preparing");
   await sleep(t);
+  await holdIn(j, "preparing");
   rec.started_at = isoNow();
   /** @type {Reason[]} */
   let reasons = [];
@@ -1303,12 +1347,14 @@ async function simulateAcq(j, scenario, req) {
   if (req.enable_encryption) {
     acqPhase(j, "enabling_encryption");
     emit(j, { type: "device_prompt", kind: "passcode_for_encryption", text: "Please confirm enabling the backup encryption by entering the passcode on the device." });
+    await holdIn(j, "enabling_encryption");
     await sleep(3 * t);
     const ok = scenario !== "enable_fail";
     rec.commands.push({ purpose: "enable_encryption", argv: [tool, "-u", udid, "encryption", "on"], exit_code: ok ? 0 : 1, started_at: rec.started_at, exited_at: isoNow() });
     rec.encryption.will_encrypt_after_enable = ok;
     if (ok) {
       enabled = true;
+      if (device) device.will_encrypt = true;
       rec.encryption.enabled_by_examiner = true;
       rec.device_changes.push({ at: isoNow(), change: "backup_encryption_enabled", detail: "WillEncrypt false → true" });
     } else {
@@ -1324,6 +1370,7 @@ async function simulateAcq(j, scenario, req) {
     rec.commands.push({ purpose: "backup", argv: [tool, "-u", udid, "backup", "--full", `${j.casePath}/acquisitions/${rec.acq_id}/backup`], exit_code: null, started_at: started, exited_at: null });
     emit(j, { type: "device_prompt", kind: "passcode_for_backup", text: "*** Waiting for passcode to be entered on the device ***" });
     emitLog(j, ['Started "com.apple.mobilebackup2" service on port 49324.', "Negotiated Protocol Version 2.1", "Starting backup..."]);
+    await holdIn(j, "backing_up");
     const stopAt = ACQ_FAILURES[scenario] ? 40 : 100;
     const step = scenario === "slow" ? 1 : 10;
     for (let pct = 0; pct <= stopAt; pct += step) {
@@ -1355,12 +1402,14 @@ async function simulateAcq(j, scenario, req) {
   if (enabled && req.restore_encryption && scenario !== "disconnect") {
     acqPhase(j, "restoring_encryption");
     emit(j, { type: "device_prompt", kind: "passcode_for_encryption", text: "Please confirm disabling the backup encryption by entering the passcode on the device." });
+    await holdIn(j, "restoring_encryption");
     await sleep(2 * t);
     const ok = scenario !== "restore_fail";
     rec.commands.push({ purpose: "restore_encryption", argv: [tool, "-u", udid, "encryption", "off"], exit_code: ok ? 0 : 1, started_at: isoNow(), exited_at: isoNow() });
     rec.encryption.restored_after = ok ? "restored" : "failed";
     rec.encryption.will_encrypt_after_restore = !ok;
     if (ok) {
+      if (device) device.will_encrypt = false;
       rec.device_changes.push({ at: isoNow(), change: "backup_encryption_disabled", detail: "WillEncrypt true → false" });
     } else {
       warnings.push(r("encryption_restore_failed", "Turning backup encryption off failed"));
@@ -1375,6 +1424,7 @@ async function simulateAcq(j, scenario, req) {
 
   acqPhase(j, "validating");
   await sleep(t);
+  await holdIn(j, "validating");
   if (backupRan) {
     rec.backup_result = {
       final_message: cancelledBeforeExit ? "Backup Aborted." : ACQ_FAILURES[scenario] ? null : "Backup Successful.",
@@ -1398,6 +1448,7 @@ async function simulateAcq(j, scenario, req) {
       if (j.cancelRequested && backupExited && !cancelledBeforeExit) break;
       done = Math.round((files * i) / 3);
       emit(j, { type: "seal_progress", files_done: done, files_total: files });
+      if (i === 1) await holdIn(j, "sealing");
     }
     const sealCancelled = done < files;
     if (sealCancelled) warnings.push(r("seal_cancelled", "Sealing was cancelled; backup.sha256 is incomplete"));
@@ -1409,6 +1460,7 @@ async function simulateAcq(j, scenario, req) {
   }
   acqPhase(j, "finalizing");
   await sleep(t);
+  await holdIn(j, "finalizing");
   /** @type {AcqStatus} */
   const status = cancelledBeforeExit ? "cancelled" : reasons.length ? "failed" : "succeeded";
   rec.status = status;
@@ -1452,6 +1504,8 @@ export const acq_restore_encryption = async (req) => {
   if (device.pair_state !== "paired") throw appError("device_not_paired", "Pair the device first.");
   if (!req.password) throw appError("encryption_password_required", "Enter the backup password that was set during the acquisition.");
   await sleep(2 * tick());
+  // The password "wrong" stands for a wrong password: the tool fails, and encryption stays on.
+  if (req.password === "wrong") return { restored: false, will_encrypt_after: true };
   device.will_encrypt = false;
   return { restored: true, will_encrypt_after: false };
 };
@@ -1485,6 +1539,19 @@ if (has("active_run")) {
       keychain_path: null,
       hash_input: false,
       label: "Long-running triage",
+    },
+    () => {},
+  );
+}
+if (has("active_acq")) {
+  void acq_start(
+    {
+      case_path: NIGHTJAR,
+      udid: fx.DeviceSummary.udid,
+      label: "Seized iPhone, item 7/slow",
+      enable_encryption: false,
+      encryption_password: null,
+      restore_encryption: false,
     },
     () => {},
   );

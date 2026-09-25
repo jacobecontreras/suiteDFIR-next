@@ -55,6 +55,8 @@ declare module "playwright" {
     nth(index: number): Locator;
     locator(selector: string, options?: { hasText?: string | RegExp }): Locator;
     getByRole(role: string, options?: { name?: string | RegExp; exact?: boolean }): Locator;
+    getByLabel(text: string | RegExp, options?: { exact?: boolean }): Locator;
+    getByText(text: string | RegExp, options?: { exact?: boolean }): Locator;
     count(): Promise<number>;
   }
   interface Page {

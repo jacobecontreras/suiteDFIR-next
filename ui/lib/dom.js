@@ -59,6 +59,42 @@ export function fill(el, ...children) {
 }
 
 /**
+ * Runs `render`, which may detach and re-attach the focused control inside `container` (e.g. by
+ * replacing children that include persistent inputs), and then gives the focus and the text caret
+ * back to that control if it is still in the document, or to the new control with the same
+ * `data-focus-key`. An examiner typing (or tabbing) while a section re-renders stays in place.
+ * @param {Element} container
+ * @param {() => void} render
+ */
+export function keepFocus(container, render) {
+  const focused = document.activeElement;
+  const inside = focused instanceof HTMLElement && container.contains(focused) ? focused : null;
+  // A control that is rebuilt on every render carries `data-focus-key`; its replacement gets the focus.
+  const key = inside?.dataset.focusKey ?? null;
+  const keep = inside instanceof HTMLInputElement || inside instanceof HTMLSelectElement ? inside : null;
+  const selection = keep instanceof HTMLInputElement ? [keep.selectionStart, keep.selectionEnd] : null;
+  render();
+  if (key !== null && !inside?.isConnected) {
+    for (const el of container.querySelectorAll("[data-focus-key]")) {
+      if (el instanceof HTMLElement && el.dataset.focusKey === key) {
+        el.focus();
+        return;
+      }
+    }
+    return;
+  }
+  if (!keep || !keep.isConnected || document.activeElement === keep) return;
+  keep.focus();
+  if (keep instanceof HTMLInputElement && selection && selection[0] !== null && selection[1] !== null) {
+    try {
+      keep.setSelectionRange(selection[0], selection[1]);
+    } catch {
+      // Not a text control (e.g. a checkbox): there is no caret to restore.
+    }
+  }
+}
+
+/**
  * Flattens nested child arrays, drops skipped values and turns numbers into strings.
  * @param {Child[]} children
  * @returns {(Node | string)[]}

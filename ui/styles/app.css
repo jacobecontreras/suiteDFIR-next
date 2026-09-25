@@ -1728,6 +1728,122 @@ input[type="radio"] {
   overflow-wrap: normal;
 }
 
+/* ---- Acquire ---- */
+
+.device-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.device-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.device-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--card);
+}
+
+.device-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.device-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+label.device-title {
+  cursor: pointer;
+}
+
+.device-guidance {
+  font-weight: 500;
+}
+
+.empty-state-sm {
+  padding: 28px 20px;
+}
+
+.encryption-options {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.encryption-options h3 {
+  padding-top: 8px;
+}
+
+/* The device waits for the examiner: the most prominent thing on the screen. */
+.banner-prompt {
+  padding: 14px 16px;
+  background: var(--warn-bg);
+  border: 2px solid var(--warn);
+}
+
+.banner-prompt > .icon-prompt {
+  width: 28px;
+  height: 28px;
+  margin-top: 0;
+  color: var(--warn);
+}
+
+.prompt-title {
+  font-size: 17px;
+}
+
+.cell-warn {
+  color: var(--warn);
+  font-weight: 500;
+}
+
+.cell-warn .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.cell-actions-wrap {
+  white-space: normal;
+  min-width: 280px;
+}
+
+.cell-actions-wrap .btn {
+  margin: 2px 0 2px 4px;
+}
+
+.cell-actions-wrap .btn + .btn {
+  margin-left: 4px;
+}
+
+.btn-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.restore-result:empty {
+  display: none;
+}
+
 .clipboard-helper {
   position: fixed;
   top: 0;
