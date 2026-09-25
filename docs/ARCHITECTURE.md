@@ -120,7 +120,7 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 |---|---|---|
 | `contracts` | All serde types from CONTRACTS.md. | M0.3 |
 | `fsutil` | `write_json_atomic`, read-only marking, path-overlap checks (canonicalize for comparison only), `free_space` (`fsutil/unix.rs`, `fsutil/windows.rs`). | M0.3 (+C1) |
-| `hashing` | `sha256_file` (M0.3). Progress/cancel variant and `seal_tree(dir, manifest_name, cancel)`, used for `report.sha256` and `backup.sha256` (C3). | M0.3, C3 |
+| `hashing` | `sha256_file` (M0.3). Progress/cancel variant and `seal_tree(dir, manifest_path, cancel, progress)` (progress feeds the `seal_progress` events), used for `report.sha256` and `backup.sha256` (C3). | M0.3, C3 |
 | `manifest` | Parse the embedded `leapp-manifest.json`; `PlatformKey` detection. | A1 |
 | `leapp::install` | Download (HTTPS only, size-capped, progress) → verify asset hash → extract (zip entry only; AppImage via `--appimage-extract`) → verify the entry hash against the manifest (or record it where the manifest has `null`) → `install.json`. Offline import; `verify`. | A2 |
 | `leapp::modules` | Introspection run → `modules.json` (modules, always-run, timezones). | A3 |
