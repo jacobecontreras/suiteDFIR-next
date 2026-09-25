@@ -35,6 +35,8 @@ node scripts/serve-ui.mjs [--root <dir>] [--port 5173]
 node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots, light and dark
                                          # (needs Playwright + Chromium; starts serve-ui itself; not in npm test)
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
+                                         # (~350 MB per tool, downloaded to the OS temp dir or
+                                         # --download-dir <dir> and deleted after checking)
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
 cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
 scripts/build-idevice-tools.sh <platform-key>  # build a pinned libimobiledevice tool bundle: macos-aarch64 / macos-x86_64
@@ -70,7 +72,7 @@ crates/core/                  suitedfir-core: all logic, no Tauri dependency
        settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice/, acquire/}
   src/bin/fake-leapp.rs       test double (never bundled); tests use env!("CARGO_BIN_EXE_fake-leapp")
   src/bin/fake-idevice.rs     test double for the libimobiledevice tools (never bundled)
-  tests/{process.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/}
+  tests/{process.rs, introspection.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/}
 src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.json (externalBin overlay),
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
 xtask/                        pin-leapp, contracts, notices, fetch-idevice-tools
@@ -291,6 +293,7 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **Tauri CLI:** CI does **not** install the Tauri CLI; `cargo build` compiles the app, including `tauri-build` config validation. `cargo tauri build` runs in the local gates.
 - **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
 - **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. A `workflow_dispatch` runs only the job(s) selected by its `os` input (`linux`, `macos`, `windows` or `all`). On pull requests and pushes to `main`, the Linux job always runs, and the macOS and Windows jobs run only once the repository is public (`!github.event.repository.private`). Draft pull requests run no CI jobs.
+- **LEAPP smoke container:** `leapp-smoke.yml` runs in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
 - **Dispatch-only workflows:** `leapp-smoke.yml` and `release.yml` are `workflow_dispatch`-only while private (Linux legs only). All other builds, including the iOS tools and the macOS/Windows release bundles, happen on local machines. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 

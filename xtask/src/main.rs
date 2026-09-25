@@ -3,6 +3,7 @@
 //! The other commands listed in DEVELOPMENT.md §2 are added by their roadmap tasks.
 
 mod idevice_tools;
+mod pin_leapp;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,7 +16,9 @@ const USAGE: &str = "usage: cargo xtask <command>
 commands:
   contracts   regenerate ui-dev/fixtures/contracts/ from the Rust contract examples
   fetch-idevice-tools [--target <triple>]
-              fetch and verify the pinned libimobiledevice tools into src-tauri/binaries/";
+              fetch and verify the pinned libimobiledevice tools into src-tauri/binaries/
+  pin-leapp --tool <ileapp|aleapp> --tag <tag> [--download-verify] [--download-dir <dir>]
+              pin a LEAPP release in leapp-manifest.json";
 
 const FIXTURES_DIR: &str = "ui-dev/fixtures/contracts";
 
@@ -36,6 +39,7 @@ fn main() -> ExitCode {
             }
         },
         Some("fetch-idevice-tools") => idevice_tools::run(&repo_root()),
+        Some("pin-leapp") => pin_leapp::run(&repo_root()),
         Some(other) => {
             eprintln!("unknown command: {other}\n\n{USAGE}");
             ExitCode::from(2)

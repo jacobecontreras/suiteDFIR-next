@@ -7,6 +7,7 @@ use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::time::Duration;
 
 /// Clears the write bits only, so the read bits stay as they were (0600 becomes 0400).
 pub(super) fn set_read_only(path: &Path) -> io::Result<()> {
@@ -27,6 +28,14 @@ pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
         log::debug!("could not sync directory {}: {e}", parent.display());
     }
     Ok(())
+}
+
+/// Unix has no transient sharing errors: `op` runs once, whatever the budget.
+pub(super) fn retry_transient_within(
+    _budget: Duration,
+    mut op: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    op()
 }
 
 /// Unix names are byte strings and go into manifests unchanged.

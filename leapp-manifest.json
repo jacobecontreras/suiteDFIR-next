@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "ileapp": {
+      "display_name": "iLEAPP",
+      "upstream_repo": "abrignoni/iLEAPP",
+      "version": "v2026.4.2",
+      "license": "MIT",
+      "profile_ext": "ilprofile",
+      "profile_leapp_id": "ileapp",
+      "input_types": [
+        "fs",
+        "tar",
+        "zip",
+        "gz",
+        "itunes",
+        "file",
+        "raw"
+      ],
+      "supports_timezone": true,
+      "supports_keychain": true,
+      "supports_itunes_password": true,
+      "platforms": {
+        "macos-aarch64": {
+          "asset_name": "ileapp-v2026.4.2-macOS_Apple_Silicon.zip",
+          "asset_size": 55085487,
+          "asset_sha256": "d99f2d05dbde20ee997de477c38443d4f019d60326a8c6b9456058c6cf590386",
+          "archive_kind": "zip",
+          "entry": "ileapp",
+          "entry_sha256": "cbf5059931e24e5a4db3d96b61974ddc968a21e020c0c4f1a93d1b2153a01b79",
+          "urls": [
+            "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-macOS_Apple_Silicon.zip"
+          ]
+        },
+        "macos-x86_64": {
+          "asset_name": "ileapp-v2026.4.2-macOS_Mac_Intel.zip",
+          "asset_size": 59380709,
+          "asset_sha256": "32889a7b849d54a973b90e9b1fb25e6e9e43a67416ce76486029e71a4115c94a",
+          "archive_kind": "zip",
+          "entry": "ileapp",
+          "entry_sha256": "1333740cfad238f82c07e50198c1831a747a1acc598270ab4c1040cdc11d584e",
+          "urls": [
+            "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-macOS_Mac_Intel.zip"
+          ]
+        },
+        "windows-x86_64": {
+          "asset_name": "ileapp-v2026.4.2-Windows_x86_64.zip",
+          "asset_size": 62104758,
+          "asset_sha256": "805fa3e4324f7422589bdb5704a42ebd6822b17ddd180efbd124cb01af86af53",
+          "archive_kind": "zip",
+          "entry": "ileapp.exe",
+          "entry_sha256": "9e2768283225e43a5ce771cd3a51bb1f3b7162c4160c94e1684294f73084f1d0",
+          "urls": [
+            "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-Windows_x86_64.zip"
+          ]
+        },
+        "windows-aarch64": {
+          "asset_name": "ileapp-v2026.4.2-Windows_arm64.zip",
+          "asset_size": 55163746,
+          "asset_sha256": "4f5d45e46643d8247cc3020569bdb269643ff3321052270d9be57627cf878b8a",
+          "archive_kind": "zip",
+          "entry": "ileapp.exe",
+          "entry_sha256": "7cf5cd0f5d56a16218b96b0cb460b719eae5548921b22c3d39333596d1fd75e4",
+          "urls": [
+            "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-Windows_arm64.zip"
+          ]
+        },
+        "linux-x86_64": {
+          "asset_name": "ileapp-v2026.4.2-Linux_x86_64.AppImage",
+          "asset_size": 71145976,
+          "asset_sha256": "3cfbb92709166524572848df4064e4c702d33a999e0405c549cfab0794769c95",
+          "archive_kind": "appimage",
+          "entry": "usr/bin/ileapp",
+          "entry_sha256": null,
+          "urls": [
+            "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-Linux_x86_64.AppImage"
+          ]
+        },
+        "linux-aarch64": {
+          "asset_name": "ileapp-v2026.4.2-Linux_arm64.AppImage",
+          "asset_size": 73271816,
+          "asset_sha256": "80e03b52bdf8f0455cd305615ddcf1700d4b57b28b544e6da7752b57da265a5c",
+          "archive_kind": "appimage",
+          "entry": "usr/bin/ileapp",
+          "entry_sha256": null,
+          "urls": [
+            "https://github.com/abrignoni/iLEAPP/releases/download/v2026.4.2/ileapp-v2026.4.2-Linux_arm64.AppImage"
+          ]
+        }
+      }
+    },
+    "aleapp": {
+      "display_name": "aLEAPP",
+      "upstream_repo": "abrignoni/ALEAPP",
+      "version": "v2026.4.1",
+      "license": "MIT",
+      "profile_ext": "alprofile",
+      "profile_leapp_id": "aleapp",
+      "input_types": [
+        "fs",
+        "tar",
+        "zip",
+        "gz",
+        "raw"
+      ],
+      "supports_timezone": false,
+      "supports_keychain": false,
+      "supports_itunes_password": false,
+      "platforms": {
+        "macos-aarch64": {
+          "asset_name": "aleapp-v2026.4.1-macOS_Apple_Silicon.zip",
+          "asset_size": 41209358,
+          "asset_sha256": "2829b69c0f9035035d95936ee0a5168674fa6f4ffde01706ee3c6c1d2ecaf7f0",
+          "archive_kind": "zip",
+          "entry": "aleapp",
+          "entry_sha256": "a4149df668a31d50d6c79590849d759690666d6ff1804a72f6a49535131b7bad",
+          "urls": [
+            "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-macOS_Apple_Silicon.zip"
+          ]
+        },
+        "macos-x86_64": {
+          "asset_name": "aleapp-v2026.4.1-macOS_Mac_Intel.zip",
+          "asset_size": 43367347,
+          "asset_sha256": "dde43304acce737032b803b2a92ad0b225c64c6f37c743aab2c6a4a61eecb754",
+          "archive_kind": "zip",
+          "entry": "aleapp",
+          "entry_sha256": "90ef4ba5fb89d6ad5fa8bc8127c6bfbb6356706f7ce5657d378a29d3b0ac4133",
+          "urls": [
+            "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-macOS_Mac_Intel.zip"
+          ]
+        },
+        "windows-x86_64": {
+          "asset_name": "aleapp-v2026.4.1-Windows_x86_64.zip",
+          "asset_size": 48827767,
+          "asset_sha256": "8eb1ad25f9fdc89af345277ad6ff748636e3552490e39a4fd379debde0af70fa",
+          "archive_kind": "zip",
+          "entry": "aleapp.exe",
+          "entry_sha256": "3e971212f74afb2284f11b606b36e8ff8d7243bb864f0a82c41b8798bb0b7155",
+          "urls": [
+            "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-Windows_x86_64.zip"
+          ]
+        },
+        "windows-aarch64": {
+          "asset_name": "aleapp-v2026.4.1-Windows_arm64.zip",
+          "asset_size": 41775481,
+          "asset_sha256": "fa52fdcc81fdfa1617c5aa87e02dea2d241d5ea9b891da36076ad27082c16325",
+          "archive_kind": "zip",
+          "entry": "aleapp.exe",
+          "entry_sha256": "8fcd862d4b61e64e91ee82848b0928976231ff4aa929628d1873df0db5908806",
+          "urls": [
+            "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-Windows_arm64.zip"
+          ]
+        },
+        "linux-x86_64": {
+          "asset_name": "aleapp-v2026.4.1-Linux_x86_64.AppImage",
+          "asset_size": 63834616,
+          "asset_sha256": "0344db7fce169772b807a88fde3ee2eb7ff06c12c9c360b29928d50e7fc854be",
+          "archive_kind": "appimage",
+          "entry": "usr/bin/aleapp",
+          "entry_sha256": null,
+          "urls": [
+            "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-Linux_x86_64.AppImage"
+          ]
+        },
+        "linux-aarch64": {
+          "asset_name": "aleapp-v2026.4.1-Linux_arm64.AppImage",
+          "asset_size": 63101448,
+          "asset_sha256": "6075153896a30d35e96aeefa47b73936a41aa78e6a0566cc03ba57e697563ebb",
+          "archive_kind": "appimage",
+          "entry": "usr/bin/aleapp",
+          "entry_sha256": null,
+          "urls": [
+            "https://github.com/abrignoni/ALEAPP/releases/download/v2026.4.1/aleapp-v2026.4.1-Linux_arm64.AppImage"
+          ]
+        }
+      }
+    }
+  }
+}
