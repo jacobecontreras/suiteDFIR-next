@@ -1190,7 +1190,7 @@ pub fn open_text_file() -> OpenTextFileRequest {
 
 pub fn temp_cleanup() -> TempCleanupResult {
     TempCleanupResult {
-        freed_bytes: 132_120_576,
+        freed_byte_count: 132_120_576,
     }
 }
 

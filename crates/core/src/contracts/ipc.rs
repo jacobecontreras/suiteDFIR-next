@@ -413,7 +413,7 @@ pub struct OpenTextFileRequest {
 /// `temp_cleanup` response.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TempCleanupResult {
-    pub freed_bytes: u64,
+    pub freed_byte_count: u64,
 }
 
 // ---- §11 events ----
