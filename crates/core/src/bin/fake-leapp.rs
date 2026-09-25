@@ -39,6 +39,12 @@
 //! `fake-leapp --list-modules-json <ileapp|aleapp>` prints the fake module list as a `ToolModules`
 //! JSON object (CONTRACTS.md §9) with version `dev-override`, for the debug-build dev override.
 //!
+//! **Probe copies.** A copy whose file name ends in `-probe` (`fake-leapp-probe[.exe]`) also
+//! answers module introspection (LEAPP-CLI.md §5): when its profile selects `suitedfir_probe` and
+//! `SUITEDFIR_PROBE_OUT` is set, it writes the always-run artifacts, its catalog and 500 filler
+//! plugins (and iLEAPP's timezones) to that file, so the real install pipeline can install it
+//! (the E2 replay test). Plain `fake-leapp` never answers the probe.
+//!
 //! The only `unsafe` code is the libc signal handling in `signals` (Unix): installing the SIGTERM
 //! disposition, forwarding SIGTERM with `kill(2)` and re-raising the worker's signal.
 
@@ -324,6 +330,13 @@ fn run_worker(config: &Config, args: &[OsString], stdout: &mut BufferedStdout) -
         Ok(run) => run,
         Err(message) => return Ok(argparse_error(&message)),
     };
+    if probe_mode()
+        && let Some(profile) = &run.profile
+        && let Some(out) = env::var_os(PROBE_OUT_VAR)
+        && let Some(tool) = probe_tool(profile)
+    {
+        write_probe_output(tool, Path::new(&out))?;
+    }
     // Invalid profile or case data content: LEAPP prints an error and exits 0 without output.
     let selected = match &run.profile {
         Some(path) => match load_profile(path, run.tool) {
@@ -831,6 +844,75 @@ fn select_modules(tool: ToolId, profile: Option<&[String]>) -> Vec<&'static Fake
         .iter()
         .filter(|m| profile.is_none_or(|names| names.iter().any(|n| n == m.name)))
         .collect()
+}
+
+// ---- the introspection probe (copies named `…-probe`) ----
+
+/// The variable naming the probe's output file (LEAPP-CLI.md §5).
+const PROBE_OUT_VAR: &str = "SUITEDFIR_PROBE_OUT";
+/// The probe artifact's name, which the introspection profile selects.
+const PROBE_NAME: &str = "suitedfir_probe";
+/// Filler plugins, so the probe lists as many modules as a real build (introspection wants 500).
+const PROBE_FILLERS: u32 = 500;
+
+/// Whether this copy answers the introspection probe: its file name ends in `-probe`
+/// (`fake-leapp-probe`, `fake-leapp-probe.exe`). Plain `fake-leapp` never does, so introspection
+/// against it fails, as the introspection tests expect.
+fn probe_mode() -> bool {
+    env::current_exe().ok().is_some_and(|exe| {
+        exe.file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| stem.ends_with("-probe"))
+    })
+}
+
+/// The tool of an introspection profile: one that selects the probe; `leapp` names the tool.
+fn probe_tool(profile: &Path) -> Option<ToolId> {
+    let value: Value = serde_json::from_slice(&fs::read(profile).ok()?).ok()?;
+    let selects_probe = value["plugins"]
+        .as_array()?
+        .iter()
+        .any(|plugin| plugin.as_str() == Some(PROBE_NAME));
+    match value["leapp"].as_str()? {
+        "ileapp" if selects_probe => Some(ToolId::Ileapp),
+        "aleapp" if selects_probe => Some(ToolId::Aleapp),
+        _ => None,
+    }
+}
+
+/// What the real probe writes: every built-in plugin (the always-run ones, the catalog and the
+/// fillers) and, for iLEAPP, the timezones; through a temporary name, then renamed.
+fn write_probe_output(tool: ToolId, out: &Path) -> io::Result<()> {
+    let always: Vec<&FakeModule> = match tool {
+        ToolId::Ileapp => ILEAPP_ALWAYS_RUN_DEFAULT
+            .iter()
+            .chain(ILEAPP_ALWAYS_RUN_ITUNES)
+            .collect(),
+        ToolId::Aleapp => ALEAPP_ALWAYS_RUN.iter().collect(),
+    };
+    let mut plugins: Vec<Value> = always
+        .into_iter()
+        .chain(catalog(tool))
+        .map(|m| {
+            json!({"name": m.name, "module_name": m.module_name, "category": m.category,
+                   "display_name": m.display_name, "description": null})
+        })
+        .collect();
+    plugins.extend((1..=PROBE_FILLERS).map(|i| {
+        json!({"name": format!("fakeFiller{i:03}"), "module_name": "fakeFiller",
+               "category": "Filler", "display_name": format!("Filler module {i:03}"),
+               "description": "A filler that makes the list as long as a real build's"})
+    }));
+    let timezones = match tool {
+        ToolId::Ileapp => json!(TIMEZONES),
+        ToolId::Aleapp => Value::Null,
+    };
+    let text = serde_json::to_string(&json!({"plugins": plugins, "timezones": timezones}))
+        .map_err(io::Error::other)?;
+    let mut partial = out.as_os_str().to_owned();
+    partial.push(".partial");
+    fs::write(&partial, text)?;
+    fs::rename(&partial, out)
 }
 
 /// `--list-modules-json <tool>`: the catalog as a `ToolModules` object.

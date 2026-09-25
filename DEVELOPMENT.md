@@ -28,6 +28,10 @@ cargo fmt --all --check
 cargo deny check
 npm run typecheck                        # tsc --noEmit over ui/, ui-dev/, tests/ui/
 npm test                                 # node --test "tests/ui/**/*.test.js"
+node scripts/record-invokes.mjs          # rewrite tests/ui/recorded-invokes.json: the invokes ui/api/ipc.js
+                                         # makes in the scripted flow of tests/ui/ipc-flow.js (E2); the
+                                         # src-tauri replay test runs them through the real handlers
+                                         # (npm test fails while the committed file is stale)
 node scripts/serve-ui.mjs [--root <dir>] [--port 5173]
                                          # serve <root>/ui + <root>/ui-dev (at /dev/) with the CSP from
                                          # <root>/src-tauri/tauri.conf.json (--root defaults to the repo root);
@@ -215,6 +219,7 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
   - Creates `$TMPDIR/_MEIfake<pid>` and removes it on graceful exit.
   - Writes `_lava_data.lava` at the end.
 - **Module list:** `--list-modules-json <tool>` prints a small module list as a `ToolModules` JSON object with version `dev-override` (for the dev override).
+- **Probe copies:** a copy named `fake-leapp-probe[.exe]` also answers module introspection (LEAPP-CLI.md §5): its always-run artifacts, catalog and 500 filler plugins (plus iLEAPP's timezones). The E2 replay installs such a copy as aLEAPP through the real install pipeline. Plain `fake-leapp` never answers the probe.
 - **Scenarios** (`FAKE_LEAPP_SCENARIO`): `success`, `artifact_error`, `invalid_input`, `early_exit`, `argparse_error`, `crash`, `prompt` (opens `/dev/tty` if possible, then reads stdin; EOF → traceback, exit 1), `slow`, `ignore_term` (ignores SIGTERM). Expected outcomes are in CONTRACTS.md §7.4. One more, `glibc_too_old`, prints the dynamic loader's `version 'GLIBC_2.43' not found` line from the bootloader and exits 255 before creating anything, like a pinned Linux build on a too-old glibc (LEAPP-CLI.md §2); the runner records it as `spawn_failed` with the glibc message.
 
 **Process tests (all three OSes):**
@@ -245,6 +250,7 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 **UI tests:**
 - `node --test` over pure modules: store, filters, virtual-list math, selection/profile diff, formatting.
 - A parity test: `ipc.js` and `mock.js` export identical function names.
+- **IPC replay (E2):** `tests/ui/recorded-invokes.json` holds every invoke `ipc.js` makes in a scripted flow over all commands. `src-tauri/src/replay.rs` replays it through the real command handlers on Tauri's mock runtime (`tauri::test`), with fake-leapp and fake-idevice as dev overrides and an opener that records, and checks each answer and event against its contract type. The src-tauri tests find fake-leapp and fake-idevice next to their own `deps/` folder, which `cargo test --workspace` fills.
 
 **Screenshots:** UI PRs attach mock-mode screenshots (light and dark) of every changed screen state, delivered as described in §5.
 

@@ -199,3 +199,36 @@ fn too_few_modules_fail() {
     );
     assert_no_temp_left(&cache);
 }
+
+/// A copy of fake-leapp named `…-probe` answers the probe like a real build (every OS), for both
+/// tools: the tool rules accept it, and the fillers make the list long enough.
+#[test]
+fn a_probe_copy_of_fake_leapp_introspects_on_every_os() {
+    let _serial = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let exe = if cfg!(windows) { ".exe" } else { "" };
+    let probe = dir.path().join(format!("fake-leapp-probe{exe}"));
+    fs::copy(FAKE_LEAPP, &probe).unwrap();
+    for tool in ToolId::ALL {
+        let manifest = &manifest::embedded().unwrap().tools[tool];
+        let listed = modules::introspect(&probe, *tool, manifest, &cache).unwrap();
+        assert_eq!(listed.tool, *tool);
+        assert_eq!(listed.version, manifest.version);
+        assert!(listed.modules.len() >= modules::MIN_MODULES);
+        assert!(listed.modules.iter().any(|m| m.name == "fakeFiller500"));
+        match tool {
+            ToolId::Ileapp => {
+                assert!(listed.modules.iter().any(|m| m.name == "callHistory"));
+                assert_eq!(listed.always_run["default"], ["last_build"]);
+                assert!(listed.timezones.unwrap().contains(&"UTC".to_owned()));
+            }
+            ToolId::Aleapp => {
+                assert!(listed.modules.iter().any(|m| m.name == "callLogs"));
+                assert_eq!(listed.always_run["default"], ["usagestats_version"]);
+                assert_eq!(listed.timezones, None);
+            }
+        }
+        assert_no_temp_left(&cache);
+    }
+}

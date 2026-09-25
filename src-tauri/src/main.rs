@@ -21,6 +21,8 @@ mod policy;
 mod state;
 
 #[cfg(test)]
+mod replay;
+#[cfg(test)]
 mod testing;
 
 use std::process::ExitCode;
