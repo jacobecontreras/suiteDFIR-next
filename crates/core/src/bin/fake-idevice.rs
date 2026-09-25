@@ -35,7 +35,10 @@
 //! `enable_unknown`, `backup_fail`, `backup_fail_encrypted`, `incomplete`, `cancel_on_device`,
 //! `disconnect`, `sync_lock`, `slow`, `ignore_term`, `cancel_during_enable`,
 //! `cancel_during_restore`, `crash_after_enable`, `not_paired`, `locked`, `trust_denied`,
-//! `pairing_failed`, `usbmuxd_missing` and `info_empty`.
+//! `pairing_failed`, `usbmuxd_missing` and `info_empty`. Two more cover device behavior the
+//! contract rows do not: `will_encrypt_absent` (the backup domain has no `WillEncrypt` key, which
+//! the tool treats as false) and `enable_unconfirmed` (`encryption on` succeeds, but the next
+//! `WillEncrypt` read still returns false).
 //!
 //! **Pacing and sizes:** `FAKE_IDEVICE_INTERVAL_MS` (default 20) between progress records;
 //! `FAKE_IDEVICE_PROMPT_MS` (default 200, or 1500 for `cancel_during_enable` and
@@ -196,9 +199,12 @@ enum Scenario {
     PairingFailed,
     UsbmuxdMissing,
     InfoEmpty,
+    // Beyond CONTRACTS §13.4:
+    WillEncryptAbsent,
+    EnableUnconfirmed,
 }
 
-const SCENARIOS: [(&str, Scenario); 23] = [
+const SCENARIOS: [(&str, Scenario); 25] = [
     ("success", Scenario::Success),
     ("success_encrypt", Scenario::SuccessEncrypt),
     ("already_encrypted", Scenario::AlreadyEncrypted),
@@ -222,6 +228,8 @@ const SCENARIOS: [(&str, Scenario); 23] = [
     ("pairing_failed", Scenario::PairingFailed),
     ("usbmuxd_missing", Scenario::UsbmuxdMissing),
     ("info_empty", Scenario::InfoEmpty),
+    ("will_encrypt_absent", Scenario::WillEncryptAbsent),
+    ("enable_unconfirmed", Scenario::EnableUnconfirmed),
 ];
 
 impl Scenario {
@@ -296,6 +304,12 @@ struct State {
     will_encrypt: bool,
     /// `false` while `WillEncrypt` cannot be read (`enable_unknown`).
     will_encrypt_readable: bool,
+    /// Whether the backup domain has a `WillEncrypt` key at all (`will_encrypt_absent` starts
+    /// without one; the tool treats that as false).
+    will_encrypt_key: bool,
+    /// Reads of `WillEncrypt` that still return the value from before the last change
+    /// (`enable_unconfirmed`: the device updates it lazily).
+    stale_reads: u32,
     /// The device's backup password while encryption is on.
     password: Option<String>,
     /// `pair` (and `validate` without a record) calls so far, for the trust flow of `not_paired`.
@@ -316,6 +330,8 @@ impl State {
             paired: !scenario.starts_unpaired(),
             will_encrypt: encrypted,
             will_encrypt_readable: true,
+            will_encrypt_key: scenario != Scenario::WillEncryptAbsent,
+            stale_reads: 0,
             password: encrypted.then(|| OWNER_PASSWORD.to_owned()),
             pair_calls: 0,
             pairing_attempts: Vec::new(),
@@ -499,15 +515,13 @@ impl Fake {
             // The value read failed: exit 0 with empty stdout (IDEVICE-CLI.md §2).
             return Ok(0);
         }
-        let state = &self.store.state;
-        let value = match (
-            parsed.value(&["-q", "--domain"]),
-            parsed.value(&["-k", "--key"]),
-        ) {
+        let domain = parsed.value(&["-q", "--domain"]);
+        let key = parsed.value(&["-k", "--key"]);
+        let value = match (domain, key) {
             (None, None) => Some(device_info(simple)),
-            (Some("com.apple.mobile.backup"), Some("WillEncrypt")) => state
-                .will_encrypt_readable
-                .then_some(plist::Value::Boolean(state.will_encrypt)),
+            (Some("com.apple.mobile.backup"), key @ (None | Some("WillEncrypt"))) => {
+                self.backup_domain(key.is_some())
+            }
             (Some("com.apple.disk_usage"), None) => Some(disk_usage(self.pacing.data_used)),
             _ => None,
         };
@@ -647,6 +661,38 @@ impl Fake {
         }
     }
 
+    /// The `com.apple.mobile.backup` domain, or with `key_only` just its `WillEncrypt` value. Nothing
+    /// while the value cannot be read, and (with `key_only`) when the key is absent, as the real
+    /// `ideviceinfo -k` behaves. A stale read returns the value from before the last change.
+    fn backup_domain(&mut self, key_only: bool) -> Option<plist::Value> {
+        let state = self.state();
+        if !state.will_encrypt_readable {
+            return None;
+        }
+        let mut will_encrypt = state.will_encrypt;
+        if state.stale_reads > 0 {
+            state.stale_reads -= 1;
+            will_encrypt = !will_encrypt;
+        }
+        if key_only {
+            return state
+                .will_encrypt_key
+                .then_some(plist::Value::Boolean(will_encrypt));
+        }
+        let mut domain = plist::Dictionary::new();
+        domain.insert(
+            "LastBackupComputerName".to_owned(),
+            plist::Value::String("LAB-HOST".to_owned()),
+        );
+        if state.will_encrypt_key {
+            domain.insert(
+                "WillEncrypt".to_owned(),
+                plist::Value::Boolean(will_encrypt),
+            );
+        }
+        Some(plist::Value::Dictionary(domain))
+    }
+
     fn encryption(&mut self, enable: bool) -> Result<i32, String> {
         let env_password = |name: &str| env::var(name).ok().filter(|p| !p.is_empty());
         // `encryption on` reads BACKUP_PASSWORD_NEW, then BACKUP_PASSWORD; `off` reads
@@ -696,6 +742,7 @@ impl Fake {
                     // The change reached the device, but the tool failed and WillEncrypt cannot be
                     // read until encryption is turned off again.
                     state.will_encrypt = true;
+                    state.will_encrypt_key = true;
                     state.will_encrypt_readable = false;
                     state.password = Some(password);
                     println!("ERROR: Could not receive from mobilebackup2 (-4)");
@@ -704,7 +751,12 @@ impl Fake {
                 }
                 _ => {
                     state.will_encrypt = true;
+                    state.will_encrypt_key = true;
                     state.password = Some(password);
+                    if scenario == Scenario::EnableUnconfirmed {
+                        // The device reports the new value only later.
+                        state.stale_reads = 1;
+                    }
                     println!("Backup encryption has been enabled successfully.");
                     Ok(0)
                 }

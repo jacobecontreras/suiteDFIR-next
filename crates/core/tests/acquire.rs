@@ -797,6 +797,17 @@ fn cancel_during_restore_is_ignored() {
 }
 
 #[test]
+fn encryption_can_be_enabled_when_will_encrypt_is_absent() {
+    let lab = Lab::new("will_encrypt_absent");
+    let (_, outcome, events) = simple(&lab, Some(PASSWORD));
+    let record = assert_final(&lab, &outcome, &events, AcqStatus::Succeeded, &[], &[]);
+    // Absent means false, as idevicebackup2 treats it.
+    assert_eq!(record.encryption.will_encrypt_before, Some(false));
+    assert!(record.encryption.enabled_by_examiner);
+    assert_eq!(record.encryption.restored_after, RestoreState::Restored);
+}
+
+#[test]
 fn disconnect_after_enabling_leaves_encryption_enabled() {
     let lab = Lab::new("disconnect");
     let (_, outcome, events) = simple(&lab, Some(PASSWORD));

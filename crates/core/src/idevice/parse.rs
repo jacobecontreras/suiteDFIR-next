@@ -166,10 +166,21 @@ pub fn device_info(bytes: &[u8]) -> Option<DeviceInfo> {
     })
 }
 
-/// Parses `ideviceinfo -q com.apple.mobile.backup -k WillEncrypt -x` output (a boolean). Empty or
-/// anything else is `None` (unreadable).
+/// Parses `ideviceinfo -q com.apple.mobile.backup -x` output: the backup domain dictionary.
+/// - `WillEncrypt` absent from a readable dictionary means `false`, as `idevicebackup2` treats it
+///   (`idevicebackup2.c:1843-1851`, IDEVICE-CLI.md §2).
+/// - A boolean root (the `-k WillEncrypt` form) is taken as is.
+/// - Empty output (the read failed), anything unparsable, and a `WillEncrypt` that is not a boolean
+///   are `None` (unknown).
 pub fn will_encrypt(bytes: &[u8]) -> Option<bool> {
-    plist_value(bytes)?.as_boolean()
+    match plist_value(bytes)? {
+        plist::Value::Dictionary(domain) => match domain.get("WillEncrypt") {
+            None => Some(false),
+            Some(value) => value.as_boolean(),
+        },
+        plist::Value::Boolean(value) => Some(value),
+        _ => None,
+    }
 }
 
 /// The device's data partition (`ideviceinfo -q com.apple.disk_usage -x`).
@@ -424,14 +435,41 @@ mod tests {
         assert_eq!(device_info(&xml(&plist::Value::Boolean(true))), None);
     }
 
+    fn backup_domain(will_encrypt: Option<plist::Value>) -> Vec<u8> {
+        let mut domain = plist::Dictionary::new();
+        domain.insert(
+            "LastiTunesBackupDate".to_owned(),
+            plist::Value::Integer(0u64.into()),
+        );
+        if let Some(value) = will_encrypt {
+            domain.insert("WillEncrypt".to_owned(), value);
+        }
+        xml(&plist::Value::Dictionary(domain))
+    }
+
     #[test]
-    fn will_encrypt_values() {
-        assert_eq!(will_encrypt(&xml(&plist::Value::Boolean(true))), Some(true));
+    fn will_encrypt_from_the_backup_domain() {
+        let bool = plist::Value::Boolean;
+        assert_eq!(will_encrypt(&backup_domain(Some(bool(true)))), Some(true));
+        assert_eq!(will_encrypt(&backup_domain(Some(bool(false)))), Some(false));
+        // The key is absent: false, as idevicebackup2 treats it.
+        assert_eq!(will_encrypt(&backup_domain(None)), Some(false));
         assert_eq!(
-            will_encrypt(&xml(&plist::Value::Boolean(false))),
+            will_encrypt(&xml(&plist::Value::Dictionary(plist::Dictionary::new()))),
             Some(false)
         );
+        // The read failed: empty output, exit 0 (ideviceinfo.c:235-259). Unknown.
         assert_eq!(will_encrypt(b""), None);
+        assert_eq!(will_encrypt(b"\n"), None);
+        assert_eq!(will_encrypt(b"garbage"), None);
+        // A value of the wrong type is unknown, not false.
+        assert_eq!(
+            will_encrypt(&backup_domain(Some(plist::Value::String("yes".into())))),
+            None
+        );
+        // The single-key form.
+        assert_eq!(will_encrypt(&xml(&bool(true))), Some(true));
+        assert_eq!(will_encrypt(&xml(&bool(false))), Some(false));
         assert_eq!(
             will_encrypt(&xml(&plist::Value::String("yes".into()))),
             None

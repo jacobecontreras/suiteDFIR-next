@@ -208,6 +208,36 @@ fn empty_ideviceinfo_output_is_a_failure() {
 }
 
 #[test]
+fn an_absent_will_encrypt_key_reads_as_false() {
+    let lab = Lab::new("will_encrypt_absent");
+    let device = &lab.idevice.list_devices(None).devices[0];
+    assert_eq!(device.pair_state, PairState::Paired);
+    assert_eq!(device.will_encrypt, Some(false), "{device:?}");
+    // The whole domain is read (-k would print nothing for the absent key).
+    let queries: Vec<_> = lab
+        .calls()
+        .into_iter()
+        .filter(|call| call.iter().any(|a| a == "com.apple.mobile.backup"))
+        .collect();
+    assert_eq!(queries.len(), 1);
+    assert!(!queries[0].iter().any(|a| a == "-k"), "{queries:?}");
+}
+
+#[test]
+fn an_unreadable_backup_domain_is_unknown() {
+    // enable_unknown makes WillEncrypt unreadable once `encryption on` has run.
+    let lab = Lab::new("enable_unknown");
+    let tools = lab.idevice.tools().unwrap();
+    let session = lab.idevice.session(tools).unwrap();
+    assert_eq!(session.will_encrypt(UDID), Some(false));
+    let password = Password::new("unknown-state-pw".to_owned());
+    session
+        .set_encryption(UDID, true, &password, &mut |_| {})
+        .unwrap();
+    assert_eq!(session.will_encrypt(UDID), None);
+}
+
+#[test]
 fn missing_tools_are_reported() {
     let empty = tempfile::tempdir().unwrap();
     let lab = Lab::with_tools(

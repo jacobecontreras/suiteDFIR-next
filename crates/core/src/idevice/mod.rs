@@ -777,12 +777,12 @@ impl Session {
         }
     }
 
-    /// `WillEncrypt` of a paired device; `None` when unreadable (including empty output).
+    /// `WillEncrypt` of a paired device, from the `com.apple.mobile.backup` domain: a readable
+    /// domain without the key means `false`, as `idevicebackup2` assumes; a failed read (a tool
+    /// error, or empty output) is `None`. (`-k WillEncrypt` prints nothing both for an absent key
+    /// and for a failed read, so the whole domain is read.)
     pub fn will_encrypt(&self, udid: &str) -> Option<bool> {
-        let args = Self::udid_args(
-            udid,
-            &["-q", "com.apple.mobile.backup", "-k", "WillEncrypt", "-x"],
-        );
+        let args = Self::udid_args(udid, &["-q", "com.apple.mobile.backup", "-x"]);
         let output = self.run(ToolName::Ideviceinfo, &args).ok()?;
         output
             .succeeded()

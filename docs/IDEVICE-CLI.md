@@ -52,7 +52,7 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 | Validate pairing | `idevicepair -u <udid> validate` | **Only call when a host record exists.** It uses `lockdownd_client_new_with_handshake` (`idevicepair.c:452`), which **pairs** if no record exists (`lockdown.c:728-733`) and triggers the Trust dialog. |
 | Pair | `idevicepair -u <udid> pair` | Only via the explicit `device_pair` command. |
 | Full identity (paired) | `ideviceinfo -u <udid> -x` | XML plist (`plist::Value::from_reader`). Saved as `device-info.plist`; contains IMEI and phone number, so never log it. |
-| Encryption state | `ideviceinfo -u <udid> -q com.apple.mobile.backup -k WillEncrypt -x` | Boolean. The backup tool treats an **absent** value as false (1843-1851). |
+| Encryption state | `ideviceinfo -u <udid> -q com.apple.mobile.backup -x` | The backup domain dictionary. `WillEncrypt` is a boolean; the backup tool treats an **absent** key as false (1843-1851), and so does suiteDFIR. `-k WillEncrypt` is not used: for an absent key it prints nothing with exit 0, exactly like a failed read (`lockdown.c:403-452`, `ideviceinfo.c:235-259`). Empty output or a tool error for the domain means the state is unknown. |
 | Disk usage | `ideviceinfo -u <udid> -q com.apple.disk_usage -x` | `TotalDataCapacity`, `TotalDataAvailable`; used capacity = difference. |
 | Backup | `idevicebackup2 -u <udid> backup --full <dir>` | `<dir>` **must exist**: otherwise `ERROR: Backup directory "<dir>" does not exist!` and exit 255 (1730-1733). Creates `<dir>/<udid>/`. |
 | Encryption on | `idevicebackup2 -u <udid> encryption on` + env `BACKUP_PASSWORD_NEW=<pw>` | Env variables are read at 1458-1459 and 1758-1768. Never pass the password in argv. |
@@ -165,3 +165,4 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 6. Graceful abort time after SIGTERM on a large backup (grace = 30 s).
 7. `ideviceinfo -s` field subset on current iOS for an unpaired device.
 8. The sync-lock failure string, and the behavior when Finder/iTunes is open.
+9. The `com.apple.mobile.backup` domain on a device that never had backup encryption set: a dictionary without `WillEncrypt` (read as false), or nothing at all (read as unknown, which blocks enabling encryption).
