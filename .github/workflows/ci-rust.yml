@@ -9,10 +9,16 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/*.rs"
       - "crates/**"
       - "src-tauri/**"
       - "xtask/**"
       - "rust-toolchain.toml"
+      - "rustfmt.toml"
+      - ".rustfmt.toml"
+      - "clippy.toml"
+      - ".clippy.toml"
       - "deny.toml"
       - ".cargo/**"
       - "leapp-manifest.json"
@@ -25,10 +31,16 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/*.rs"
       - "crates/**"
       - "src-tauri/**"
       - "xtask/**"
       - "rust-toolchain.toml"
+      - "rustfmt.toml"
+      - ".rustfmt.toml"
+      - "clippy.toml"
+      - ".clippy.toml"
       - "deny.toml"
       - ".cargo/**"
       - "leapp-manifest.json"
@@ -47,9 +59,10 @@ on:
 permissions:
   contents: read
 
-# Superseded pull request runs are cancelled; runs on main always finish because they seed the cache.
+# Pull request runs share one group per PR, and a newer run cancels the superseded one. Every other
+# run (push to main, dispatch) gets its own group, so it is never cancelled, not even while pending.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -71,17 +84,19 @@ jobs:
     container: ubuntu:22.04
     timeout-minutes: 45
     env:
-      # rustup-init: https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
-      # (SHA-256 computed from the download and equal to the published rustup-init.sha256).
-      RUSTUP_INIT_VERSION: "1.29.1"
-      RUSTUP_INIT_SHA256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
-      # cargo-deny prebuilt release asset cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
-      # (SHA-256 computed from the download; equal to the release's published .sha256 file and asset digest).
-      CARGO_DENY_VERSION: "0.20.2"
-      CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+      # The toolchain and the cargo registry belong to the unprivileged `builder` user (see below).
+      CARGO_HOME: /home/builder/.cargo
+      RUSTUP_HOME: /home/builder/.rustup
+    defaults:
+      run:
+        # Steps run as the unprivileged `builder` user, never as root: root bypasses file permissions,
+        # so permission and read-only tests would behave differently than on real machines. Only the
+        # setup steps that need root say `shell: bash`.
+        shell: setpriv --reuid=builder --regid=builder --init-groups env HOME=/home/builder USER=builder LOGNAME=builder bash --noprofile --norc -eo pipefail {0}
     steps:
       # git must exist before checkout, otherwise actions/checkout falls back to a REST download without .git.
       - name: Install system packages (DEVELOPMENT.md §1, plus git and CA certificates)
+        shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -96,15 +111,51 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust (pinned rustup-init; toolchain from rust-toolchain.toml)
+      # Same uid as the owner of the mounted workspace, so the user can read the runner's step scripts
+      # and write the runner's file commands.
+      - name: Create the unprivileged build user
+        shell: bash
         run: |
-          curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/rustup-init" \
+          uid="$(stat -c %u "$GITHUB_WORKSPACE")"
+          if [ "$uid" -eq 0 ]; then
+            echo "::error::$GITHUB_WORKSPACE is owned by root; cannot choose an unprivileged uid"
+            exit 1
+          fi
+          useradd --create-home --uid "$uid" --user-group --shell /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          id builder
+
+      - name: Check that the build steps run unprivileged
+        run: |
+          echo "build steps run as: $(id)"
+          if [ "$(id -u)" -eq 0 ]; then
+            echo "::error::build steps must not run as root"
+            exit 1
+          fi
+          probe="$(mktemp)"
+          chmod 000 "$probe"
+          if cat "$probe" 2>/dev/null; then
+            echo "::error::a mode-000 file was readable; file permissions are not enforced"
+            exit 1
+          fi
+          rm -f "$probe"
+
+      - name: Install Rust (pinned rustup-init; toolchain from rust-toolchain.toml)
+        env:
+          # https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+          # (SHA-256 computed from the download and equal to the published rustup-init.sha256).
+          # Step-level env: rust-cache hashes job-level CARGO*/RUST* variables into its cache key.
+          RUSTUP_INIT_VERSION: "1.29.1"
+          RUSTUP_INIT_SHA256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+        run: |
+          dl="$(mktemp -d)"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$dl/rustup-init" \
             "https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
-          echo "${RUSTUP_INIT_SHA256}  $RUNNER_TEMP/rustup-init" | sha256sum -c -
-          chmod +x "$RUNNER_TEMP/rustup-init"
-          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.cargo/bin:$PATH"
+          echo "${RUSTUP_INIT_SHA256}  $dl/rustup-init" | sha256sum -c -
+          chmod +x "$dl/rustup-init"
+          "$dl/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$CARGO_HOME/bin:$PATH"
           # No arguments: installs the toolchain and components pinned in rust-toolchain.toml.
           rustup toolchain install
           rustc --version
@@ -118,16 +169,25 @@ jobs:
           # Only runs on main save the cache; pull request runs restore it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # rust-cache runs as root: hand whatever it restored or created back to the build user.
+      - name: Give the cache to the build user
+        shell: bash
+        run: chown -R builder:builder "$CARGO_HOME" "$GITHUB_WORKSPACE"
+
       - name: Install cargo-deny (prebuilt, SHA-256 pinned)
+        shell: bash
+        env:
+          # Release asset cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz (SHA-256 computed from the
+          # download; equal to the release's published .sha256 file and asset digest).
+          DENY_VERSION: "0.20.2"
+          DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
         run: |
-          asset="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl"
+          asset="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl"
           curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/$asset.tar.gz" \
-            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/$asset.tar.gz"
-          echo "${CARGO_DENY_SHA256}  $RUNNER_TEMP/$asset.tar.gz" | sha256sum -c -
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/$asset.tar.gz"
+          echo "${DENY_SHA256}  $RUNNER_TEMP/$asset.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$asset.tar.gz" -C "$RUNNER_TEMP" "$asset/cargo-deny"
-          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
-          install -m 0755 "$RUNNER_TEMP/$asset/cargo-deny" "$RUNNER_TEMP/cargo-deny-bin/cargo-deny"
-          echo "$RUNNER_TEMP/cargo-deny-bin" >> "$GITHUB_PATH"
+          install -m 0755 "$RUNNER_TEMP/$asset/cargo-deny" /usr/local/bin/cargo-deny
 
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
