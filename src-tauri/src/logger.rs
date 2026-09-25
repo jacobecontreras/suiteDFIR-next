@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -29,12 +29,17 @@ pub struct FileLogger {
 }
 
 impl FileLogger {
-    /// Opens (creates) the log file for appending. A file already over `max_bytes` is truncated.
+    /// Opens (creates) the log file; lines are added at its end. A file already over `max_bytes` is
+    /// truncated. (Not opened in append mode: on Windows that leaves no right to truncate.)
     pub fn open(path: &Path, max_bytes: u64, level: LevelFilter) -> io::Result<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path)?;
         if file.metadata()?.len() > max_bytes {
             file.set_len(0)?;
         }
@@ -54,10 +59,13 @@ impl FileLogger {
         let Some(file) = guard.as_mut() else {
             return;
         };
+        // Only this logger writes the file (under this lock), so its end is where the line goes.
+        let _ = file.seek(SeekFrom::End(0));
         let size = file.metadata().map(|m| m.len()).unwrap_or(0);
         let adding = line.len() as u64 + 1;
         if size + adding > self.max_bytes {
             let _ = file.set_len(0);
+            let _ = file.seek(SeekFrom::Start(0));
             let _ = writeln!(
                 file,
                 "{} INFO  suitedfir: the log reached {} bytes and was truncated",
