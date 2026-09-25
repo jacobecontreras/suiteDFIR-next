@@ -14,7 +14,7 @@ import { routeHref } from "../lib/router.js";
 import { DEFAULT_RUN_SORT, nextSort, sortRuns } from "../lib/sort.js";
 import { watch } from "../lib/store.js";
 import { loadTimezones } from "../lib/timezones.js";
-import { icon, inputTypeLabel, sizeText, statusBadge, timeText, toolName } from "../lib/view.js";
+import { icon, inputTypeLabel, pathText, sizeText, statusBadge, timeText, toolName } from "../lib/view.js";
 
 /** @typedef {import("../types").CaseDetail} CaseDetail */
 /** @typedef {import("../types").RunRecord} RunRecord */
@@ -23,6 +23,9 @@ import { icon, inputTypeLabel, sizeText, statusBadge, timeText, toolName } from 
 /** @typedef {import("../lib/sort.js").RunSortKey} RunSortKey */
 /** @typedef {import("../lib/context").ScreenContext} ScreenContext */
 /** @typedef {import("../lib/context").View} View */
+
+/** Input paths in the runs table are shortened in the middle to this many characters. */
+const INPUT_PATH_CHARS = 34;
 
 /** @type {{ key: RunSortKey | null, label: string }[]} */
 const COLUMNS = [
@@ -109,7 +112,7 @@ export function caseScreen(ctx) {
         "div",
         null,
         h("strong", null, ids.length === 1 ? "1 job was marked interrupted " : `${ids.length} jobs were marked interrupted `),
-        "because the app closed while they were running: ",
+        `because the app closed while ${ids.length === 1 ? "it was" : "they were"} running: `,
         h("span", { class: "mono" }, ids.join(", ")),
       ),
     );
@@ -254,7 +257,7 @@ export function caseScreen(ctx) {
         "td",
         { class: "cell-input" },
         h("span", { class: "tag", title: inputTypeLabel(run.input_type) }, run.input_type),
-        h("span", { class: "mono truncate", title: run.input_path }, run.input_path),
+        pathText(run.input_path, INPUT_PATH_CHARS),
       ),
       h("td", { class: "nowrap" }, timeText(run.created_at)),
       h("td", { class: "nowrap" }, run.duration_ms === null ? dash() : formatDuration(run.duration_ms)),

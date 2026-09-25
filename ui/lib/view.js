@@ -1,11 +1,11 @@
 // @ts-check
 /**
  * Small presentational helpers that return plain nodes (no state, nothing to dispose): inline SVG
- * icons, status badges (icon + text, never colour alone), and time/size text with the exact value
- * on hover.
+ * icons, status badges (icon + text, never colour alone), local time with UTC on hover and focus,
+ * sizes with the exact byte count on hover, and middle-shortened paths.
  */
 import { h } from "./dom.js";
-import { formatBytes, formatLocalTime, formatUtcTime, parseTimestamp } from "./format.js";
+import { formatBytes, formatLocalTime, formatUtcTime, middleEllipsis, parseTimestamp } from "./format.js";
 
 /** @typedef {import("../types").RunStatus | import("../types").AcqStatus} JobStatus */
 
@@ -84,13 +84,39 @@ export function statusBadge(status) {
 }
 
 /**
- * Local time as text, with UTC on hover (DEVELOPMENT.md §4.4).
+ * Local time as text, with UTC on hover (DEVELOPMENT.md §4.4). The UTC time is also shown on
+ * keyboard focus (the element is focusable; a CSS tooltip reads `data-utc`) and is part of the
+ * accessible text for screen readers.
  * @param {string | null | undefined} iso
  * @returns {HTMLElement}
  */
 export function timeText(iso) {
   if (!parseTimestamp(iso)) return h("span", { class: "muted" }, "—");
-  return h("time", { datetime: iso, title: formatUtcTime(iso) }, formatLocalTime(iso));
+  const utc = formatUtcTime(iso);
+  return h(
+    "time",
+    { class: "time-local", datetime: iso, tabindex: 0, "data-utc": utc },
+    formatLocalTime(iso),
+    h("span", { class: "visually-hidden" }, ` (${utc})`),
+  );
+}
+
+/**
+ * A path shortened in the middle to `max` characters, with the full path on hover and as the
+ * accessible text (the shortened copy is hidden from screen readers).
+ * @param {string} path
+ * @param {number} max
+ * @returns {HTMLElement}
+ */
+export function pathText(path, max) {
+  const short = middleEllipsis(path, max);
+  if (short === path) return h("span", { class: "mono path-text" }, path);
+  return h(
+    "span",
+    { class: "mono path-text", title: path },
+    h("span", { "aria-hidden": "true" }, short),
+    h("span", { class: "visually-hidden" }, path),
+  );
 }
 
 /**

@@ -157,6 +157,33 @@ code,
   color: var(--muted);
 }
 
+/* Local time; UTC in a tooltip on hover and on keyboard focus (lib/view.js timeText). */
+.time-local {
+  position: relative;
+  text-decoration: underline dotted var(--border-strong);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.time-local:hover::after,
+.time-local:focus-visible::after {
+  content: attr(data-utc);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--fg);
+  color: var(--bg);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .small {
   font-size: 12.5px;
 }
@@ -1037,13 +1064,9 @@ input[type="radio"] {
   color: var(--border-strong);
 }
 
-.cell-input .truncate {
+.cell-input .path-text {
   display: block;
-  max-width: 230px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: bottom;
 }
 
 .cell-actions {
@@ -1092,11 +1115,14 @@ input[type="radio"] {
   min-height: 0;
 }
 
+/* A scrolling dialog: a divider under the title, so scrolled content never runs under it. */
 .modal-main {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .modal-scroll {

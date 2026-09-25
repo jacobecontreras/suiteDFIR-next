@@ -43,6 +43,21 @@ export function formatCount(n) {
 }
 
 /**
+ * Shortens `text` to at most `max` characters by cutting out the middle, keeping more of the end
+ * (for paths, the distinguishing part): `/Volumes/Evi…00008101-000A1B2C3D4E`.
+ * @param {string} text
+ * @param {number} max at least 5
+ * @returns {string}
+ */
+export function middleEllipsis(text, max) {
+  const chars = [...text];
+  if (chars.length <= max) return text;
+  const keep = Math.max(max, 5) - 1;
+  const head = Math.floor(keep * 0.4);
+  return `${chars.slice(0, head).join("")}…${chars.slice(chars.length - (keep - head)).join("")}`;
+}
+
+/**
  * A count with the singular or plural noun: `1 module`, `1,300 modules`.
  * @param {number} n
  * @param {string} one

@@ -8,6 +8,7 @@ import {
   formatDuration,
   formatLocalTime,
   formatUtcTime,
+  middleEllipsis,
   parseTimestamp,
   plural,
 } from "../../ui/lib/format.js";
@@ -34,6 +35,18 @@ test("formatCount groups thousands", () => {
   assert.equal(formatCount(1300), "1,300");
   assert.equal(formatCount(0), "0");
   assert.equal(formatCount(null), "—");
+});
+
+test("middleEllipsis keeps the start and more of the end", () => {
+  assert.equal(middleEllipsis("/short/path", 34), "/short/path");
+  const a = middleEllipsis("/Volumes/Evidence/00008101-000A1B2C3D4E", 34);
+  const b = middleEllipsis("/Volumes/Evidence/00008101-000A1B2C3D4F", 34);
+  assert.equal([...a].length, 34);
+  assert.notEqual(a, b, "inputs that differ at the end stay distinguishable");
+  assert.ok(a.startsWith("/Volumes/Evi"));
+  assert.equal(a, "/Volumes/Evid…0008101-000A1B2C3D4E");
+  assert.ok(a.includes("…"));
+  assert.equal(middleEllipsis("abcdefghij", 5), "a…hij");
 });
 
 test("plural picks the noun by count", () => {
