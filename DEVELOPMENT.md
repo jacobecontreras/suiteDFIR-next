@@ -28,8 +28,12 @@ cargo fmt --all --check
 cargo deny check
 npm run typecheck                        # tsc --noEmit over ui/, ui-dev/, tests/ui/
 npm test                                 # node --test "tests/ui/**/*.test.js"
-node scripts/serve-ui.mjs [--port 5173]  # serve ui/ + ui-dev/ (at /dev/) with the app's CSP header
+node scripts/serve-ui.mjs [--root <dir>] [--port 5173]
+                                         # serve <root>/ui + <root>/ui-dev (at /dev/) with the CSP from
+                                         # <root>/src-tauri/tauri.conf.json (--root defaults to the repo root);
                                          # open http://127.0.0.1:5173/?mock for browser mock mode
+node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots, light and dark
+                                         # (needs Playwright + Chromium; starts serve-ui itself; not in npm test)
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
 cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
@@ -60,7 +64,7 @@ The bundled libimobiledevice tools are **not** needed for `cargo tauri dev` or `
 ```
 Cargo.toml / Cargo.lock       workspace ([profile.dev.package.sha2] opt-level = 3)
 rust-toolchain.toml  deny.toml  leapp-manifest.json  idevice-tools.json  .cargo/config.toml
-.gitattributes (* text=auto eol=lf; *.png binary)  .editorconfig  .gitignore  .node-version
+.gitattributes (* text=auto eol=lf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
 crates/core/                  suitedfir-core: all logic, no Tauri dependency
   src/{lib.rs, contracts/, fsutil/, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
        settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice/, acquire/}
@@ -71,8 +75,9 @@ src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.jso
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
 xtask/                        pin-leapp, contracts, notices, fetch-idevice-tools
 ui/                           SHIPPED frontend (frontendDist): index.html app.js styles/ lib/ api/ screens/ components/ types.d.ts
-ui-dev/                       NOT shipped: mock.js, fixtures/contracts/{*.json, index.js} (generated)
-tests/ui/                     node --test files for ui/ modules
+ui-dev/                       NOT shipped: mock.js (+ mock/), fixtures/contracts/{*.json, index.js} (generated),
+                              fixtures/modules.js (large module lists)
+tests/ui/                     node --test files for ui/ modules; e2e/shots.mjs (Playwright screenshots)
 fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <RUN_DIR>, <INPUT>)
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
@@ -270,7 +275,7 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 
 ## 6. Headless development and the verification gate
 
-The UI can be developed and screenshotted entirely in browser mock mode (`node scripts/serve-ui.mjs`, then open `/?mock`) using any headless browser. Machines that cannot open GUI windows can still run every Rust test, including the fake-leapp and fake-idevice process tests.
+The UI can be developed and screenshotted entirely in browser mock mode (`node scripts/serve-ui.mjs`, then open `/?mock`) using any headless browser. `?mock&scenario=<flags>` selects mock states (e.g. `empty`, `no_tools`, `dev_override`, `active_run`); the flags and the input-path and label suffixes that choose simulated outcomes are listed at the top of `ui-dev/mock.js`. Machines that cannot open GUI windows can still run every Rust test, including the fake-leapp and fake-idevice process tests.
 
 ### Verification gate while the repository is private (local-first)
 

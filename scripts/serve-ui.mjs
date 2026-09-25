@@ -7,9 +7,10 @@
 // <root>/src-tauri/tauri.conf.json) as the Content-Security-Policy header on every response.
 // --root defaults to the repository root; --port defaults to 5173. --port 0 picks a free port.
 // The first stdout line is always "listening on <port>" (scripts parse it); nothing else goes to stdout.
+// Requests whose Host header is not 127.0.0.1:<port> or localhost:<port> are refused (DNS rebinding).
 
-import { createReadStream, readFileSync } from "node:fs";
-import { realpath, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { open, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -123,6 +124,9 @@ async function main() {
     mounts.push({ prefix, dir, realDir });
   }
 
+  // The port actually listened on (known once listening; --port 0 picks one).
+  let listenPort = opts.port;
+
   const server = createServer(async (req, res) => {
     const headers = {
       "Content-Security-Policy": csp,
@@ -133,6 +137,13 @@ async function main() {
       res.writeHead(status, { ...headers, "Content-Type": "text/plain; charset=utf-8" });
       res.end(req.method === "HEAD" ? undefined : body);
     };
+    // DNS-rebinding hardening: a page on another origin that resolves to 127.0.0.1 sends its own
+    // host name, so only the loopback names for this port are served.
+    const host = (req.headers.host ?? "").toLowerCase();
+    if (host !== `${HOST}:${listenPort}` && host !== `localhost:${listenPort}`) {
+      send(403, "forbidden host\n");
+      return;
+    }
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.setHeader("Allow", "GET, HEAD");
       send(405, "method not allowed\n");
@@ -150,13 +161,23 @@ async function main() {
       send(404, "not found\n");
       return;
     }
+    // Open before sending any header, so an unreadable file gets an error status, not an empty 200.
+    let handle;
+    try {
+      handle = await open(file, "r");
+    } catch (err) {
+      const denied = err?.code === "EACCES" || err?.code === "EPERM";
+      send(denied ? 403 : 500, denied ? "forbidden\n" : "cannot read file\n");
+      return;
+    }
     const type = CONTENT_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
     res.writeHead(200, { ...headers, "Content-Type": type });
     if (req.method === "HEAD") {
+      await handle.close();
       res.end();
       return;
     }
-    const stream = createReadStream(file);
+    const stream = handle.createReadStream();
     stream.on("error", () => res.destroy());
     stream.pipe(res);
   });
@@ -164,8 +185,8 @@ async function main() {
   server.on("error", (err) => fail(`cannot listen on ${HOST}:${opts.port}: ${err.message}`, 1));
   server.listen(opts.port, HOST, () => {
     const address = server.address();
-    const port = typeof address === "object" && address ? address.port : opts.port;
-    process.stdout.write(`listening on ${port}\n`);
+    listenPort = typeof address === "object" && address ? address.port : opts.port;
+    process.stdout.write(`listening on ${listenPort}\n`);
   });
 }
 
