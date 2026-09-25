@@ -265,7 +265,9 @@ fn download_bundle(version: &str, bundle: &ToolBundle, dest: &Path) -> Result<()
         })?;
 
     let mut response = get(asset_url, "application/octet-stream")?;
-    let mut reader = response.body_mut().with_config().limit(size).reader();
+    // ureq's limit reader fails the read after `limit` bytes even at end of body, so allow one more
+    // byte; the size check below still rejects anything but exactly `size` bytes.
+    let mut reader = response.body_mut().with_config().limit(size + 1).reader();
     let mut file = File::create(dest).map_err(|e| format!("creating {}: {e}", dest.display()))?;
     let written = io::copy(&mut reader, &mut file)
         .map_err(|e| format!("downloading {}: {e}", bundle.bundle))?;
