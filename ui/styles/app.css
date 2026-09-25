@@ -1260,12 +1260,6 @@ input[type="radio"] {
   background: var(--bg);
 }
 
-/* Off-screen groups skip rendering, so searches that open many groups stay fast. */
-.picker-group {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 33px;
-}
-
 .picker-group + .picker-group {
   border-top: 1px solid var(--border);
 }
@@ -1325,13 +1319,21 @@ input[type="radio"] {
   padding: 0 0 0 54px;
 }
 
+/* Block + inline layout (not flex): 1,300 rows lay out noticeably faster. */
 .picker-row label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
   padding: 2px 6px;
   border-radius: 4px;
   cursor: pointer;
+}
+
+.picker-row input {
+  margin-right: 8px;
+  vertical-align: -3px;
+}
+
+.picker-name {
+  margin-right: 8px;
 }
 
 .picker-row label:hover {

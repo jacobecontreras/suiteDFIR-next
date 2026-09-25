@@ -259,9 +259,8 @@ const SCREENS = [
       await groups.nth(0).locator(".picker-toggle").click();
       await groups.nth(0).locator(".picker-row input").nth(0).check();
       await groups.nth(0).locator(".picker-row input").nth(2).check();
-      // Group 2: fully selected with the group checkbox; group 3 stays empty.
+      // Group 2: fully selected with the group checkbox (left collapsed); the others stay empty.
       await groups.nth(1).locator(".picker-group-label input").check();
-      await groups.nth(1).locator(".picker-toggle").click();
     },
   },
   {
