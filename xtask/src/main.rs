@@ -2,6 +2,8 @@
 //!
 //! The other commands listed in DEVELOPMENT.md §2 are added by their roadmap tasks.
 
+mod idevice_tools;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -11,7 +13,9 @@ use suitedfir_core::contracts::examples::{self, Fixture};
 const USAGE: &str = "usage: cargo xtask <command>
 
 commands:
-  contracts   regenerate ui-dev/fixtures/contracts/ from the Rust contract examples";
+  contracts   regenerate ui-dev/fixtures/contracts/ from the Rust contract examples
+  fetch-idevice-tools [--target <triple>]
+              fetch and verify the pinned libimobiledevice tools into src-tauri/binaries/";
 
 const FIXTURES_DIR: &str = "ui-dev/fixtures/contracts";
 
@@ -31,6 +35,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("fetch-idevice-tools") => idevice_tools::run(&repo_root()),
         Some(other) => {
             eprintln!("unknown command: {other}\n\n{USAGE}");
             ExitCode::from(2)
