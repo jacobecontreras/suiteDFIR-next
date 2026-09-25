@@ -3,8 +3,12 @@
  * Tiny DOM builder, the only sanctioned way to build UI from data (DEVELOPMENT.md §4.3).
  *
  * - Text children always become text nodes; nothing is ever parsed as HTML.
- * - `innerHTML`/`outerHTML` props are refused.
- * - `style` is refused: a `style=""` attribute violates the CSP (use classes, or `el.style.x` after creation).
+ * - Prop names are checked case-insensitively, because HTML `setAttribute` lowercases names:
+ *   `STYLE` would otherwise slip past a check for `style`.
+ * - `innerHTML`, `outerHTML` and `srcdoc` are refused (markup from a string).
+ * - `style` is refused: a `style=""` attribute violates the CSP (use classes, or `el.style.x`
+ *   after creation).
+ * - `class` must be a string; `className` is refused (use `class`).
  * - `on<event>` props must be functions and are attached with `addEventListener`.
  */
 
@@ -19,7 +23,8 @@
  * `false`, `null` and `undefined` are skipped; strings and numbers set attributes.
  */
 
-const FORBIDDEN_PROPS = new Set(["innerHTML", "outerHTML", "style"]);
+/** Lowercased prop names that are never allowed. */
+const FORBIDDEN_PROPS = new Set(["innerhtml", "outerhtml", "srcdoc", "style"]);
 
 /**
  * Creates an element.
@@ -70,19 +75,26 @@ export function flattenChildren(children) {
  * @param {unknown} value
  */
 function setProp(el, key, value) {
-  if (FORBIDDEN_PROPS.has(key)) {
+  const name = key.toLowerCase();
+  if (name === "classname") {
+    throw new TypeError(`h(): prop "${key}" is not allowed; use "class"`);
+  }
+  if (FORBIDDEN_PROPS.has(name)) {
     throw new TypeError(`h(): prop "${key}" is not allowed`);
   }
-  if (key.startsWith("on")) {
+  if (name.startsWith("on")) {
     if (typeof value !== "function") {
       throw new TypeError(`h(): event prop "${key}" must be a function`);
     }
-    el.addEventListener(key.slice(2).toLowerCase(), /** @type {EventListener} */ (value));
+    el.addEventListener(name.slice(2), /** @type {EventListener} */ (value));
     return;
   }
   if (value === null || value === undefined || value === false) return;
-  if (key === "class") {
-    el.className = String(value);
+  if (name === "class") {
+    if (typeof value !== "string") {
+      throw new TypeError(`h(): prop "${key}" must be a string`);
+    }
+    el.className = value;
   } else if (value === true) {
     el.setAttribute(key, "");
   } else if (typeof value === "string" || typeof value === "number") {
