@@ -31,6 +31,27 @@ Should: S1, S2, S3 after E2 and E3.     Optional (owner approval): U
 
 Tracks A–D and X run in parallel after M0.3 (contract freeze), at most 4 implementers at once.
 
+## Execution bundles (how the tasks are delivered)
+
+To reduce loop overhead, the tasks below are delivered as **10 bundles**: one branch, one PR, one review and one gate run per bundle. Each task section keeps its scope and acceptance criteria. A bundle's PR must demonstrate the acceptance criteria of **every** task it contains, and it may exceed the 800-line guideline.
+
+| Bundle | Contains | Needs | Branch |
+|---|---|---|---|
+| K0 | M0.3 | M0.2 | `task/m03-…` (already in progress) |
+| K1 Process | B1, B2, B3 | K0 | `task/k1-process` |
+| K2 Records | C1, C2, C3 | K0 | `task/k2-records` |
+| K3 LEAPP | A1, A2, A3 | K1 | `task/k3-leapp` |
+| K4 UI core | D1, D2, D3 | K0 | `task/k4-ui-core` |
+| K5 UI run/settings/acquire | D4a, D4b, D5 | K4 | `task/k5-ui-rest` |
+| K6 iOS tools | X1 | K0 | `task/k6-idevice-tools` |
+| K7 Acquisition | X2, X3a, X3b | K1, K2 | `task/k7-acquisition` |
+| K8 Integration | E1a, E1b, E2, E3 | K2, K3, K5, K7 | `task/k8-integration` |
+| K9 Release prep | F1, F2, G1, G2 | K6, K8 | `task/k9-release` |
+
+**Critical path:** K0 → K1 → K3 → K8 → K9. K2, K4/K5, K6 and K7 run alongside.
+
+Where a bundle is implemented in stages, internal ordering follows the task edges above, e.g. B1 → B2 → B3 inside K1.
+
 ---
 
 ## M0: Bootstrap (serial)

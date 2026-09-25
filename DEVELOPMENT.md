@@ -13,6 +13,7 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. This file covers how to
 | TypeScript | Exact version in `package.json` `devDependencies` (7.0.x), installed with `npm ci`. |
 | cargo-deny | Exactly **0.20.2**. CI uses the prebuilt release binary checked against a pinned SHA-256; locally `cargo install cargo-deny --version "=0.20.2" --locked`. |
 | cargo-auditable | Release builds only (see F1). |
+| sccache | Recommended locally: `cargo install sccache --locked`, then `RUSTC_WRAPPER=sccache`. It caches compiled dependencies by content hash, so it is safe across worktrees, unlike a shared `CARGO_TARGET_DIR`. |
 | Linux build deps | Ubuntu 22.04 packages: `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev build-essential libssl-dev pkg-config curl wget file`. |
 
 ## 2. Commands
@@ -229,7 +230,7 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 
 ## 5. Git and pull requests
 
-- **Branches:** `task/<id>-<slug>`, with the task ID lowercase and no dots (`task/m01-scaffold`, `task/b1-fake-leapp`, `task/x3a-acquire-core`). One task = one PR, ideally ≤ 800 changed lines excluding fixtures.
+- **Branches:** `task/<id>-<slug>`, with the task ID lowercase and no dots (`task/m01-scaffold`, `task/b1-fake-leapp`, `task/x3a-acquire-core`). One bundle (docs/ROADMAP.md "Execution bundles") = one PR. Bundles may be large; keep commits focused, one per contained task where practical.
 - **Commits:** Conventional Commits (`feat(core): …`, `fix(ui): …`, `test: …`, `ci: …`, `docs: …`). Messages describe the change and contain no tool-attribution lines or co-author trailers for non-humans.
 - **Draft first:**
   - Open PRs as **drafts**; CI skips drafts.
