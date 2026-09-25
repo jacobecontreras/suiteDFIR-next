@@ -66,8 +66,9 @@ pub enum ArgvError {
 }
 
 impl ArgvError {
-    /// The `AppError` code (CONTRACTS.md §12): the path cannot be passed to LEAPP. Commands build
-    /// the argv before creating anything, so nothing is left behind.
+    /// The `AppError` code (CONTRACTS.md §12): the path cannot be passed to LEAPP. [`check_path`]
+    /// raises these during validation, before anything is created; from [`build`] (after the run
+    /// folder exists) they end the run as `prepare_failed`.
     pub fn code(&self) -> ErrorCode {
         match self {
             Self::NotAbsolute { .. } | Self::NotUnicode { .. } | Self::SpecialPrefix { .. } => {
@@ -93,6 +94,9 @@ impl From<ArgvError> for AppError {
 pub struct LeappCommand {
     argv: Vec<String>,
     cwd: String,
+    /// The index of the password in `argv`, remembered when it is added: redaction goes by
+    /// position, never by matching argument text.
+    password_at: Option<usize>,
 }
 
 impl LeappCommand {
@@ -109,16 +113,26 @@ impl LeappCommand {
     /// `command` as recorded in `run.json`: argv verbatim except the password.
     pub fn recorded(&self) -> RunCommand {
         RunCommand {
-            argv: redact(&self.argv),
+            argv: self.redacted_argv(),
             cwd: self.cwd.clone(),
         }
+    }
+
+    /// `argv` with the password's position (the value after `--itunes_password`) replaced by
+    /// `<redacted>`.
+    fn redacted_argv(&self) -> Vec<String> {
+        let mut argv = self.argv.clone();
+        if let Some(slot) = self.password_at.and_then(|at| argv.get_mut(at)) {
+            REDACTED.clone_into(slot);
+        }
+        argv
     }
 }
 
 impl fmt::Debug for LeappCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LeappCommand")
-            .field("argv", &redact(&self.argv))
+            .field("argv", &self.redacted_argv())
             .field("cwd", &self.cwd)
             .finish()
     }
@@ -149,28 +163,27 @@ pub fn build(spec: &ArgvSpec<'_>) -> Result<LeappCommand, ArgvError> {
     if let Some(zone) = spec.timezone {
         argv.extend(["-tz".to_owned(), zone.to_owned()]);
     }
+    let mut password_at = None;
     if let Some(password) = spec.itunes_password {
-        argv.extend([PASSWORD_FLAG.to_owned(), password.to_owned()]);
+        argv.push(PASSWORD_FLAG.to_owned());
+        password_at = Some(argv.len());
+        argv.push(password.to_owned());
     }
     if let Some(keychain) = spec.keychain {
         argv.extend(["--keychain".to_owned(), absolute("keychain", keychain)?]);
     }
-    Ok(LeappCommand { argv, cwd: run_dir })
+    Ok(LeappCommand {
+        argv,
+        cwd: run_dir,
+        password_at,
+    })
 }
 
-/// A copy of `argv` with the value after `--itunes_password` replaced by `<redacted>`. It works
-/// by position: the value is consumed with its flag, so a password that is itself spelled
-/// `--itunes_password` never hides the argument after it.
-pub fn redact(argv: &[String]) -> Vec<String> {
-    let mut redacted = Vec::with_capacity(argv.len());
-    let mut args = argv.iter();
-    while let Some(arg) = args.next() {
-        redacted.push(arg.clone());
-        if arg == PASSWORD_FLAG && args.next().is_some() {
-            redacted.push(REDACTED.to_owned());
-        }
-    }
-    redacted
+/// Checks that a path can be passed to LEAPP and returns it as `build` will write it (absolute,
+/// Unicode, not a `\\?\` or `\\.\` path). Validation (`run_start`, lifecycle step 1) calls it for
+/// the tool, input and keychain paths, so these errors come before anything is created.
+pub fn check_path(what: &'static str, path: &Path) -> Result<String, ArgvError> {
+    absolute(what, path)
 }
 
 /// `path` made absolute with `std::path::absolute` (never canonicalized, ARCHITECTURE.md §7), as
@@ -343,24 +356,8 @@ mod tests {
         assert!(input.ends_with("relative/input"));
     }
 
-    #[test]
-    fn redaction_replaces_only_the_password_value() {
-        let argv: Vec<String> = ["x", "--itunes_password", "secret", "-tz", "UTC"]
-            .map(str::to_owned)
-            .to_vec();
-        assert_eq!(
-            redact(&argv),
-            ["x", "--itunes_password", "<redacted>", "-tz", "UTC"]
-        );
-        // A trailing flag without a value, and no flag at all.
-        let argv: Vec<String> = ["x", "--itunes_password"].map(str::to_owned).to_vec();
-        assert_eq!(redact(&argv), argv);
-        let argv: Vec<String> = ["x", "-t", "fs"].map(str::to_owned).to_vec();
-        assert_eq!(redact(&argv), argv);
-    }
-
-    #[test]
-    fn a_password_spelled_like_the_flag_hides_only_itself() {
+    /// An iLEAPP command with the given timezone and password, and a keychain after them.
+    fn with_secrets(timezone: &str, password: Option<&str>) -> (LeappCommand, String) {
         let r = root();
         let keychain = r.join("keychain.plist");
         let command = build(&ArgvSpec {
@@ -369,39 +366,92 @@ mod tests {
             input: &r.join("backup"),
             run_dir: &r.join("run"),
             profile: None,
-            timezone: Some("UTC"),
-            itunes_password: Some(PASSWORD_FLAG),
+            timezone: Some(timezone),
+            itunes_password: password,
             keychain: Some(&keychain),
         })
         .unwrap();
+        (command, s(&keychain))
+    }
+
+    /// The last six recorded arguments: `-tz`, zone, the password flag and value, the keychain.
+    fn recorded_tail(command: &LeappCommand) -> Vec<String> {
         let recorded = command.recorded().argv;
+        recorded[recorded.len() - 6..].to_vec()
+    }
+
+    #[test]
+    fn redaction_replaces_only_the_password_value() {
+        let (command, keychain) = with_secrets("UTC", Some("secret"));
         assert_eq!(
-            recorded[recorded.len() - 4..],
+            recorded_tail(&command),
             [
-                "--itunes_password".to_owned(),
-                "<redacted>".to_owned(),
-                "--keychain".to_owned(),
-                s(&keychain),
-            ]
-        );
-        // Two flags in a row: the second is the first one's value.
-        let argv: Vec<String> = [
-            "--itunes_password",
-            "--itunes_password",
-            "--itunes_password",
-            "pw",
-        ]
-        .map(str::to_owned)
-        .to_vec();
-        assert_eq!(
-            redact(&argv),
-            [
+                "-tz",
+                "UTC",
                 "--itunes_password",
                 "<redacted>",
-                "--itunes_password",
-                "<redacted>"
+                "--keychain",
+                &keychain
             ]
         );
+        assert!(!format!("{command:?}").contains("secret"));
+        // Without a password nothing is redacted.
+        let (command, _) = with_secrets("UTC", None);
+        assert_eq!(command.recorded().argv, command.argv());
+    }
+
+    #[test]
+    fn a_password_spelled_like_the_flag_hides_only_itself() {
+        let (command, keychain) = with_secrets("UTC", Some(PASSWORD_FLAG));
+        assert_eq!(
+            recorded_tail(&command),
+            [
+                "-tz",
+                "UTC",
+                "--itunes_password",
+                "<redacted>",
+                "--keychain",
+                &keychain
+            ]
+        );
+    }
+
+    #[test]
+    fn a_timezone_spelled_like_the_flag_never_exposes_the_password() {
+        // Redaction goes by the password's position, not by the text before it.
+        let (command, keychain) = with_secrets(PASSWORD_FLAG, Some(examples::EXAMPLE_PASSWORD));
+        assert_eq!(
+            recorded_tail(&command),
+            [
+                "-tz",
+                "--itunes_password",
+                "--itunes_password",
+                "<redacted>",
+                "--keychain",
+                &keychain
+            ]
+        );
+        let recorded = format!("{:?}", command.recorded());
+        let debug = format!("{command:?}");
+        for text in [recorded, debug] {
+            assert!(!text.contains(examples::EXAMPLE_PASSWORD), "{text}");
+        }
+        // The spawned argv is untouched.
+        assert!(
+            command
+                .argv()
+                .iter()
+                .any(|arg| arg == examples::EXAMPLE_PASSWORD)
+        );
+    }
+
+    #[test]
+    fn check_path_matches_build() {
+        let r = root();
+        let input = r.join("evidence").join("backup");
+        assert_eq!(check_path("input", &input).unwrap(), s(&input));
+        let err = check_path("input", Path::new("")).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::PathNotAllowed);
     }
 
     #[test]
