@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use suitedfir_core::process::{self, ExitInfo, Handle, SpawnSpec};
+use suitedfir_core::process::{self, ExitInfo, Handle, ProcessWatch, SpawnSpec};
 use suitedfir_core::tail::{self, ScreenOutputTail};
 
 const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
@@ -95,8 +95,8 @@ impl Fixture {
         fs::read_to_string(self.out.join("leapp.stderr.log")).unwrap()
     }
 
-    /// The bootloader's and the worker's pids from `FAKE_LEAPP_PIDFILE`.
-    fn wait_for_pids(&self) -> (u32, u32) {
+    /// Both processes, from `FAKE_LEAPP_PIDFILE`, watched from the moment their pids are known.
+    fn wait_for_tree(&self) -> Tree {
         let mut pids = None;
         let found = poll_until(STARTUP_TIMEOUT, || {
             pids = fs::read_to_string(&self.pidfile)
@@ -105,7 +105,36 @@ impl Fixture {
             pids.is_some()
         });
         assert!(found, "fake-leapp did not write {}", self.pidfile.display());
-        pids.unwrap()
+        let (parent, worker) = pids.unwrap();
+        Tree {
+            parent,
+            worker,
+            watches: [ProcessWatch::open(parent), ProcessWatch::open(worker)],
+        }
+    }
+}
+
+/// fake-leapp's bootloader and worker. The watches hold on to these very processes (on Windows a
+/// pid is reused quickly, so a later lookup by pid could find another process).
+struct Tree {
+    parent: u32,
+    worker: u32,
+    watches: [ProcessWatch; 2],
+}
+
+impl Tree {
+    /// Asserts that both processes are gone by `deadline`. Polls: on Windows a terminated process
+    /// can take a moment to finish exiting after its job reports no active processes.
+    fn assert_gone_by(&self, deadline: Instant) {
+        let left = deadline.saturating_duration_since(Instant::now());
+        poll_until(left, || self.watches.iter().all(|w| !w.is_alive()));
+        let [parent, worker] = &self.watches;
+        assert!(
+            !parent.is_alive(),
+            "the bootloader {} survived",
+            self.parent
+        );
+        assert!(!worker.is_alive(), "the worker {} survived", self.worker);
     }
 }
 
@@ -130,14 +159,6 @@ fn poll_until(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
     }
 }
 
-fn assert_dead(parent: u32, worker: u32) {
-    assert!(
-        !process::pid_alive(parent),
-        "the bootloader {parent} survived"
-    );
-    assert!(!process::pid_alive(worker), "the worker {worker} survived");
-}
-
 /// Waits until the tool has created its runtime dir in the job's temp dir, which proves that
 /// `TMPDIR`/`TEMP`/`TMP` reach it.
 fn wait_for_runtime_dir(temp: &Path, parent: u32) -> PathBuf {
@@ -150,21 +171,21 @@ fn wait_for_runtime_dir(temp: &Path, parent: u32) -> PathBuf {
     runtime
 }
 
-/// Spawns, cancels once both processes run, and returns the exit info, the pids and how long the
-/// cancel took (until `wait` returned with the tree gone).
+/// Spawns, cancels once both processes run, and returns the exit info, the tree, when the cancel
+/// was requested and how long it took until `wait` returned.
 fn spawn_and_cancel(
     fixture: &Fixture,
     spec: SpawnSpec,
     temp: &Path,
-) -> (ExitInfo, (u32, u32), Duration) {
+) -> (ExitInfo, Tree, Instant, Duration) {
     let handle = process::spawn(spec).unwrap();
-    let (parent, worker) = fixture.wait_for_pids();
-    assert_eq!(parent, handle.pid());
-    wait_for_runtime_dir(temp, parent);
+    let tree = fixture.wait_for_tree();
+    assert_eq!(tree.parent, handle.pid());
+    wait_for_runtime_dir(temp, tree.parent);
     let cancelled = Instant::now();
     handle.cancel();
     let exit = handle.wait().unwrap();
-    (exit, (parent, worker), cancelled.elapsed())
+    (exit, tree, cancelled, cancelled.elapsed())
 }
 
 #[test]
@@ -179,7 +200,7 @@ fn success_exits_0_and_captures_output() {
     let temp = process::create_temp_dir(&fixture.cache, "success").unwrap();
     let mut spec = fixture.spec(
         "success",
-        &[("FAKE_LEAPP_LINES", "5"), ("FAKE_LEAPP_INTERVAL_MS", "10")],
+        &[("FAKE_LEAPP_LINES", "5"), ("FAKE_LEAPP_INTERVAL_MS", "200")],
     );
     spec.temp_dir = Some(temp.clone());
     let chunks = Arc::new(Mutex::new(Vec::new()));
@@ -189,6 +210,7 @@ fn success_exits_0_and_captures_output() {
     }));
 
     let handle = process::spawn(spec).unwrap();
+    let tree = fixture.wait_for_tree();
     let exit = handle.wait().unwrap();
     assert_eq!(exit.exit_code, Some(0));
     assert_eq!(exit.signal, None);
@@ -211,8 +233,7 @@ fn success_exits_0_and_captures_output() {
 
     assert!(fixture.report().join("_lava_data.lava").is_file());
     assert!(fixture.report().join("index.html").is_file());
-    let (parent, worker) = fixture.wait_for_pids();
-    assert_dead(parent, worker);
+    tree.assert_gone_by(Instant::now() + CANCEL_BOUND);
     // A graceful exit removed the tool's runtime dir; the job's temp dir goes with remove_temp_dir.
     assert_eq!(fs::read_dir(&temp).unwrap().count(), 0);
     process::remove_temp_dir(&temp).unwrap();
@@ -226,9 +247,9 @@ fn slow_cancel_stops_both_processes_without_escalation() {
     let mut spec = fixture.spec("slow", &[]);
     spec.temp_dir = Some(temp.clone());
 
-    let (exit, (parent, worker), took) = spawn_and_cancel(&fixture, spec, &temp);
+    let (exit, tree, cancelled, took) = spawn_and_cancel(&fixture, spec, &temp);
     assert!(took < CANCEL_BOUND, "cancel took {took:?}");
-    assert_dead(parent, worker);
+    tree.assert_gone_by(cancelled + CANCEL_BOUND);
     assert!(exit.cancel_requested);
     assert!(!exit.timed_out);
     assert!(!exit.escalated_to_kill);
@@ -253,12 +274,12 @@ fn timeout_stops_the_tree() {
     let mut spec = fixture.spec("slow", &[]);
     spec.timeout = Some(Duration::from_secs(1));
     let handle = process::spawn(spec).unwrap();
-    let (parent, worker) = fixture.wait_for_pids();
+    let tree = fixture.wait_for_tree();
     let exit = handle.wait().unwrap();
     assert!(exit.timed_out);
     assert!(!exit.cancel_requested);
     assert!(!exit.escalated_to_kill);
-    assert_dead(parent, worker);
+    tree.assert_gone_by(Instant::now() + CANCEL_BOUND);
 }
 
 #[test]
@@ -319,15 +340,16 @@ fn wait_timeout_returns_none_while_running() {
 fn cancel_from_another_thread() {
     let fixture = Fixture::new();
     let handle = Arc::new(process::spawn(fixture.spec("slow", &[])).unwrap());
-    let (parent, worker) = fixture.wait_for_pids();
+    let tree = fixture.wait_for_tree();
     let waiter = {
         let handle = Arc::clone(&handle);
         thread::spawn(move || handle.wait())
     };
+    let cancelled = Instant::now();
     handle.cancel();
     let exit = waiter.join().unwrap().unwrap();
     assert!(exit.cancel_requested);
-    assert_dead(parent, worker);
+    tree.assert_gone_by(cancelled + CANCEL_BOUND);
 }
 
 #[test]
@@ -410,18 +432,18 @@ fn ignore_term_cancel_escalates_to_kill() {
     let mut spec = fixture.spec("ignore_term", &[]);
     spec.temp_dir = Some(temp.clone());
 
-    let (exit, (parent, worker), took) = spawn_and_cancel(&fixture, spec, &temp);
+    let (exit, tree, cancelled, took) = spawn_and_cancel(&fixture, spec, &temp);
     assert!(
         took >= process::DEFAULT_KILL_GRACE,
         "SIGKILL came before the grace: {took:?}"
     );
     assert!(took < CANCEL_BOUND, "cancel took {took:?}");
-    assert_dead(parent, worker);
+    tree.assert_gone_by(cancelled + CANCEL_BOUND);
     assert!(exit.cancel_requested);
     assert!(exit.escalated_to_kill);
     assert_eq!((exit.exit_code, exit.signal), (None, Some(9)));
     // SIGKILL leaks the tool's runtime dir; the job's temp dir removal takes it along.
-    assert!(temp.join(format!("_MEIfake{parent}")).is_dir());
+    assert!(temp.join(format!("_MEIfake{}", tree.parent)).is_dir());
     process::remove_temp_dir(&temp).unwrap();
     assert!(!temp.exists());
 }
@@ -431,13 +453,13 @@ fn ignore_term_cancel_escalates_to_kill() {
 fn killing_only_the_parent_still_cleans_up_the_worker() {
     let fixture = Fixture::new();
     let handle = process::spawn(fixture.spec("slow", &[])).unwrap();
-    let (parent, worker) = fixture.wait_for_pids();
+    let tree = fixture.wait_for_tree();
     let killed = Instant::now();
-    kill_pid(parent, "KILL");
+    kill_pid(tree.parent, "KILL");
     // The orphaned worker is still in the group, and the group kill reaches it.
     let exit = handle.wait().unwrap();
     assert!(killed.elapsed() < CANCEL_BOUND);
-    assert_dead(parent, worker);
+    tree.assert_gone_by(killed + CANCEL_BOUND);
     assert_eq!((exit.exit_code, exit.signal), (None, Some(9)));
     assert!(!exit.cancel_requested);
     assert!(!exit.escalated_to_kill);
@@ -448,10 +470,11 @@ fn killing_only_the_parent_still_cleans_up_the_worker() {
 fn sigterm_to_the_parent_is_forwarded_to_the_worker() {
     let fixture = Fixture::new();
     let handle = process::spawn(fixture.spec("slow", &[])).unwrap();
-    let (parent, worker) = fixture.wait_for_pids();
-    kill_pid(parent, "TERM");
+    let tree = fixture.wait_for_tree();
+    let signalled = Instant::now();
+    kill_pid(tree.parent, "TERM");
     let exit = handle.wait().unwrap();
     assert_eq!(exit.signal, Some(15));
     assert!(!exit.escalated_to_kill);
-    assert_dead(parent, worker);
+    tree.assert_gone_by(signalled + CANCEL_BOUND);
 }

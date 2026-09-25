@@ -223,10 +223,21 @@ impl Handle {
     }
 }
 
-/// Whether a process with this id exists and has not exited (a zombie counts as exited on
-/// Linux). For tests and diagnostics.
-pub fn pid_alive(pid: u32) -> bool {
-    sys::pid_alive(pid)
+/// Watches one process, for tests and diagnostics: open it while the process runs, then ask
+/// whether that same process is still running. On Windows the watch holds a process handle, so a
+/// reused pid (Windows reuses them quickly) is never mistaken for the watched process. On Linux a
+/// zombie counts as exited.
+#[derive(Debug)]
+pub struct ProcessWatch(sys::Watch);
+
+impl ProcessWatch {
+    pub fn open(pid: u32) -> Self {
+        Self(sys::Watch::open(pid))
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.0.is_alive()
+    }
 }
 
 /// Spawns `spec.program` in its own process tree (see the module docs). The log files are created

@@ -86,19 +86,32 @@ pub(super) fn exit_parts(status: ExitStatus) -> (Option<i32>, Option<i32>) {
     (status.code(), status.signal())
 }
 
-pub(super) fn pid_alive(pid: u32) -> bool {
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return false;
-    };
-    if pid <= 0 {
-        return false;
+/// A watched process (see `ProcessWatch`): Unix pids are allocated in increasing order, so the pid
+/// alone identifies it for the watch's short life.
+#[derive(Debug)]
+pub(super) struct Watch {
+    pid: libc::pid_t,
+}
+
+impl Watch {
+    pub(super) fn open(pid: u32) -> Self {
+        Self {
+            pid: libc::pid_t::try_from(pid).unwrap_or(0),
+        }
     }
-    // SAFETY: FFI call with plain integer arguments; signal 0 only checks that the process exists.
-    if unsafe { libc::kill(pid, 0) } != 0 {
-        // EPERM: it exists but belongs to someone else.
-        return io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
+
+    pub(super) fn is_alive(&self) -> bool {
+        if self.pid <= 0 {
+            return false;
+        }
+        // SAFETY: FFI call with plain integer arguments; signal 0 only checks that the process
+        // exists.
+        if unsafe { libc::kill(self.pid, 0) } != 0 {
+            // EPERM: it exists but belongs to someone else.
+            return io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
+        }
+        !is_zombie(self.pid)
     }
-    !is_zombie(pid)
 }
 
 /// Nothing to retry on Unix: removal errors are not transient.
@@ -192,13 +205,15 @@ mod tests {
     }
 
     #[test]
-    fn pid_alive_for_this_process_and_a_reaped_child() {
-        assert!(pid_alive(std::process::id()));
-        assert!(!pid_alive(0));
-        let mut child = Command::new("true").spawn().unwrap();
-        let pid = child.id();
+    fn watch_this_process_and_a_reaped_child() {
+        assert!(Watch::open(std::process::id()).is_alive());
+        assert!(!Watch::open(0).is_alive());
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let watch = Watch::open(child.id());
+        assert!(watch.is_alive());
+        child.kill().unwrap();
         child.wait().unwrap();
-        assert!(!pid_alive(pid));
+        assert!(!watch.is_alive());
     }
 
     #[test]

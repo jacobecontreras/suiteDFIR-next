@@ -198,26 +198,54 @@ pub(super) fn exit_parts(status: ExitStatus) -> (Option<i32>, Option<i32>) {
     (status.code(), None)
 }
 
-pub(super) fn pid_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
+/// A watched process (see `ProcessWatch`). The open handle keeps the process object, and so its
+/// pid, from being reused while the watch exists.
+#[derive(Debug)]
+pub(super) enum Watch {
+    Open(OwnedHandle),
+    /// There was no such process when the watch was opened.
+    Gone,
+    /// The process exists but may not be opened (not ours).
+    Inaccessible,
+}
+
+impl Watch {
+    pub(super) fn open(pid: u32) -> Self {
+        if pid == 0 {
+            return Self::Gone;
+        }
+        // SAFETY: FFI call with plain arguments.
+        let raw = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                0,
+                pid,
+            )
+        };
+        if raw.is_null() {
+            return if io::Error::last_os_error().raw_os_error()
+                == Some(win32(ERROR_INVALID_PARAMETER))
+            {
+                Self::Gone
+            } else {
+                Self::Inaccessible
+            };
+        }
+        // SAFETY: `raw` is a valid process handle that nothing else owns.
+        Self::Open(unsafe { OwnedHandle::from_raw_handle(raw) })
     }
-    // SAFETY: FFI call with plain arguments.
-    let raw = unsafe {
-        OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
-            0,
-            pid,
-        )
-    };
-    if raw.is_null() {
-        // No such process, or (access denied) one we may not open, which exists.
-        return io::Error::last_os_error().raw_os_error() != Some(win32(ERROR_INVALID_PARAMETER));
+
+    pub(super) fn is_alive(&self) -> bool {
+        match self {
+            // SAFETY: FFI call on the process handle we own, opened with SYNCHRONIZE; a timeout of
+            // 0 only tests whether the process has exited.
+            Self::Open(process) => unsafe {
+                WaitForSingleObject(process.as_raw_handle(), 0) != WAIT_OBJECT_0
+            },
+            Self::Gone => false,
+            Self::Inaccessible => true,
+        }
     }
-    // SAFETY: `raw` is a valid process handle that nothing else owns.
-    let process = unsafe { OwnedHandle::from_raw_handle(raw) };
-    // SAFETY: FFI call on the process handle we own, opened with SYNCHRONIZE; 0 = do not wait.
-    unsafe { WaitForSingleObject(process.as_raw_handle(), 0) != WAIT_OBJECT_0 }
 }
 
 /// Errors that a just-terminated process's open files cause for a short while.
@@ -254,15 +282,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pid_alive_for_this_process_and_an_exited_child() {
-        assert!(pid_alive(std::process::id()));
-        assert!(!pid_alive(0));
-        let mut child = Command::new("cmd").args(["/C", "exit 0"]).spawn().unwrap();
-        let pid = child.id();
+    fn watch_this_process_and_a_killed_child() {
+        assert!(Watch::open(std::process::id()).is_alive());
+        assert!(!Watch::open(0).is_alive());
+        let mut child = Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let watch = Watch::open(child.id());
+        assert!(watch.is_alive());
+        child.kill().unwrap();
         child.wait().unwrap();
-        // The handle is closed with `child`; until then the process object exists but has exited.
-        assert!(!pid_alive(pid));
         drop(child);
+        // The watch's own handle keeps answering for this process.
+        assert!(!watch.is_alive());
     }
 
     #[test]
