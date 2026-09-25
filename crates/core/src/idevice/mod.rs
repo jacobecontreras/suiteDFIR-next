@@ -597,13 +597,27 @@ pub struct OutputLine {
     pub prompt: Option<DevicePromptKind>,
 }
 
-/// A device-changing command that ran.
+/// A device-changing command that was started.
 #[derive(Clone, Debug)]
 pub struct CommandRun {
     /// As recorded: never holds a password.
     pub argv: Vec<String>,
     pub started_at: Timestamp,
-    pub exit: ExitInfo,
+    /// How it ended; `None` when waiting for it failed after it had started (it may have run, and
+    /// the process supervisor has stopped whatever was left of it).
+    pub exit: Option<ExitInfo>,
+}
+
+impl CommandRun {
+    /// The exit code; `None` when killed by a signal or when the exit is unknown.
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit.as_ref().and_then(|exit| exit.exit_code)
+    }
+
+    /// When the exit was observed; `None` when it is unknown.
+    pub fn exited_at(&self) -> Option<Timestamp> {
+        self.exit.as_ref().map(|exit| exit.exited_at)
+    }
 }
 
 /// Runs tool commands with captured output in a scratch directory.
@@ -842,7 +856,8 @@ impl Session {
     /// or `BACKUP_PASSWORD` (off), never in argv. There is no timeout: on iOS ≥ 13 with a passcode
     /// the tool waits for it to be entered on the device. Every output line goes to `on_line` (on
     /// this thread, while the command runs), with prompt lines marked. The caller re-reads
-    /// `WillEncrypt` to learn the outcome.
+    /// `WillEncrypt` to learn the outcome. An error means the command never started; once it has
+    /// started, the result is a [`CommandRun`], whose `exit` is `None` if waiting for it failed.
     pub fn set_encryption(
         &self,
         udid: &str,
@@ -868,10 +883,23 @@ impl Session {
         let lines = LineChannel::new();
         spec.on_output = Some(lines.callback());
         let started_at = Timestamp::now();
-        let result = process::spawn(spec).and_then(|handle| lines.pump(&handle, on_line));
+        // An error here means the command never started: nothing reached the device.
+        let handle = match process::spawn(spec) {
+            Ok(handle) => handle,
+            Err(e) => {
+                let _ = fs::remove_file(&stdout_log);
+                let _ = fs::remove_file(&stderr_log);
+                return Err(IdeviceError::io("starting idevicebackup2 encryption", e));
+            }
+        };
+        // From here on the command may have changed the device, so a failure to wait for it is an
+        // unknown exit, not an error.
+        let exit = lines
+            .pump(&handle, on_line)
+            .inspect_err(|e| log::warn!("waiting for idevicebackup2 encryption failed: {e}"))
+            .ok();
         let _ = fs::remove_file(&stdout_log);
         let _ = fs::remove_file(&stderr_log);
-        let exit = result.map_err(|e| IdeviceError::io("running idevicebackup2 encryption", e))?;
         Ok(CommandRun {
             argv,
             started_at,

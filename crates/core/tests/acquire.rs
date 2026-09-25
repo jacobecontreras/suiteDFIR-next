@@ -1218,6 +1218,35 @@ fn a_failed_later_restore_can_be_retried() {
     lab.assert_no_temp_dirs();
 }
 
+/// Review N-a: the attempt file is chosen and checked before `encryption off` runs; when that
+/// fails, the device is never touched.
+#[test]
+fn a_later_restore_without_a_free_attempt_file_does_not_touch_the_device() {
+    let lab = Lab::new("restore_fail");
+    let (case, outcome, _) = simple(&lab, Some(PASSWORD));
+    let dir = acq_dir(&outcome);
+    // A name that leaves no next number (anything under an attempt name counts as taken).
+    fs::write(dir.join("encryption-restore-4294967295.json"), "x").unwrap();
+    let calls_before = lab.calls().len();
+    let err = acquire::restore_later(
+        &lab.reopen("success"),
+        &case.path,
+        &outcome.record.acq_id,
+        PASSWORD.to_owned(),
+        &mut |_| {},
+    )
+    .unwrap_err();
+    assert!(matches!(err, AcqError::NoFreeId { .. }), "{err}");
+    let new_calls = &lab.calls()[calls_before..];
+    assert!(
+        !new_calls.iter().any(|c| c.iter().any(|a| a == "off")),
+        "encryption off must not run: {new_calls:?}"
+    );
+    assert_eq!(lab.state()["will_encrypt"], true, "the device is unchanged");
+    assert!(!dir.join("encryption-restore.json").exists());
+    lab.assert_no_temp_dirs();
+}
+
 #[test]
 fn a_later_restore_is_refused_without_an_encryption_warning() {
     let lab = Lab::new("success");

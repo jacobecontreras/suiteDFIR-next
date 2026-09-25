@@ -388,7 +388,8 @@ fn encryption_changes_pass_the_password_only_through_the_environment() {
     let on = session
         .set_encryption(UDID, true, &password, &mut |line| lines.push(line))
         .unwrap();
-    assert_eq!(on.exit.exit_code, Some(0));
+    assert_eq!(on.exit_code(), Some(0));
+    assert!(on.exited_at().is_some());
     assert!(
         !on.argv.iter().any(|a| a.contains(PASSWORD)),
         "{:?}",
@@ -406,7 +407,7 @@ fn encryption_changes_pass_the_password_only_through_the_environment() {
     let off = session
         .set_encryption(UDID, false, &password, &mut |_| {})
         .unwrap();
-    assert_eq!(off.exit.exit_code, Some(0));
+    assert_eq!(off.exit_code(), Some(0));
     assert_eq!(session.will_encrypt(UDID), Some(false));
     assert_eq!(lab.state()["password_in_argv"], false);
     for call in lab.calls() {

@@ -53,10 +53,10 @@ use crate::idevice::{
 use crate::process::{self, SpawnSpec};
 
 pub use record::{
-    ACQ_FILE, ACQUISITIONS_DIR, BACKUP_DIR, BACKUP_MANIFEST, DEVICE_INFO_FILE, DiscoveredAcq,
-    RESTORE_FILE, RestoreAttempt, acquisition_id_for_input, discover, is_acq_id,
-    later_restore_succeeded, load, new_acq_id, recover_case, restore_attempt_number,
-    restore_attempts, restore_file_name, summary,
+    ACQ_FILE, ACQUISITIONS_DIR, AttemptSlot, BACKUP_DIR, BACKUP_MANIFEST, DEVICE_INFO_FILE,
+    DiscoveredAcq, RESTORE_FILE, RestoreAttempt, acquisition_id_for_input, discover, is_acq_id,
+    later_restore_succeeded, load, new_acq_id, recover_case, reserve_restore_attempt,
+    restore_attempt_number, restore_attempts, restore_file_name, summary, write_restore_attempt,
 };
 
 /// Backup passwords are at least this many characters (ARCHITECTURE.md §6b step 4).
@@ -893,13 +893,16 @@ impl AcqJob {
     /// record's `started_at` is exactly the first command's.
     fn end_command(record: &mut AcquisitionRecord, index: usize, run: &CommandRun) {
         if let Some(command) = record.commands.get_mut(index) {
-            command.exit_code = run.exit.exit_code;
-            command.exited_at = Some(run.exit.exited_at);
+            command.exit_code = run.exit_code();
+            command.exited_at = run.exited_at();
         }
     }
 
-    /// Runs an encryption change and delivers its output lines as events. On an error the command
-    /// stays in the record with a null exit code: the error may come after the tool started.
+    /// Runs an encryption change and delivers its output lines as events.
+    /// - An error means the command never started: it is taken out of the record again (nothing
+    ///   ran).
+    /// - A command whose exit could not be observed after it started stays in the record with null
+    ///   `exit_code` and `exited_at`: it may have changed the device.
     fn run_encryption_command(
         &self,
         session: &Session,
@@ -924,26 +927,37 @@ impl AcqJob {
         match &result {
             Ok(command) => {
                 Self::end_command(record, index, command);
-                log::info!(
-                    "acquisition {}: {purpose} exited with {:?}",
-                    self.acq_id,
-                    command.exit.exit_code
-                );
+                match &command.exit {
+                    Some(exit) => log::info!(
+                        "acquisition {}: {purpose} exited with {:?}",
+                        self.acq_id,
+                        exit.exit_code
+                    ),
+                    None => log::warn!(
+                        "acquisition {}: {purpose} started, but its exit is unknown",
+                        self.acq_id
+                    ),
+                }
             }
-            Err(e) => log::warn!(
-                "acquisition {}: {purpose} did not complete: {e}",
-                self.acq_id
-            ),
+            Err(e) => {
+                log::warn!("acquisition {}: {purpose} did not start: {e}", self.acq_id);
+                record.commands.remove(index);
+                if record.commands.is_empty() {
+                    record.started_at = None;
+                }
+            }
         }
         result
     }
 
     /// Step 6: `encryption on`, then re-read `WillEncrypt`. The outcomes (ARCHITECTURE.md §6b):
     /// - `WillEncrypt` true: enabled by the examiner;
-    /// - false after a failed command: `encryption_enable_failed` (nothing changed, no restore);
-    /// - false although the tool reported success, or unreadable: unknown, so it is treated as
-    ///   enabled for the restore and warns `encryption_state_unknown`
-    ///   ([`record::enable_outcome_unknown`]).
+    /// - false after a command that exited with an error code: `encryption_enable_failed` (nothing
+    ///   changed, no restore);
+    /// - false although the tool reported success or its exit is unknown, or unreadable: unknown,
+    ///   so it is treated as enabled for the restore and warns `encryption_state_unknown`
+    ///   ([`record::enable_outcome_unknown`]);
+    /// - the command did not start: `spawn_failed`.
     fn enable(
         &self,
         session: &Session,
@@ -972,10 +986,18 @@ impl AcqJob {
                     "enable_encryption: {e}"
                 )));
             }
-            Ok(command) if after == Some(false) && command.exit.exit_code != Some(0) => {
+            Ok(command) if command.exit.is_none() => {
+                // The process supervision failed: do not go on to the backup. The outcome is
+                // unknown, so the restore still runs (record::enable_outcome_unknown).
+                run.short = Some(status::ShortCircuit::SpawnFailed(
+                    "enable_encryption: the command started, but its exit could not be observed"
+                        .to_owned(),
+                ));
+            }
+            Ok(command) if after == Some(false) && !record::enable_outcome_unknown(record) => {
                 run.short = Some(status::ShortCircuit::EncryptionEnableFailed(format!(
                     "idevicebackup2 encryption on exited with {:?}; WillEncrypt is still false",
-                    command.exit.exit_code
+                    command.exit_code()
                 )));
             }
             Ok(_) => {}
@@ -1313,35 +1335,49 @@ pub fn restore_later(
             message,
         });
     }
+    // The attempt's file is chosen and checked before the device is touched, so the change is
+    // never left without its record (review N-a). A failure refuses the attempt here.
+    let slot = record::reserve_restore_attempt(&dir)?;
     log::info!(
-        "acquisition {acq_id}: later restore, running {}",
+        "acquisition {acq_id}: later restore (attempt {}), running {}",
+        slot.number,
         encryption_argv(&tools, udid, false).join(" ")
     );
+    // An error means the command never started: nothing was changed and nothing is recorded.
     let command = session.set_encryption(udid, false, &password, on_line)?;
     drop(password);
     let will_encrypt_after = session.will_encrypt(udid);
-    let restored = will_encrypt_after == Some(false);
+    let attempt = later_restore_record(acq_id, command, will_encrypt_after, tools.record());
     log::info!(
         "acquisition {acq_id}: later restore exited with {:?}; WillEncrypt is {will_encrypt_after:?}",
-        command.exit.exit_code
+        attempt.exit_code
     );
-    record::write_restore_record(
-        &dir,
-        &EncryptionRestoreRecord {
-            schema_version: EncryptionRestoreRecord::SCHEMA_VERSION,
-            acq_id: acq_id.to_owned(),
-            at: command.started_at,
-            argv: command.argv,
-            exit_code: command.exit.exit_code,
-            will_encrypt_after,
-            restored,
-            tools: tools.record(),
-        },
-    )?;
+    record::write_restore_attempt(&dir, &slot, &attempt)?;
     Ok(AcqRestoreEncryptionResult {
-        restored,
+        restored: attempt.restored,
         will_encrypt_after,
     })
+}
+
+/// The record of a later-restore attempt whose command started: `exit_code` is null when it was
+/// killed by a signal or its exit could not be observed, and `restored` follows the re-read
+/// `WillEncrypt`.
+fn later_restore_record(
+    acq_id: &str,
+    command: CommandRun,
+    will_encrypt_after: Option<bool>,
+    tools: crate::contracts::AcqTools,
+) -> EncryptionRestoreRecord {
+    EncryptionRestoreRecord {
+        schema_version: EncryptionRestoreRecord::SCHEMA_VERSION,
+        acq_id: acq_id.to_owned(),
+        at: command.started_at,
+        exit_code: command.exit_code(),
+        argv: command.argv,
+        will_encrypt_after,
+        restored: will_encrypt_after == Some(false),
+        tools,
+    }
 }
 
 #[cfg(test)]
@@ -1447,6 +1483,64 @@ mod tests {
             let app: AppError = err.into();
             assert_eq!(app.code, code);
         }
+    }
+
+    /// Review N-a: a later restore whose command started is always recorded; an exit that could
+    /// not be observed gives `exit_code: null`, and `restored` follows the re-read WillEncrypt.
+    #[test]
+    fn later_restore_records_a_started_command_with_an_unknown_exit() {
+        let command = |exit: Option<crate::process::ExitInfo>| CommandRun {
+            argv: vec![
+                "/tools/idevicebackup2".to_owned(),
+                "encryption".to_owned(),
+                "off".to_owned(),
+            ],
+            started_at: Timestamp::parse("2026-09-25T09:15:00Z").unwrap(),
+            exit,
+        };
+        let tools = crate::contracts::examples::acquisition_record().tools;
+        let acq_id = "20260924-171200Z-ios-9c01de";
+
+        let unknown = later_restore_record(acq_id, command(None), Some(false), tools.clone());
+        assert_eq!(unknown.exit_code, None);
+        assert!(unknown.restored, "WillEncrypt reads false afterwards");
+        assert_eq!(
+            unknown.at,
+            Timestamp::parse("2026-09-25T09:15:00Z").unwrap()
+        );
+        let still_on = later_restore_record(acq_id, command(None), Some(true), tools.clone());
+        assert!(!still_on.restored);
+        let unreadable = later_restore_record(acq_id, command(None), None, tools.clone());
+        assert_eq!(
+            (unreadable.restored, unreadable.will_encrypt_after),
+            (false, None)
+        );
+
+        let exited = crate::process::ExitInfo {
+            exit_code: Some(0),
+            signal: None,
+            exited_at: Timestamp::parse("2026-09-25T09:15:07Z").unwrap(),
+            exit_instant: Instant::now(),
+            cancel_requested: false,
+            timed_out: false,
+            escalated_to_kill: false,
+            output_error: None,
+        };
+        let done = later_restore_record(acq_id, command(Some(exited)), Some(false), tools);
+        assert_eq!(done.exit_code, Some(0));
+        assert!(done.restored);
+
+        // Written to its reserved attempt file.
+        let case = tempfile::tempdir().unwrap();
+        let dir = record::acq_dir(case.path(), acq_id);
+        fs::create_dir_all(&dir).unwrap();
+        let slot = record::reserve_restore_attempt(&dir).unwrap();
+        let file = record::write_restore_attempt(&dir, &slot, &unknown).unwrap();
+        let back: EncryptionRestoreRecord =
+            crate::contracts::parse_versioned(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(back, unknown);
+        assert!(fs::metadata(&file).unwrap().permissions().readonly());
+        crate::fsutil::test_support::make_writable(&file);
     }
 
     #[test]
