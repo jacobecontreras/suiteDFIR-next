@@ -99,14 +99,12 @@ test("orderedSelection lists known names in module order, then unknown names", (
   assert.deepEqual(orderedSelection(selected, MODULES), ["callHistory", "safariHistory", "zzUnknown", "aaUnknown"]);
 });
 
-test("filtering 1,300 fixture modules is fast and correct", () => {
+// Timing is measured in a real browser by tests/ui/e2e/shots.mjs (perf), not asserted here.
+test("filtering 1,300 fixture modules is correct", () => {
   const modules = makeModules("ileapp", 1300);
   assert.equal(modules.length, 1300);
   assert.equal(new Set(modules.map((m) => m.name)).size, 1300);
-  const start = performance.now();
   const hits = filterModules(modules, "history call");
-  const elapsed = performance.now() - start;
   assert.ok(hits.some((m) => m.name === "callHistory"));
   assert.ok(hits.every((m) => searchText(m).includes("history") && searchText(m).includes("call")));
-  assert.ok(elapsed < 50, `filter took ${elapsed.toFixed(1)} ms`);
 });
