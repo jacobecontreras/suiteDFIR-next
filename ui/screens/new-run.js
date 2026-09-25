@@ -16,6 +16,7 @@ import { field, selectInput, textInput } from "../lib/form.js";
 import { formatCount } from "../lib/format.js";
 import { buildRunRequest, canHash, initialInputType, needsPassword, startBlockers } from "../lib/newrun.js";
 import { routeHref } from "../lib/router.js";
+import { jobKey, setActiveJob } from "../lib/jobs.js";
 import { unknownNames } from "../lib/selection.js";
 import { watch } from "../lib/store.js";
 import { loadTimezones, pickTimezone } from "../lib/timezones.js";
@@ -784,7 +785,7 @@ export function newRunScreen(ctx) {
       clearPassword();
       api
         .job_active()
-        .then((job) => store.set({ activeJob: job }))
+        .then((job) => setActiveJob(store, job))
         .catch(() => {});
       navigate(caseHref);
     } catch (err) {
@@ -812,7 +813,7 @@ export function newRunScreen(ctx) {
     f.password = "";
   }
 
-  cleanups.push(watch(store, (s) => s.activeJob, () => refresh()));
+  cleanups.push(watch(store, (s) => jobKey(s.activeJob), () => refresh()));
 
   void init();
   return {

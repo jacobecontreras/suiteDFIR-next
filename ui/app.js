@@ -7,6 +7,7 @@ import { loadApi } from "./api/index.js";
 import { appError } from "./components/app-error.js";
 import { shell } from "./components/shell.js";
 import { h } from "./lib/dom.js";
+import { pollActiveJob } from "./lib/jobs.js";
 import { parseRoute } from "./lib/router.js";
 import { createStore } from "./lib/store.js";
 import { caseScreen } from "./screens/case.js";
@@ -14,7 +15,6 @@ import { casesScreen } from "./screens/cases.js";
 import { newRunScreen } from "./screens/new-run.js";
 import { notFoundScreen } from "./screens/not-found.js";
 
-/** @typedef {import("./lib/context").Api} Api */
 /** @typedef {import("./lib/context").AppState} AppState */
 /** @typedef {import("./lib/context").ScreenContext} ScreenContext */
 /** @typedef {import("./lib/context").View} View */
@@ -61,7 +61,7 @@ async function main() {
     return;
   }
 
-  watchActiveJob(api, store);
+  pollActiveJob(api, store, JOB_POLL_MS);
 
   /** @type {View | null} */
   let current = null;
@@ -84,30 +84,6 @@ async function main() {
   }
   window.addEventListener("hashchange", render);
   render();
-}
-
-/**
- * Keeps `activeJob` current: polls `job_active` while a job is active, and stops when it ends.
- * @param {Api} api
- * @param {import("./lib/store.js").Store<AppState>} store
- */
-function watchActiveJob(api, store) {
-  /** @type {ReturnType<typeof setTimeout> | null} */
-  let timer = null;
-  const schedule = () => {
-    if (timer !== null || !store.get().activeJob) return;
-    timer = setTimeout(async () => {
-      timer = null;
-      try {
-        store.set({ activeJob: await api.job_active() });
-      } catch {
-        // Keep the last known state; the next poll retries.
-      }
-      schedule();
-    }, JOB_POLL_MS);
-  };
-  store.subscribe(schedule);
-  schedule();
 }
 
 /** The error screen when neither the app API nor the mock is available (ARCHITECTURE.md §5.3). */

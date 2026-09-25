@@ -5,6 +5,7 @@
  */
 import { h } from "../lib/dom.js";
 import { routeHref } from "../lib/router.js";
+import { jobKey } from "../lib/jobs.js";
 import { watch } from "../lib/store.js";
 import { icon, phaseLabel, toolName } from "../lib/view.js";
 
@@ -49,7 +50,13 @@ export function shell({ store }) {
     main.focus();
   }
 
-  const unwatchJob = watch(store, (s) => s.activeJob, (job) => indicator.replaceChildren(jobIndicator(job) ?? ""));
+  // Keyed by job, case and phase: an equal job from the next poll must not re-render (and so
+  // re-announce) the live region.
+  const unwatchJob = watch(
+    store,
+    (s) => jobKey(s.activeJob),
+    () => indicator.replaceChildren(jobIndicator(store.get().activeJob) ?? ""),
+  );
   const unwatchBanners = watch(
     store,
     (s) => `${s.mode}|${devOverride(s)}`,
