@@ -116,9 +116,10 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - a device disconnect (the quit flag is set at ≈ 2297).
 
 **Other messages:**
-- **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (1949-1977). If Finder or iTunes holds it, the lock attempts time out; any other AFC error ends them at once. Either way the tool prints, on **stderr**, one of these (exact strings, → `sync_lock_failed`), skips the backup without a final message, and exits with `result_code` -1 (255 on Unix):
-  - `ERROR: timeout while locking for sync` (1973)
-  - `ERROR: could not lock file! error code: <n>` (1967)
+- **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (1949-1977), with up to 50 attempts (`LOCK_ATTEMPTS`):
+  - If Finder or iTunes holds the lock, every attempt would block, and the loop ends with `ERROR: timeout while locking for sync` (1973).
+  - Any other AFC error prints `ERROR: could not lock file! error code: <n>` (1967) and closes the lock file, but the loop has no `break`. It keeps trying with the closed handle, so that line repeats until the attempts run out, and then the timeout message follows.
+  - These go to **stderr** (exact strings, either one → `sync_lock_failed`). The tool then skips the backup without a final message and exits with `result_code` -1 (255 on Unix).
 - **On-device cancel:** `User has cancelled the backup process on the device.` (115), followed later by `Backup Aborted.`.
 - **File errors:** `Received an error message from device: <msg>` (1153, preceded by an empty line) → counted as `device_file_errors`.
 - **Unchecked writes:** local write results are not checked (`fwrite`, ≈ 1111), so check free space after the backup.

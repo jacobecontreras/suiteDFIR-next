@@ -685,7 +685,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 
 **Recovery:** a `running` record becomes `interrupted` (`app_interrupted`), and `recovered_at` is set. Then:
 - if `enabled_by_examiner` and `restored_after` ≠ `restored`: add `encryption_left_enabled`;
-- if `will_encrypt_after_enable` is null: add `encryption_state_unknown`;
+- if the enable command ran (it is in `commands`) and its outcome is unknown, add `encryption_state_unknown`. The outcome is unknown when `will_encrypt_after_enable` is null, or when the command exited 0 but `WillEncrypt` still read false. Without an enable command nothing was changed on the device, so a null `will_encrypt_after_enable` adds no warning;
 - pending hash and seal statuses become `interrupted`.
 
 **Later restore:** `acq_restore_encryption` writes `encryption-restore.json` (`schema_version`, `acq_id`, `at`, `argv` without the password, `exit_code`, `will_encrypt_after`, `restored`, `tools`) and marks it read-only. `acquisition.json` is not modified.
