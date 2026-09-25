@@ -24,6 +24,11 @@
 //! install leaves nothing behind. The cancel flag is checked while downloading, copying and
 //! extracting and between the steps; a cancelled install also leaves nothing behind.
 //!
+//! **Leftovers.** An install interrupted by a crash or a quit can leave a `.staging-<rand>` dir, and a
+//! failed removal an `.old-<rand>` dir. Each install or import first removes those leftovers from
+//! `<tools_dir>/<tool>/`; it never touches a version dir. Installs of the same tool must not run
+//! concurrently (the command layer runs one at a time).
+//!
 //! **Checks.** [`status`] is cheap (no hashing): `installed_unverified` when the tool is installed
 //! per CONTRACTS.md §4. [`verify`] re-hashes the entry: `verified` or `verification_failed`.
 
@@ -70,6 +75,10 @@ const DOWNLOAD_POLL: Duration = Duration::from_millis(100);
 /// the asset at 16 KiB/s. Slower links should use offline import.
 const MIN_BODY_BUDGET: Duration = Duration::from_secs(600);
 const MIN_BODY_RATE: u64 = 16 * 1024;
+/// The names of an install's staging dir and of a moved-aside earlier install: a prefix and 6
+/// lowercase hex digits.
+const STAGING_PREFIX: &str = ".staging-";
+const OLD_PREFIX: &str = ".old-";
 /// How long renaming the staging dir is retried (Windows: a just-scanned or just-run file may
 /// still be open for a moment).
 const RENAME_RETRY: Duration = Duration::from_secs(5);
@@ -188,7 +197,8 @@ pub enum Source<'a> {
 /// Installs the pinned build (see the module docs). `introspect` receives the absolute path of the
 /// staged entry, after its hash was checked, and returns the tool's module list. Setting `cancel`
 /// stops the install (`InstallError::Cancelled`). Events: `stage` in pipeline order,
-/// `download_progress` while downloading, and a `message` for each URL that failed.
+/// `download_progress` while downloading, a `message` for each URL that failed, and one for
+/// removed leftovers of an interrupted install.
 pub fn install(
     pinned: Pinned<'_>,
     source: Source<'_>,
@@ -205,7 +215,13 @@ pub fn install(
         .collect();
     fs::create_dir_all(&tool_dir)
         .map_err(InstallError::io(format!("creating {}", tool_dir.display())))?;
-    let staging = tool_dir.join(format!(".staging-{}", random_hex()?));
+    let removed = remove_leftovers(&tool_dir, &pinned.manifest.version);
+    if removed > 0 {
+        on_event(InstallEvent::Message {
+            text: format!("removed {removed} leftover folder(s) of an interrupted install"),
+        });
+    }
+    let staging = tool_dir.join(format!("{STAGING_PREFIX}{}", random_hex()?));
     let result = fs::create_dir(&staging)
         .map_err(InstallError::io(format!("creating {}", staging.display())))
         .and_then(|()| {
@@ -243,6 +259,41 @@ pub fn install(
 
 fn stage_event(stage: InstallStage) -> InstallEvent {
     InstallEvent::Stage { stage }
+}
+
+/// Removes `.staging-<hex>` and `.old-<hex>` dirs left in `tool_dir` by an interrupted install or
+/// a failed removal; never the live `version` dir or anything else. Failures are logged. Returns
+/// how many were removed.
+fn remove_leftovers(tool_dir: &Path, version: &str) -> usize {
+    let is_leftover = |name: &str| {
+        [STAGING_PREFIX, OLD_PREFIX].iter().any(|prefix| {
+            name.strip_prefix(prefix).is_some_and(|suffix| {
+                suffix.len() == 6
+                    && suffix
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+        }) && name != version
+    };
+    let entries = match fs::read_dir(tool_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!("cannot list {}: {e}", tool_dir.display());
+            return 0;
+        }
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        if !entry.file_name().to_str().is_some_and(is_leftover) {
+            continue;
+        }
+        let path = entry.path();
+        match remove_tree(&path) {
+            Ok(()) => removed += 1,
+            Err(e) => log::warn!("cannot remove the leftover {}: {e}", path.display()),
+        }
+    }
+    removed
 }
 
 /// One install's staging dir and what it must produce there.
@@ -783,7 +834,7 @@ fn commit(staging: &Path, version_dir: &Path) -> Result<(), InstallError> {
         }
         Err(e) => Err(InstallError::io(context())(e)),
         Ok(_) => {
-            let old = version_dir.with_file_name(format!(".old-{}", random_hex()?));
+            let old = version_dir.with_file_name(format!("{OLD_PREFIX}{}", random_hex()?));
             rename_with_retry(version_dir, &old).map_err(InstallError::io(format!(
                 "moving the earlier install {} aside",
                 version_dir.display()
@@ -1443,6 +1494,50 @@ mod tests {
         fs::create_dir(&staging).unwrap();
         let extracted = extract(pinned_asset, &src, &staging, &cancelled);
         assert!(matches!(extracted, Err(InstallError::Cancelled)));
+    }
+
+    #[test]
+    fn leftovers_of_an_interrupted_install_are_removed() {
+        let asset = good_zip();
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("asset.zip");
+        fs::write(&src, &asset).unwrap();
+        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let tools_dir = case.tools_dir();
+        let pinned = pinned(&tools_dir, &case.manifest);
+        let tool_dir = pinned.tool_dir();
+        for leftover in [".staging-0a1b2c", ".old-ffffff"] {
+            fs::create_dir_all(tool_dir.join(leftover).join("bin")).unwrap();
+            fs::write(
+                tool_dir.join(leftover).join("bin").join("ileapp"),
+                "partial",
+            )
+            .unwrap();
+        }
+        // Not leftovers: other versions and anything not named like one.
+        for keep in ["v2025.1.0", ".staging-XYZ123", ".staging-0a1b2c3", "notes"] {
+            fs::create_dir_all(tool_dir.join(keep)).unwrap();
+        }
+        let mut run = Run::default();
+        run.install(pinned, Source::File(&src)).unwrap();
+        assert_eq!(
+            entries(&tool_dir),
+            [
+                ".staging-0a1b2c3",
+                ".staging-XYZ123",
+                "notes",
+                "v2025.1.0",
+                VERSION
+            ]
+        );
+        assert!(run.events.contains(&InstallEvent::Message {
+            text: "removed 2 leftover folder(s) of an interrupted install".to_owned()
+        }));
+        // The live version dir is never a leftover, even if it were named like one.
+        assert_eq!(remove_leftovers(&tool_dir, VERSION), 0);
+        fs::create_dir(tool_dir.join(".old-123abc")).unwrap();
+        assert_eq!(remove_leftovers(&tool_dir, ".old-123abc"), 0);
+        assert!(tool_dir.join(".old-123abc").is_dir());
     }
 
     #[test]

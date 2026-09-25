@@ -305,6 +305,8 @@ Module introspection (LEAPP-CLI.md §5) also uses a per-job temp dir, with a run
 
 The tools dir (`<app_data>/leapp` by default) can be overridden in settings for machines where AppLocker/WDAC allows execution only from approved paths. It may not be inside a case folder.
 
+An install stages into `<tools_dir>/<tool>/.staging-<rand>/` and renames it to `<version>`; an earlier install of that version is moved to `.old-<rand>` first. Leftover `.staging-*`/`.old-*` dirs from an interrupted install are removed when that tool is next installed or imported (never a version dir).
+
 A case folder (default parent `<Documents>/suiteDFIR Cases/`):
 
 ```
