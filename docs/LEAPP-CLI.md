@@ -53,7 +53,7 @@ aLEAPP **v2026.4.1**:
 - **Linux:**
   - A type-2 AppImage (≈ 71 MB) with the static runtime. Mounting needs FUSE; `--appimage-extract` does not.
   - It wraps `usr/bin/ileapp`, itself a onefile binary.
-  - The minimum glibc is UNVERIFIED (test in `ubuntu:22.04`).
+  - **glibc ≥ 2.38 is required.** VERIFIED by the A3 smoke run in `ubuntu:22.04` (glibc 2.35) for both tools (v2026.4.2 / v2026.4.1, linux-x86_64): `--appimage-extract` works there as an unprivileged user, but the inner binary exits 255 with `[PYI-…:ERROR] Failed to load Python shared library '…/_MEI…/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version 'GLIBC_2.38' not found`. Some bundled libraries reference even newer glibc versions (`libtinfo.so.6` 2.42; iLEAPP's `libmvec.so.1` 2.43), which may matter for the modules that load them.
 - **Every run:** extracts ≈ 132 MB into `$TMPDIR/_MEI*` and adds ≈ 2 s of startup.
 
 ## 3. Command-line flags used by suiteDFIR
@@ -90,7 +90,7 @@ aLEAPP **v2026.4.1**:
 
 ## 5. Introspection: modules, always-run and timezones (D11)
 
-The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP and 1,288 aLEAPP entries, matching the runtime.
+The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP and 1,288 aLEAPP entries, matching the runtime. After the tool rules below, 1,138 iLEAPP and 1,287 aLEAPP modules are selectable, with identical lists on macOS arm64 and Windows x64 (A3 smoke).
 
 **Loader facts** (from source at the pinned tags):
 - `--custom_artifacts_path` feeds the same `PluginLoader` as the built-in artifacts (iLEAPP `ileapp.py:231-236`, aLEAPP `aleapp.py:197-200`).
@@ -209,7 +209,9 @@ The output folder contains (VERIFIED):
 
 1. Windows: the bootloader honours `TEMP`/`TMP`; `Screen_Output.html` newline style; the console window stays hidden with `CREATE_NO_WINDOW`.
 2. Linux: AppImage extraction works on `ubuntu:22.04`, and the inner binary runs there (glibc).
+   - **Resolved by A3 (negative):** extraction works, the inner binary does not run (glibc ≥ 2.38 required, §2). Which Linux baseline the smoke runs and the app support is an open decision.
 3. iLEAPP `-t itunes` always-run artifact names; aLEAPP always-run names.
+   - **A3:** introspection confirms on macOS arm64 and Windows x64 that the binaries contain `last_build` (module `lastBuild`), `itunes_backup_info` and `itunes_backup_installed_applications` (module `iTunesBackupInfo`) and aLEAPP `usagestatsVersion` (module `usagestatsVersion`). That they run as described in §5 still needs E3 runs.
 4. Behavior of the password prompt after `setsid` with stdin null (fake `prompt` scenario mirrors the expected result).
 5. The iTunes password never appears in `Screen_Output.html`, `_lava_data.lava` or other report files. It can't be tested in CI without an encrypted fixture, so it is also in the G2 QA checklist.
 6. AppImage `entry_sha256` values for linux-x86_64 and linux-aarch64 (fill the manifest).
