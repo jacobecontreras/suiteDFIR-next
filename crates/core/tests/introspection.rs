@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use suitedfir_core::contracts::{ToolId, ToolManifest};
-use suitedfir_core::leapp::modules::{self, MIN_MODULES};
+use suitedfir_core::leapp::modules;
 use suitedfir_core::manifest;
 
 const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
@@ -101,7 +101,7 @@ fn a_probe_output_becomes_the_module_list() {
     let seen = dir.path().join("seen");
     fs::create_dir(&seen).unwrap();
     let prepared = dir.path().join("prepared.json");
-    fs::write(&prepared, probe_output(MIN_MODULES + 20)).unwrap();
+    fs::write(&prepared, probe_output(modules::MIN_MODULES + 20)).unwrap();
     let script = dir.path().join("fake-aleapp");
     fs::write(
         &script,
@@ -124,7 +124,7 @@ fn a_probe_output_becomes_the_module_list() {
     let file = modules::introspect(&script, ToolId::Aleapp, aleapp(), &cache).unwrap();
     assert_eq!(file.tool, ToolId::Aleapp);
     assert_eq!(file.version, aleapp().version);
-    assert_eq!(file.modules.len(), MIN_MODULES + 20);
+    assert_eq!(file.modules.len(), modules::MIN_MODULES + 20);
     assert_eq!(file.always_run["default"], ["usagestatsVersion"]);
     // aLEAPP's list is never reported, even if the binary has pytz.
     assert_eq!(file.timezones, None);
