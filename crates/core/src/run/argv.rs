@@ -7,9 +7,9 @@
 //! ```
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 
-use crate::contracts::{InputType, RunCommand};
+use crate::contracts::{AppError, ErrorCode, InputType, RunCommand};
 
 use super::casedata;
 use super::record::REPORT_DIR;
@@ -61,8 +61,30 @@ pub enum ArgvError {
     },
     #[error("the {what} path {path} is not valid Unicode")]
     NotUnicode { what: &'static str, path: PathBuf },
-    #[error(r"the {what} path {path} is \\?\-prefixed; LEAPP needs a plain absolute path")]
-    Verbatim { what: &'static str, path: String },
+    #[error(r"the {what} path {path} is a \\?\ or \\.\ path; LEAPP needs a plain absolute path")]
+    SpecialPrefix { what: &'static str, path: String },
+}
+
+impl ArgvError {
+    /// The `AppError` code (CONTRACTS.md §12): the path cannot be passed to LEAPP. Commands build
+    /// the argv before creating anything, so nothing is left behind.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            Self::NotAbsolute { .. } | Self::NotUnicode { .. } | Self::SpecialPrefix { .. } => {
+                ErrorCode::PathNotAllowed
+            }
+        }
+    }
+}
+
+impl From<ArgvError> for AppError {
+    fn from(err: ArgvError) -> Self {
+        AppError {
+            code: err.code(),
+            message: "This path cannot be passed to LEAPP".to_owned(),
+            detail: Some(err.to_string()),
+        }
+    }
 }
 
 /// A LEAPP command line. It holds the password, so `Debug` shows only the redacted argv, and
@@ -136,23 +158,24 @@ pub fn build(spec: &ArgvSpec<'_>) -> Result<LeappCommand, ArgvError> {
     Ok(LeappCommand { argv, cwd: run_dir })
 }
 
-/// A copy of `argv` with the value after `--itunes_password` replaced by `<redacted>`.
+/// A copy of `argv` with the value after `--itunes_password` replaced by `<redacted>`. It works
+/// by position: the value is consumed with its flag, so a password that is itself spelled
+/// `--itunes_password` never hides the argument after it.
 pub fn redact(argv: &[String]) -> Vec<String> {
     let mut redacted = Vec::with_capacity(argv.len());
-    let mut hide_next = false;
-    for arg in argv {
-        redacted.push(if hide_next {
-            REDACTED.to_owned()
-        } else {
-            arg.clone()
-        });
-        hide_next = arg == PASSWORD_FLAG;
+    let mut args = argv.iter();
+    while let Some(arg) = args.next() {
+        redacted.push(arg.clone());
+        if arg == PASSWORD_FLAG && args.next().is_some() {
+            redacted.push(REDACTED.to_owned());
+        }
     }
     redacted
 }
 
-/// `path` made absolute with `std::path::absolute` (never canonicalized, so never `\\?\`-prefixed
-/// on Windows, ARCHITECTURE.md §7), as a string.
+/// `path` made absolute with `std::path::absolute` (never canonicalized, ARCHITECTURE.md §7), as
+/// a string. Verbatim (`\\?\`) and device (`\\.\`) paths are refused: LEAPP adds the verbatim
+/// prefix itself and checks `path[1] == ':'`.
 fn absolute(what: &'static str, path: &Path) -> Result<String, ArgvError> {
     let absolute = std::path::absolute(path).map_err(|source| ArgvError::NotAbsolute {
         what,
@@ -163,13 +186,33 @@ fn absolute(what: &'static str, path: &Path) -> Result<String, ArgvError> {
         what,
         path: path.to_path_buf(),
     })?;
-    if text.starts_with(r"\\?\") {
-        return Err(ArgvError::Verbatim {
+    if has_special_prefix(&absolute) {
+        return Err(ArgvError::SpecialPrefix {
             what,
             path: text.to_owned(),
         });
     }
     Ok(text.to_owned())
+}
+
+/// Whether `path` is a Windows verbatim (`\\?\…`) or device (`\\.\…`) path. The spelling is
+/// checked too, so the answer is the same on every OS.
+fn has_special_prefix(path: &Path) -> bool {
+    let special_component = matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix)) if matches!(
+            prefix.kind(),
+            Prefix::Verbatim(_)
+                | Prefix::VerbatimUNC(..)
+                | Prefix::VerbatimDisk(_)
+                | Prefix::DeviceNS(_)
+        )
+    );
+    let text = path.as_os_str().to_string_lossy();
+    special_component
+        || [r"\\?\", r"\\.\", "//?/", "//./"]
+            .iter()
+            .any(|prefix| text.starts_with(prefix))
 }
 
 #[cfg(test)]
@@ -316,25 +359,141 @@ mod tests {
         assert_eq!(redact(&argv), argv);
     }
 
-    #[cfg(windows)]
     #[test]
-    fn verbatim_paths_are_refused() {
-        let err = build(&ArgvSpec {
-            entry: Path::new(r"C:\tools\ileapp.exe"),
-            input_type: InputType::Fs,
-            input: Path::new(r"\\?\C:\evidence"),
-            run_dir: Path::new(r"C:\case\runs\20260924-183005Z-ileapp-3f9a1c"),
+    fn a_password_spelled_like_the_flag_hides_only_itself() {
+        let r = root();
+        let keychain = r.join("keychain.plist");
+        let command = build(&ArgvSpec {
+            entry: &r.join("ileapp"),
+            input_type: InputType::Itunes,
+            input: &r.join("backup"),
+            run_dir: &r.join("run"),
             profile: None,
             timezone: Some("UTC"),
-            itunes_password: Some(examples::EXAMPLE_PASSWORD),
+            itunes_password: Some(PASSWORD_FLAG),
+            keychain: Some(&keychain),
+        })
+        .unwrap();
+        let recorded = command.recorded().argv;
+        assert_eq!(
+            recorded[recorded.len() - 4..],
+            [
+                "--itunes_password".to_owned(),
+                "<redacted>".to_owned(),
+                "--keychain".to_owned(),
+                s(&keychain),
+            ]
+        );
+        // Two flags in a row: the second is the first one's value.
+        let argv: Vec<String> = [
+            "--itunes_password",
+            "--itunes_password",
+            "--itunes_password",
+            "pw",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        assert_eq!(
+            redact(&argv),
+            [
+                "--itunes_password",
+                "<redacted>",
+                "--itunes_password",
+                "<redacted>"
+            ]
+        );
+    }
+
+    #[test]
+    fn special_prefixes_are_recognized_on_every_os() {
+        for path in [
+            r"\\?\C:\evidence",
+            r"\\?\UNC\server\share\evidence",
+            r"\\.\C:\evidence",
+            r"\\.\PhysicalDrive0",
+            "//?/C:/evidence",
+            "//./PhysicalDrive0",
+        ] {
+            assert!(has_special_prefix(Path::new(path)), "{path}");
+        }
+        for path in [
+            r"C:\evidence",
+            "/evidence",
+            r"\\server\share\evidence",
+            "C:/x",
+        ] {
+            assert!(!has_special_prefix(Path::new(path)), "{path}");
+        }
+    }
+
+    #[test]
+    fn argv_errors_map_to_path_not_allowed() {
+        let errors = [
+            ArgvError::NotAbsolute {
+                what: "input",
+                path: PathBuf::new(),
+                source: std::io::Error::from(std::io::ErrorKind::InvalidInput),
+            },
+            ArgvError::NotUnicode {
+                what: "input",
+                path: PathBuf::from("x"),
+            },
+            ArgvError::SpecialPrefix {
+                what: "keychain",
+                path: r"\\.\C:\k".to_owned(),
+            },
+        ];
+        for err in errors {
+            assert_eq!(err.code(), ErrorCode::PathNotAllowed, "{err}");
+            let detail = err.to_string();
+            let app = AppError::from(err);
+            assert_eq!(app.code, ErrorCode::PathNotAllowed);
+            assert_eq!(app.message, "This path cannot be passed to LEAPP");
+            assert_eq!(app.detail.as_deref(), Some(detail.as_str()));
+        }
+        // An empty path cannot be made absolute.
+        let r = root();
+        let err = build(&ArgvSpec {
+            entry: &r.join("ileapp"),
+            input_type: InputType::Fs,
+            input: Path::new(""),
+            run_dir: &r.join("run"),
+            profile: None,
+            timezone: Some("UTC"),
+            itunes_password: None,
             keychain: None,
         })
         .unwrap_err();
         assert!(
-            matches!(err, ArgvError::Verbatim { what: "input", .. }),
+            matches!(err, ArgvError::NotAbsolute { what: "input", .. }),
             "{err:?}"
         );
-        assert!(!err.to_string().contains(examples::EXAMPLE_PASSWORD));
+        assert_eq!(AppError::from(err).code, ErrorCode::PathNotAllowed);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_and_device_paths_are_refused() {
+        for input in [
+            r"\\?\C:\evidence",
+            r"\\.\C:\evidence",
+            "//?/C:/evidence",
+            "//./C:/evidence",
+        ] {
+            let err = build(&ArgvSpec {
+                entry: Path::new(r"C:\tools\ileapp.exe"),
+                input_type: InputType::Fs,
+                input: Path::new(input),
+                run_dir: Path::new(r"C:\case\runs\20260924-183005Z-ileapp-3f9a1c"),
+                profile: None,
+                timezone: Some("UTC"),
+                itunes_password: Some(examples::EXAMPLE_PASSWORD),
+                keychain: None,
+            })
+            .unwrap_err();
+            assert_eq!(err.code(), ErrorCode::PathNotAllowed, "{input}: {err:?}");
+            assert!(!err.to_string().contains(examples::EXAMPLE_PASSWORD));
+        }
     }
 
     #[cfg(unix)]
