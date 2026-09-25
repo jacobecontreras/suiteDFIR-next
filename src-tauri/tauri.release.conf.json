@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [
+      "binaries/idevice_id",
+      "binaries/ideviceinfo",
+      "binaries/idevicepair",
+      "binaries/idevicebackup2"
+    ]
+  }
+}
