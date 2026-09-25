@@ -1,5 +1,5 @@
 //! iOS acquisition files: `idevice-tools.json` (CONTRACTS.md §13.2), `acquisition.json` (§13.3)
-//! and `encryption-restore.json` (§13.3, "Later restore").
+//! and the later-restore files `encryption-restore[-N].json` (§13.3, "Later restore").
 
 use std::collections::BTreeMap;
 
@@ -223,8 +223,9 @@ pub struct AcqLogs {
     pub stderr: String,
 }
 
-/// `acquisitions/<acq_id>/encryption-restore.json`, written by a later `acq_restore_encryption`
-/// (§13.3). `acquisition.json` is not modified.
+/// `acquisitions/<acq_id>/encryption-restore[-N].json`: one read-only file per later
+/// `acq_restore_encryption` attempt, `encryption-restore.json` first, then
+/// `encryption-restore-2.json`, … (§13.3). `acquisition.json` is not modified.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EncryptionRestoreRecord {
     pub schema_version: u32,

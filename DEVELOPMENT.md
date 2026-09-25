@@ -69,10 +69,10 @@ rust-toolchain.toml  deny.toml  leapp-manifest.json  idevice-tools.json  .cargo/
 .gitattributes (* text=auto eol=lf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
 crates/core/                  suitedfir-core: all logic, no Tauri dependency
   src/{lib.rs, contracts/, fsutil/, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
-       settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice.rs, acquire.rs}
+       settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice/, acquire/}
   src/bin/fake-leapp.rs       test double (never bundled); tests use env!("CARGO_BIN_EXE_fake-leapp")
   src/bin/fake-idevice.rs     test double for the libimobiledevice tools (never bundled)
-  tests/{process.rs, introspection.rs, runner.rs, acquire.rs, leapp_smoke.rs}
+  tests/{process.rs, introspection.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/}
 src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.json (externalBin overlay),
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
 xtask/                        pin-leapp, contracts, notices, fetch-idevice-tools
@@ -227,7 +227,15 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 - **Signals:** handles SIGTERM like the real tool.
 - **Pairing semantics:** mirrors the real tools. `hostid` prints `(null)` without a host record, and `validate` without a record behaves like `pair` (it starts pairing), so tests can prove that polling never pairs.
 - **Password handling:** reads passwords only from `BACKUP_PASSWORD_NEW`/`BACKUP_PASSWORD`, and fails if a password appears in argv.
-- **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`.
+- **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`. Two more cover device behavior the §13.4 rows do not:
+  - `will_encrypt_absent`: the backup domain has no `WillEncrypt` key, which the tool treats as false.
+  - `enable_unconfirmed`: `encryption on` succeeds, but the next `WillEncrypt` read still returns false.
+- **Pacing:**
+  - `FAKE_IDEVICE_INTERVAL_MS`: the gap between progress records.
+  - `FAKE_IDEVICE_PROMPT_MS`: the wait after an encryption prompt.
+  - `FAKE_IDEVICE_DATA_USED`: the device's used bytes.
+  - `FAKE_IDEVICE_HOLD=<path>`: `idevice_id -l` waits until that file exists (at most 15 s), so a test can keep a poll in flight.
+  - See the binary's module docs.
 
 **Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow.
 
