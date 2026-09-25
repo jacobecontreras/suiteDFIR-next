@@ -80,6 +80,9 @@ const MIN_BODY_RATE: u64 = 16 * 1024;
 /// lowercase hex digits.
 const STAGING_PREFIX: &str = ".staging-";
 const OLD_PREFIX: &str = ".old-";
+/// How long a rename or removal in the tools dir is retried on Windows while a file is still held
+/// open: antivirus scanners can hold a just-introspected executable for a few seconds.
+const TRANSIENT_RETRY: Duration = Duration::from_secs(5);
 
 /// Why an install or a check failed. Each variant maps to one CONTRACTS.md §12 code.
 #[derive(Debug, thiserror::Error)]
@@ -342,10 +345,9 @@ impl Staging<'_> {
         self.check_cancel()?;
         on_event(stage_event(InstallStage::Extracting));
         let entry_path = extract(asset, &asset_path, staging, self.cancel)?;
-        retry_transient(|| fs::remove_file(&asset_path)).map_err(InstallError::io(format!(
-            "removing {}",
-            asset_path.display()
-        )))?;
+        retry_transient(TRANSIENT_RETRY, || fs::remove_file(&asset_path)).map_err(
+            InstallError::io(format!("removing {}", asset_path.display())),
+        )?;
 
         self.check_cancel()?;
         on_event(stage_event(InstallStage::Hashing));
@@ -877,14 +879,15 @@ fn commit(staging: &Path, version_dir: &Path) -> Result<(), InstallError> {
     }
 }
 
-/// A rename, retried briefly on Windows while a just-run or just-scanned file is still open.
+/// A rename, retried on Windows for up to [`TRANSIENT_RETRY`] while a just-run or just-scanned
+/// file is still open.
 fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
-    retry_transient(|| fs::rename(from, to))
+    retry_transient(TRANSIENT_RETRY, || fs::rename(from, to))
 }
 
 /// Removes a directory tree without following symlinks, retried like [`rename_with_retry`].
 fn remove_tree(path: &Path) -> io::Result<()> {
-    retry_transient(|| fs::remove_dir_all(path))
+    retry_transient(TRANSIENT_RETRY, || fs::remove_dir_all(path))
 }
 
 fn random_hex() -> Result<String, InstallError> {
@@ -1084,6 +1087,8 @@ mod tests {
 
     const ENTRY_BYTES: &[u8] = b"#!fake ileapp onefile binary\n";
     static NO_CANCEL: AtomicBool = AtomicBool::new(false);
+    /// Slack in timing bounds for a loaded CI runner.
+    const SLOW_RUNNER: Duration = Duration::from_secs(3);
     const VERSION: &str = "v2026.4.2";
 
     fn sha256_of(bytes: &[u8]) -> String {
@@ -1447,8 +1452,10 @@ mod tests {
     #[test]
     fn a_stalled_download_fails_in_bounded_time() {
         let asset = good_zip();
-        let hold = STALL_TIMEOUT * 2;
-        let (base, server) = serve(vec![Reply::Stall {
+        // The server stays silent long enough that only the stall timeout can end the download
+        // (its close would be reported as a truncated download instead).
+        let hold = STALL_TIMEOUT + SLOW_RUNNER;
+        let (base, _server) = serve(vec![Reply::Stall {
             declared: asset.len(),
             body: asset[..asset.len() / 2].to_vec(),
             hold,
@@ -1462,10 +1469,12 @@ mod tests {
         let took = started.elapsed();
         assert_eq!(error.code(), ErrorCode::DownloadFailed, "{error}");
         assert!(error.to_string().contains("stalled download"), "{error}");
-        // Noticed after the stall timeout, well before the server gives up.
-        assert!(took >= STALL_TIMEOUT && took < hold, "{took:?}");
+        // Bounded: the stall timeout, plus the staging cleanup (which may retry for up to
+        // TRANSIENT_RETRY on Windows), plus slack for a loaded machine.
+        let bound = STALL_TIMEOUT + TRANSIENT_RETRY + SLOW_RUNNER;
+        assert!(took >= STALL_TIMEOUT && took < bound, "{took:?}");
         case.assert_nothing_left();
-        server.join().unwrap();
+        // The server thread ends on its own once its silence is over; no need to wait for it.
     }
 
     #[test]
@@ -1490,8 +1499,12 @@ mod tests {
         let error = run
             .install(pinned(&tools_dir, &case.manifest), Source::Download)
             .unwrap_err();
+        // Cancelled, not stalled: the flag was noticed while a read was blocked.
         assert!(matches!(error, InstallError::Cancelled), "{error}");
-        assert!(started.elapsed() < STALL_TIMEOUT, "{:?}", started.elapsed());
+        // Bounded: the cancel delay, plus the staging cleanup (up to TRANSIENT_RETRY on Windows),
+        // plus slack for a loaded machine.
+        let bound = Duration::from_millis(300) + TRANSIENT_RETRY + SLOW_RUNNER;
+        assert!(started.elapsed() < bound, "{:?}", started.elapsed());
         let app: AppError = error.into();
         assert_eq!(app.code, ErrorCode::DownloadFailed);
         assert_eq!(app.message, "the installation was cancelled");
