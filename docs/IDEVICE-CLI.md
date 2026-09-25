@@ -60,6 +60,10 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 
 **`ideviceinfo` failure mode:** when the value read fails, it can exit 0 with **empty stdout** (`ideviceinfo.c:235-259`). Treat empty output as a failure.
 
+**`ideviceinfo` without `-s` pairs:** it connects with `lockdownd_client_new_with_handshake` (`ideviceinfo.c:222-224`), which pairs when no host record exists, like `validate`. So the full identity, `WillEncrypt` and disk usage are read only from a device whose pairing was confirmed.
+
+**`hostid` needs the device connected:** `idevicepair` looks the device up through usbmuxd first and prints `No device found with udid <udid>.` if it is gone (`idevicepair.c:371-379`).
+
 **Prompts:** never pass `-i/--interactive`. Without it, a missing password produces `ERROR: Can't get password input in non-interactive mode…` instead of a terminal prompt.
 
 ## 3. Exit codes and signals
@@ -92,10 +96,15 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - **Overall progress** is printed as `print_progress_real(overall, 0)` followed by ` Finished` (2524-2525), and is not always flushed. Parse overall percent only from `\]\s+(\d+)%\s+Finished`.
 - Output may arrive in bursts, so handle records split by `\r` or `\n` across chunk boundaries.
 
-**Device prompts:**
-- iOS ≥ 16.1 prints lines beginning `*** Waiting for passcode` before a backup (2055-2062).
-- iOS ≥ 13 prints a `Please confirm … passcode` line for encryption changes (≈ 2256), and the tool waits **without a time limit** (2236-2266).
-- Map these lines to `device_prompt` events. X3a copies the exact strings from source into this section.
+**Device prompts** (exact strings, copied from the pinned source; `idevice::parse` matches them):
+- Before a backup on iOS ≥ 16.1, when the device asks for its passcode (2055-2062), on stdout → `passcode_for_backup`:
+  `*** Waiting for passcode to be entered on the device ***`
+- For encryption changes on iOS ≥ 13 when a passcode is set (2252-2259), on stdout → `passcode_for_encryption`; the tool then waits **without a time limit** (2236-2266):
+  - `encryption on`: `Please confirm enabling the backup encryption by entering the passcode on the device.`
+  - `encryption off`: `Please confirm disabling the backup encryption by entering the passcode on the device.`
+  - (`changepw`, never run: `Please confirm changing the backup password by entering the passcode on the device.`)
+- **Buffering:** these lines are plain `printf` output. With stdout on a pipe, the C runtime buffers it fully, and only `print_progress` calls `fflush` (704). So an encryption prompt may reach suiteDFIR only when the command ends, and the backup prompt with the first file batch. The UI therefore also explains, for the whole encryption phase, that the app waits for the device (ROADMAP D5). To be confirmed on a device (§8 item 2).
+- **Results of an encryption change** (2588-2599): `Backup encryption has been enabled successfully.` / `Could not enable backup encryption.`, and `Backup encryption has been disabled successfully.` / `Could not disable backup encryption.` suiteDFIR decides the outcome by re-reading `WillEncrypt`, not from these lines.
 
 **Final messages** (2569-2575):
 - `Backup Successful.` only if the device reported ErrorCode 0 **and** `SnapshotState == "finished"`.
@@ -107,8 +116,11 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - a device disconnect (the quit flag is set at ≈ 2297).
 
 **Other messages:**
-- **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (≈ 1951). If Finder or iTunes holds it, the tool prints a lock failure (1967/1973) and fails. X3a copies the exact string.
-- **File errors:** `Received an error message from device:` (≈ 1153) → counted as `device_file_errors`.
+- **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (1949-1977). If Finder or iTunes holds it, the lock attempts time out; any other AFC error ends them at once. Either way the tool prints, on **stderr**, one of these (exact strings, → `sync_lock_failed`), skips the backup without a final message, and exits with `result_code` -1 (255 on Unix):
+  - `ERROR: timeout while locking for sync` (1973)
+  - `ERROR: could not lock file! error code: <n>` (1967)
+- **On-device cancel:** `User has cancelled the backup process on the device.` (115), followed later by `Backup Aborted.`.
+- **File errors:** `Received an error message from device: <msg>` (1153, preceded by an empty line) → counted as `device_file_errors`.
 - **Unchecked writes:** local write results are not checked (`fwrite`, ≈ 1111), so check free space after the backup.
 
 **Output layout:**
