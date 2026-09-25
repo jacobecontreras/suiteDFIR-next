@@ -265,9 +265,14 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 **Recovery** on `case_open`: a `running` acquisition that is not this process's active job becomes `interrupted` (discovery and recovery are owned by the `acquire` module). If the record shows encryption was enabled by the examiner and not confirmed restored, add warning `encryption_left_enabled`, or `encryption_state_unknown` if the enable outcome was unknown. The Case screen shows a "Turn backup encryption off" action.
 
 **Later restore** (`acq_restore_encryption {case_path, acq_id, password}`):
-- Allowed only when the record has one of those two warnings and the device is connected and paired.
+- Allowed only when:
+  - the record has one of those two warnings;
+  - no earlier attempt recorded `restored: true`;
+  - the device is connected and paired.
+- A failed attempt can be retried.
 - Runs step 8 on its own.
-- Writes a separate, read-only `encryption-restore.json` next to the (already read-only) `acquisition.json`.
+- Each attempt writes its own read-only file next to the (already read-only) `acquisition.json`, and never overwrites one: `encryption-restore.json`, then `encryption-restore-2.json`, `-3.json`, … (CONTRACTS.md §13.3).
+- After a successful attempt, the Case screen stops offering "Turn backup encryption off": `AcqSummary.warnings` leaves out the two codes. `acquisition.json` still carries them.
 
 ## 7. Process model details
 
@@ -301,7 +306,11 @@ App directories come from Tauri path APIs (identifier `com.suitedfir.desktop`):
 <app_log>/suitedfir.log              app log, truncated at 5 MB, never contains secrets
 ```
 
+Module introspection (LEAPP-CLI.md §5) also uses a per-job temp dir, with a run-id-shaped name (`YYYYMMDD-HHMMSSZ-<ileapp|aleapp>-<6 lowercase hex>`); it is only a directory name under `<app_cache>/tmp`, so it never collides with a real run's folder.
+
 The tools dir (`<app_data>/leapp` by default) can be overridden in settings for machines where AppLocker/WDAC allows execution only from approved paths. It may not be inside a case folder.
+
+An install stages into `<tools_dir>/<tool>/.staging-<rand>/` and renames it to `<version>`; an earlier install of that version is moved to `.old-<rand>` first. Leftover `.staging-*`/`.old-*` dirs from an interrupted install are removed when that tool is next installed or imported (never a version dir).
 
 A case folder (default parent `<Documents>/suiteDFIR Cases/`):
 
@@ -321,7 +330,8 @@ A case folder (default parent `<Documents>/suiteDFIR Cases/`):
     20260924-171200Z-ios-9c01de/
       acquisition.json       read-only once finalized (rewritten atomically during the job after each device change)
       device-info.plist      full ideviceinfo output captured after pairing (never logged)
-      encryption-restore.json  only if a later restore was performed
+      encryption-restore[-N].json  one read-only file per later-restore attempt (encryption-restore.json,
+                             then encryption-restore-2.json, …); only if a later restore was attempted
       idevicebackup2.stdout.log
       idevicebackup2.stderr.log
       backup/<udid>/         the iTunes-format backup (input for iLEAPP -t itunes)

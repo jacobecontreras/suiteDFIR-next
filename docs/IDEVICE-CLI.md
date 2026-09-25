@@ -52,13 +52,17 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 | Validate pairing | `idevicepair -u <udid> validate` | **Only call when a host record exists.** It uses `lockdownd_client_new_with_handshake` (`idevicepair.c:452`), which **pairs** if no record exists (`lockdown.c:728-733`) and triggers the Trust dialog. |
 | Pair | `idevicepair -u <udid> pair` | Only via the explicit `device_pair` command. |
 | Full identity (paired) | `ideviceinfo -u <udid> -x` | XML plist (`plist::Value::from_reader`). Saved as `device-info.plist`; contains IMEI and phone number, so never log it. |
-| Encryption state | `ideviceinfo -u <udid> -q com.apple.mobile.backup -k WillEncrypt -x` | Boolean. The backup tool treats an **absent** value as false (1843-1851). |
+| Encryption state | `ideviceinfo -u <udid> -q com.apple.mobile.backup -x` | The backup domain dictionary. `WillEncrypt` is a boolean; the backup tool treats an **absent** key as false (1843-1851), and so does suiteDFIR. `-k WillEncrypt` is not used: for an absent key it prints nothing with exit 0, exactly like a failed read (`lockdown.c:403-452`, `ideviceinfo.c:235-259`). Empty output or a tool error for the domain means the state is unknown. |
 | Disk usage | `ideviceinfo -u <udid> -q com.apple.disk_usage -x` | `TotalDataCapacity`, `TotalDataAvailable`; used capacity = difference. |
 | Backup | `idevicebackup2 -u <udid> backup --full <dir>` | `<dir>` **must exist**: otherwise `ERROR: Backup directory "<dir>" does not exist!` and exit 255 (1730-1733). Creates `<dir>/<udid>/`. |
 | Encryption on | `idevicebackup2 -u <udid> encryption on` + env `BACKUP_PASSWORD_NEW=<pw>` | Env variables are read at 1458-1459 and 1758-1768. Never pass the password in argv. |
 | Encryption off | `idevicebackup2 -u <udid> encryption off` + env `BACKUP_PASSWORD=<pw>` | |
 
 **`ideviceinfo` failure mode:** when the value read fails, it can exit 0 with **empty stdout** (`ideviceinfo.c:235-259`). Treat empty output as a failure.
+
+**`ideviceinfo` without `-s` pairs:** it connects with `lockdownd_client_new_with_handshake` (`ideviceinfo.c:222-224`), which pairs when no host record exists, like `validate`. So the full identity, `WillEncrypt` and disk usage are read only from a device whose pairing was confirmed.
+
+**`hostid` needs the device connected:** `idevicepair` looks the device up through usbmuxd first and prints `No device found with udid <udid>.` if it is gone (`idevicepair.c:371-379`).
 
 **Prompts:** never pass `-i/--interactive`. Without it, a missing password produces `ERROR: Can't get password input in non-interactive mode…` instead of a terminal prompt.
 
@@ -92,10 +96,15 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - **Overall progress** is printed as `print_progress_real(overall, 0)` followed by ` Finished` (2524-2525), and is not always flushed. Parse overall percent only from `\]\s+(\d+)%\s+Finished`.
 - Output may arrive in bursts, so handle records split by `\r` or `\n` across chunk boundaries.
 
-**Device prompts:**
-- iOS ≥ 16.1 prints lines beginning `*** Waiting for passcode` before a backup (2055-2062).
-- iOS ≥ 13 prints a `Please confirm … passcode` line for encryption changes (≈ 2256), and the tool waits **without a time limit** (2236-2266).
-- Map these lines to `device_prompt` events. X3a copies the exact strings from source into this section.
+**Device prompts** (exact strings, copied from the pinned source; `idevice::parse` matches them):
+- Before a backup on iOS ≥ 16.1, when the device asks for its passcode (2055-2062), on stdout → `passcode_for_backup`:
+  `*** Waiting for passcode to be entered on the device ***`
+- For encryption changes on iOS ≥ 13 when a passcode is set (2252-2259), on stdout → `passcode_for_encryption`; the tool then waits **without a time limit** (2236-2266):
+  - `encryption on`: `Please confirm enabling the backup encryption by entering the passcode on the device.`
+  - `encryption off`: `Please confirm disabling the backup encryption by entering the passcode on the device.`
+  - (`changepw`, never run: `Please confirm changing the backup password by entering the passcode on the device.`)
+- **Buffering:** these lines are plain `printf` output. With stdout on a pipe, the C runtime buffers it fully, and only `print_progress` calls `fflush` (704). So an encryption prompt may reach suiteDFIR only when the command ends, and the backup prompt with the first file batch. The UI therefore also explains, for the whole encryption phase, that the app waits for the device (ROADMAP D5). To be confirmed on a device (§8 item 2).
+- **Results of an encryption change** (2588-2599): `Backup encryption has been enabled successfully.` / `Could not enable backup encryption.`, and `Backup encryption has been disabled successfully.` / `Could not disable backup encryption.` suiteDFIR decides the outcome by re-reading `WillEncrypt`, not from these lines.
 
 **Final messages** (2569-2575):
 - `Backup Successful.` only if the device reported ErrorCode 0 **and** `SnapshotState == "finished"`.
@@ -107,8 +116,12 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - a device disconnect (the quit flag is set at ≈ 2297).
 
 **Other messages:**
-- **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (≈ 1951). If Finder or iTunes holds it, the tool prints a lock failure (1967/1973) and fails. X3a copies the exact string.
-- **File errors:** `Received an error message from device:` (≈ 1153) → counted as `device_file_errors`.
+- **Sync lock:** the tool takes `/com.apple.itunes.lock_sync` on the device (1949-1977), with up to 50 attempts (`LOCK_ATTEMPTS`):
+  - If Finder or iTunes holds the lock, every attempt would block, and the loop ends with `ERROR: timeout while locking for sync` (1973).
+  - Any other AFC error prints `ERROR: could not lock file! error code: <n>` (1967) with that error's code, then closes the lock file and sets its handle to 0. But the loop has no `break`: every further attempt passes handle 0, which `afc_file_lock` rejects with `AFC_E_INVALID_ARG` (`afc.c:968-969`). So the line repeats with `error code: 7` until the attempts run out, and then the timeout message follows.
+  - These go to **stderr** (exact strings, either one → `sync_lock_failed`). The tool then skips the backup without a final message and exits with `result_code` -1 (255 on Unix).
+- **On-device cancel:** `User has cancelled the backup process on the device.` (115), followed later by `Backup Aborted.`.
+- **File errors:** `Received an error message from device: <msg>` (1153, preceded by an empty line) → counted as `device_file_errors`.
 - **Unchecked writes:** local write results are not checked (`fwrite`, ≈ 1111), so check free space after the backup.
 
 **Output layout:**
@@ -120,6 +133,8 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - Changing the setting changes device state. suiteDFIR records it, restores it by default, and never resets device settings; an unknown existing password can only be removed by "Reset All Settings" on the device.
 
 **Windows paths:** the tools use ANSI file APIs (`fopen`, `mkdir`, `DeleteFile`, `GetDiskFreeSpaceEx`; ≈ 175, 221, 2315). Non-ASCII or long target paths may fail, so suiteDFIR refuses them (ARCHITECTURE §6b step 4).
+
+**Windows passwords:** the tools read `BACKUP_PASSWORD_NEW` / `BACKUP_PASSWORD` with `getenv` (1758-1768, 2167-2195). In the MinGW/UCRT build that returns the environment converted to the ANSI code page. A password with characters outside it would reach the device as other bytes (or `?`), while iLEAPP later gets the Unicode password in argv, so the encrypted backup could not be decrypted with the password the examiner typed. suiteDFIR therefore refuses, on Windows, any encryption password (enable, restore, later restore) that is not printable ASCII (0x20-0x7E), before any device change, with `invalid_input`.
 
 ## 6. How suiteDFIR decides acquisition success
 
@@ -153,3 +168,5 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 6. Graceful abort time after SIGTERM on a large backup (grace = 30 s).
 7. `ideviceinfo -s` field subset on current iOS for an unpaired device.
 8. The sync-lock failure string, and the behavior when Finder/iTunes is open.
+9. The `com.apple.mobile.backup` domain on a device that never had backup encryption set: a dictionary without `WillEncrypt` (read as false), or nothing at all (read as unknown, which blocks enabling encryption).
+10. Whether `WillEncrypt` reads `true` right after `encryption on` reports success, or only after a delay. Upstream once waited for a backup-domain-changed notification after enabling (the code commented out at 2260-2266). suiteDFIR treats "`WillEncrypt` reads false, but the tool reported success or its exit code is unknown" as an unknown outcome: it warns `encryption_state_unknown` and attempts the restore.
