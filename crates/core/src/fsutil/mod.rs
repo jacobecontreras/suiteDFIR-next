@@ -1,12 +1,14 @@
 //! Filesystem helpers: atomic JSON writes, read-only marking, path containment and free space
 //! (ARCHITECTURE.md §5.1). OS-specific code lives in `unix.rs` and `windows.rs`.
 
+use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::contracts::ErrorCode;
 use crate::hashing::to_hex;
 
 #[cfg(unix)]
@@ -31,9 +33,19 @@ pub fn write_json_atomic<T: Serialize + ?Sized>(path: &Path, value: &T) -> io::R
     write_atomic(path, &bytes, |_| Ok(()))
 }
 
+/// Writes `bytes` to `path` atomically, with the same guarantees as [`write_json_atomic`] (used for
+/// hash manifests).
+pub fn write_file_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_atomic(path, bytes, |_| Ok(()))
+}
+
 /// The atomic write, with a hook between the synced temp file and the rename (tests simulate a
 /// crash there).
-fn write_atomic(
+///
+/// After the rename, the parent directory is synced on Unix (best effort) so the rename itself is
+/// durable. On Windows the rename is retried briefly while another process (antivirus, the search
+/// indexer) holds the target open.
+pub(crate) fn write_atomic(
     path: &Path,
     bytes: &[u8],
     before_rename: impl FnOnce(&Path) -> io::Result<()>,
@@ -63,7 +75,7 @@ fn write_atomic(
 
     let result = write_new_synced(&tmp, bytes)
         .and_then(|()| before_rename(&tmp))
-        .and_then(|()| fs::rename(&tmp, path));
+        .and_then(|()| sys::rename_replace(&tmp, path));
     if result.is_err() {
         // Best effort: the original error matters more than a leftover temp file.
         let _ = fs::remove_file(&tmp);
@@ -78,10 +90,27 @@ fn write_new_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.sync_all()
 }
 
+/// The `AppError` code for an I/O error (CONTRACTS.md §12): `permission_denied` when access was
+/// refused (including macOS privacy protection, EPERM), otherwise `io`.
+pub fn io_error_code(err: &io::Error) -> ErrorCode {
+    if err.kind() == io::ErrorKind::PermissionDenied {
+        ErrorCode::PermissionDenied
+    } else {
+        ErrorCode::Io
+    }
+}
+
 /// Makes a file read-only: clears the write bits on Unix (0644 becomes 0444, 0600 becomes 0400),
 /// sets the readonly attribute on Windows.
 pub fn set_read_only(path: &Path) -> io::Result<()> {
     sys::set_read_only(path)
+}
+
+/// A file name as written in hash manifests (CONTRACTS.md §8): the raw bytes on Unix, UTF-8 on
+/// Windows. The flag is true when the name is not valid Unicode and was converted lossily (Windows
+/// only; the manifest then warns `unencodable_filename`).
+pub fn manifest_name_bytes(name: &OsStr) -> (Vec<u8>, bool) {
+    sys::manifest_name_bytes(name)
 }
 
 /// Free bytes available to this user on the volume holding `path` (an existing directory).
@@ -207,6 +236,32 @@ mod tests {
             .collect();
         assert_eq!(names, ["run.json"], "no temp file left behind");
         test_support::make_writable(&path);
+    }
+
+    #[test]
+    fn write_file_atomic_writes_bytes_verbatim() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("report.sha256");
+        write_file_atomic(&path, b"line\r\n\\raw\n").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"line\r\n\\raw\n");
+        let names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["report.sha256"]);
+    }
+
+    #[test]
+    fn io_error_codes() {
+        let denied = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert_eq!(io_error_code(&denied), ErrorCode::PermissionDenied);
+        let missing = io::Error::from(io::ErrorKind::NotFound);
+        assert_eq!(io_error_code(&missing), ErrorCode::Io);
+        #[cfg(unix)]
+        assert_eq!(
+            io_error_code(&io::Error::from_raw_os_error(libc::EPERM)),
+            ErrorCode::PermissionDenied
+        );
     }
 
     #[test]

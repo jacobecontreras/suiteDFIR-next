@@ -158,7 +158,7 @@ Maintained by `cargo xtask pin-leapp` (ROADMAP A1). Hand edits only for `urls` m
 
 **Folder name:**
 - Derived from `name`: `<>:"/\|?*` and control characters are replaced by `_`, and trailing dots and spaces are trimmed.
-- Windows reserved names (`CON`, `NUL`, …) get a `_` suffix.
+- Windows reserved names (`CON`, `NUL`, `COM1`, …, in any case and with any extension) get a `_` after the device part (`CON` → `CON_`, `con.txt` → `con_.txt`), because Windows ignores the extension and a trailing `_` would leave the name reserved.
 - On collision, append ` (2)`, ` (3)`, and so on.
 
 **`recent_cases`:** deduplicated, most recent first, max 50.

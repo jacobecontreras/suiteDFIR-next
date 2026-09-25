@@ -61,7 +61,7 @@ Where a bundle is implemented in stages, internal ordering follows the task edge
 - **Workspace and repo files:**
   - Cargo workspace: `crates/core` (`suitedfir-core`), `src-tauri` (`suitedfir`), `xtask`.
   - `rust-toolchain.toml`, `deny.toml` (DEVELOPMENT §4.2), `.cargo/config.toml` (xtask alias).
-  - `.gitattributes` (`* text=auto eol=lf`, `*.png binary`), `.editorconfig`, `.gitignore`, `.node-version`.
+  - `.gitattributes` (`* text=auto eol=lf`; `*.png`, `*.ico`, `*.icns` binary), `.editorconfig`, `.gitignore`, `.node-version`.
   - `[profile.dev.package.sha2] opt-level = 3`.
 - **Tauri app:**
   - `tauri` 2.11.x, `tauri-build` 2.6.x; identifier `com.suitedfir.desktop`, product `suiteDFIR`, version `0.2.0`.
@@ -247,7 +247,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
 ### C3 Hashing and inspection
 
 - **Input hashing:** `hashing::sha256_file_with_progress` (1 MiB buffer, ≤ 10 progress callbacks/s, cancellable).
-- **Seal:** `hashing::seal_tree(dir, manifest_path, cancel)` writes a manifest per CONTRACTS §8 (GNU escaping, sorted, symlinks counted, not listed) and returns the manifest hash, count, bytes, warnings and a `cancelled` flag. It is used for `report.sha256` (runs) and `backup.sha256` (acquisitions).
+- **Seal:** `hashing::seal_tree(dir, manifest_path, cancel, progress)` (progress feeds the `seal_progress` events) writes a manifest per CONTRACTS §8 (GNU escaping, sorted, symlinks counted, not listed) and returns the manifest hash, count, bytes, warnings and a `cancelled` flag. It is used for `report.sha256` (runs) and `backup.sha256` (acquisitions).
 - **`inspect`:**
   - Kind and size.
   - Type detection: a directory with `Manifest.db`/`Manifest.plist` → `itunes` (iLEAPP), else `fs`. `.zip` → `zip`, `.tar` → `tar`, `.gz`/`.tgz` → `gz`, `.e01`/`.dd`/`.img`/`.bin`/`.raw`/`.001` → `raw`, any other file → `file` (iLEAPP) or `invalid_input` (aLEAPP).

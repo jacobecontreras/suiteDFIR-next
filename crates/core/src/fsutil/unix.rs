@@ -1,6 +1,6 @@
 //! Unix implementations of the `fsutil` helpers.
 
-use std::ffi::CString;
+use std::ffi::{CString, OsStr};
 use std::fs;
 use std::io;
 use std::mem::MaybeUninit;
@@ -12,6 +12,26 @@ use std::path::Path;
 pub(super) fn set_read_only(path: &Path) -> io::Result<()> {
     let mode = fs::metadata(path)?.permissions().mode();
     fs::set_permissions(path, fs::Permissions::from_mode(mode & !0o222))
+}
+
+/// Renames `from` over `to`, then syncs the parent directory so the rename survives a crash. The
+/// directory sync is best effort: the rename has already happened (the target holds the complete
+/// new file), and some filesystems (e.g. network shares) refuse to sync a directory.
+pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
+    fs::rename(from, to)?;
+    let parent = match to.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    if let Err(e) = fs::File::open(parent).and_then(|dir| dir.sync_all()) {
+        log::debug!("could not sync directory {}: {e}", parent.display());
+    }
+    Ok(())
+}
+
+/// Unix names are byte strings and go into manifests unchanged.
+pub(super) fn manifest_name_bytes(name: &OsStr) -> (Vec<u8>, bool) {
+    (name.as_bytes().to_vec(), false)
 }
 
 pub(super) fn free_space(path: &Path) -> io::Result<u64> {
@@ -44,6 +64,12 @@ pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifest_names_are_raw_bytes() {
+        let name = OsStr::from_bytes(b"a\xffb\\c\nd");
+        assert_eq!(manifest_name_bytes(name), (b"a\xffb\\c\nd".to_vec(), false));
+    }
 
     #[test]
     fn set_read_only_clears_only_the_write_bits() {

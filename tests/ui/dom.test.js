@@ -27,9 +27,12 @@ class FakeElement {
     /** @type {Map<string, Function[]>} */
     this.listeners = new Map();
   }
-  /** @param {string} name @param {string} value */
+  /**
+   * Like the HTML DOM, attribute names are lowercased, so `STYLE` would become a real `style`.
+   * @param {string} name @param {string} value
+   */
   setAttribute(name, value) {
-    this.attributes.set(name, value);
+    this.attributes.set(name.toLowerCase(), value);
   }
   /** @param {FakeElement | FakeText} node */
   appendChild(node) {
@@ -108,9 +111,56 @@ test("on<event> props are attached as listeners", () => {
 test("unsafe props are refused", () => {
   assert.throws(() => h("div", { innerHTML: "<b>x</b>" }), TypeError);
   assert.throws(() => h("div", { outerHTML: "<b>x</b>" }), TypeError);
+  assert.throws(() => h("iframe", { srcdoc: "<b>x</b>" }), TypeError);
   assert.throws(() => h("div", { style: "color: red" }), TypeError);
   assert.throws(() => h("div", { onclick: "alert(1)" }), TypeError);
   assert.throws(() => h("div", { data: { a: 1 } }), TypeError);
+});
+
+test("unsafe props are refused whatever their case", () => {
+  for (const key of ["STYLE", "Style", "sTyLe", "INNERHTML", "InnerHtml", "OUTERHTML", "SRCDOC", "srcDoc"]) {
+    assert.throws(() => h("div", { [key]: "x" }), TypeError, key);
+  }
+  for (const key of ["ONCLICK", "OnClick", "onCLICK", "ONERROR"]) {
+    assert.throws(() => h("img", { [key]: "alert(1)" }), TypeError, key);
+  }
+});
+
+test("a refused prop never reaches setAttribute", () => {
+  const original = FakeElement.prototype.setAttribute;
+  /** @type {string[]} */
+  const seen = [];
+  FakeElement.prototype.setAttribute = function (name, value) {
+    seen.push(name);
+    original.call(this, name, value);
+  };
+  try {
+    assert.throws(() => h("div", { title: "ok", STYLE: "color: red" }), TypeError);
+    assert.deepEqual(seen, ["title"]);
+  } finally {
+    FakeElement.prototype.setAttribute = original;
+  }
+});
+
+test("event props of any case attach a lowercase listener", () => {
+  const fn = () => {};
+  const el = fh("button", { ONKEYDOWN: fn, onClick: fn });
+  assert.deepEqual([...el.listeners.keys()], ["keydown", "click"]);
+});
+
+test("class must be a string, and className is refused", () => {
+  assert.equal(fh("div", { CLASS: "a b" }).className, "a b");
+  assert.equal(fh("div", { class: null }).className, "");
+  assert.throws(() => h("div", { class: 1 }), TypeError);
+  assert.throws(() => h("div", { class: true }), TypeError);
+  assert.throws(() => h("div", { class: ["a"] }), TypeError);
+  assert.throws(() => h("div", { className: "a" }), TypeError);
+  assert.throws(() => h("div", { CLASSNAME: "a" }), TypeError);
+});
+
+test("attribute names keep working when the DOM lowercases them", () => {
+  const el = fh("input", { ariaLabel: "x", "aria-describedby": "hint", maxLength: 5 });
+  assert.deepEqual(Object.fromEntries(el.attributes), { arialabel: "x", "aria-describedby": "hint", maxlength: "5" });
 });
 
 test("flattenChildren keeps nodes and order", () => {
