@@ -1,5 +1,7 @@
 # libimobiledevice CLI reference (iOS USB acquisition)
 
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built).
+
 Facts about the libimobiledevice command-line tools that suiteDFIR uses for iOS backup acquisition (feature F11). Everything below was read from source at tag **libimobiledevice 1.4.0** (released 2025-10-10), including `tools/*.c`, `src/lockdown.c` and `common/userpref.c`, on 2026-09-24. Line numbers refer to `tools/idevicebackup2.c` unless another file is named.
 
 **Real-device checks so far:** only the pairing and lockdown SSL behavior in the §8 known-issue note (H4, one iPhone on macOS). Every numbered item in §8 must still be confirmed by human QA (H4/G2). Before relying on a message string, the X-track tasks must copy it verbatim from the pinned source.

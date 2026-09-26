@@ -1,10 +1,12 @@
 # LEAPP CLI reference (verified behavior)
 
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built).
+
 Facts about the upstream iLEAPP/aLEAPP command-line builds that suiteDFIR depends on. They were verified on **2026-09-24** in two ways:
 - by running `ileapp v2026.4.2` (macOS arm64 build);
 - by reading source at tags `iLEAPP v2026.4.2` and `ALEAPP v2026.4.1`.
 
-Items marked **UNVERIFIED** must be confirmed before anything relies on them; ROADMAP task E3 confirmed the earlier ones with real runs, and §9 lists what only the human QA pass can check. When you bump the pinned version, re-run the smoke suite and update this file.
+**VERIFIED** means an AI agent confirmed the item while building the app, by running the tool or reading its source. Where a CI run or a test backs an item, it is named; items marked *one-off check* were checked once by hand, with no saved log. Items marked **UNVERIFIED** must be confirmed before anything relies on them; ROADMAP task E3 confirmed the earlier ones with real runs, and §9 lists what only the human QA pass can check. When you bump the pinned version, re-run the smoke suite and update this file.
 
 ## 1. Pinned releases
 
@@ -99,11 +101,11 @@ aLEAPP **v2026.4.1**:
 **Process setup:**
 - cwd = run dir; stdin = null; no controlling terminal (`setsid`).
 - Env: inherit, plus `TMPDIR`, `TEMP` and `TMP` = the per-run temp dir. The bootloader extracts its runtime (`_MEI*`) there: VERIFIED by the E3 smoke on macOS arm64 and Linux x64/arm64 (`TMPDIR`) and on Windows x64 and (S3) arm64 (`TEMP`/`TMP`), which see `_MEI*` in the run's temp dir mid-run and the dir gone after a cancel.
-- `PYTHON*` variables have **no effect** on the frozen binary (VERIFIED).
+- `PYTHON*` variables have **no effect** on the frozen binary (VERIFIED, one-off check).
 
 ## 5. Introspection: modules, always-run and timezones (D11)
 
-The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP and 1,288 aLEAPP entries, matching the runtime. After the tool rules below, 1,138 iLEAPP and 1,287 aLEAPP modules are selectable, with identical lists on macOS arm64, Windows x64 and Linux x86_64 (A3 smoke), Linux aarch64 (E3) and Windows aarch64 (S3).
+The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off check): 1,176 iLEAPP and 1,288 aLEAPP entries, matching the runtime. After the tool rules below, 1,138 iLEAPP and 1,287 aLEAPP modules are selectable, with identical lists on macOS arm64, Windows x64 and Linux x86_64 (A3 smoke), Linux aarch64 (E3) and Windows aarch64 (S3).
 
 **Loader facts** (from source at the pinned tags):
 - `--custom_artifacts_path` feeds the same `PluginLoader` as the built-in artifacts (iLEAPP `ileapp.py:231-236`, aLEAPP `aleapp.py:197-200`).
@@ -197,7 +199,7 @@ The output folder contains (VERIFIED):
 
 | # | Quirk (evidence) | Handling |
 |---|---|---|
-| Q1 | stdout is block-buffered when piped. All 45 lines of an 8 s run arrived at t = 10.2 s, and a cancelled run captured 0 bytes. `PYTHONUNBUFFERED` is ignored. A pty or tailing `Screen_Output.html` streams line by line. | D7: tail `Screen_Output.html`; save stdout/stderr to files; show their tails after exit. |
+| Q1 | stdout is block-buffered when piped (one-off check). All 45 lines of an 8 s run arrived at t = 10.2 s, and a cancelled run captured 0 bytes. `PYTHONUNBUFFERED` is ignored. A pty or tailing `Screen_Output.html` streams line by line. | D7: tail `Screen_Output.html`; save stdout/stderr to files; show their tails after exit. |
 | Q2 | Onefile = bootloader + worker. SIGKILL to the parent orphans the worker (re-parented to PID 1, still running) and leaks `_MEI*`. SIGTERM to the parent or the group → both exit in ≈ 0.18 s and `_MEI` is cleaned. | D9 + D10. |
 | Q3 | The exit code is meaningless for success. An invalid iTunes folder logged "not a valid iTunes backup", exited 0, and `_lava_data.lava` said `Complete` with **empty** `modules` and no `index.html`. Failed artifacts also exit 0. Invalid profile/case-data content → exit 0, no output. Argparse errors → exit 2. | D8 status rules (CONTRACTS.md §7.3). |
 | Q4 | Profiles: unknown plugin names are silently dropped (`["noSuchModule","callHistory"]` ran `last_build` + `callHistory`, exit 0). Upstream's own sample profiles already contain removed names. | D12: validate before the run; record the resolved modules. |

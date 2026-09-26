@@ -1,6 +1,8 @@
 # QA checklist (release candidate)
 
-The human checks that CI and the local gates cannot do: real devices, real evidence, desktop sessions and installers (ROADMAP G2, H4). Run it on the release-candidate builds from the draft release, on **macOS and Windows** (required) and **Linux** (recommended).
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built).
+
+The hands-on checks that CI cannot do: real devices, real evidence, desktop sessions and installers (ROADMAP G2, H4). Run it on the release-candidate builds from the draft release, on **macOS and Windows** (required) and **Linux** (recommended).
 
 Each item says where it applies: **[macOS]**, **[Windows]**, **[Linux]**, or **[all]** for every system. Record for each run of the checklist:
 

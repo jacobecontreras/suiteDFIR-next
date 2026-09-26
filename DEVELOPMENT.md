@@ -1,5 +1,7 @@
 # Development
 
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](README.md#how-this-was-built).
+
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. This file covers how to build and test, and the rules every change must follow.
 
 ## 1. Toolchain
@@ -55,7 +57,7 @@ cargo xtask fetch-idevice-tools [--target <triple>]  # fetch + verify the pinned
 cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1   # real LEAPP
 ```
 
-**Release bundles** (ROADMAP F1; unsigned until H1). The macOS and Windows x64 bundles can be built on local machines as below, the Linux (x64 and arm64) and Windows arm64 ones only by `release.yml` (§6); run from the repository root, without `RUSTC_WRAPPER`, and with `CI=true` on a Mac without a desktop session (the dmg script then skips its Finder step):
+**Release bundles** (unsigned; no release has been published yet). The macOS and Windows x64 bundles can be built on local machines as below, the Linux (x64 and arm64) and Windows arm64 ones only by `release.yml` (§6); run from the repository root, without `RUSTC_WRAPPER`, and with `CI=true` on a Mac without a desktop session (the dmg script then skips its Finder step):
 
 ```bash
 # macOS, per architecture: .app + .dmg in target/<triple>/release/bundle/{macos,dmg}/
@@ -120,8 +122,10 @@ scripts/cargo-auditable(.cmd) runner wrapper for release builds
 scripts/build-idevice-tools.sh  scripted (not bit-reproducible) libimobiledevice build from pinned tarballs (X1)
 scripts/idevice-tools-patches/  the two source patches that build applies, pinned in the script (FX1)
 .github/workflows/            ci-rust.yml, ci-js.yml, leapp-smoke.yml, release.yml
-docs/                         ARCHITECTURE, CONTRACTS, LEAPP-CLI, IDEVICE-CLI, ROADMAP, USER-GUIDE, QA-CHECKLIST
+docs/                         ARCHITECTURE, CONTRACTS, LEAPP-CLI, IDEVICE-CLI, USER-GUIDE, QA-CHECKLIST
 ```
+
+**Task and decision IDs.** Code comments and docs refer to tasks of the development plan (for example A1, E3, K8, X3b, S1, FX1), to owner checkpoints (H1 to H7) and to design decisions (D1 to D25, [ARCHITECTURE §3](docs/ARCHITECTURE.md#3-decision-log)). The plan, `docs/ROADMAP.md`, is no longer in the repository. Its last version, with each task's scope and acceptance criteria, is [docs/ROADMAP.md at b5ac473](https://github.com/jacobecontreras/suiteDFIR-next/blob/b5ac4736aa07b2d8f843af1a2974a6c4113bf707/docs/ROADMAP.md).
 
 ## 4. Rules
 
@@ -152,7 +156,7 @@ Build only what [ARCHITECTURE.md §2](docs/ARCHITECTURE.md#2-scope) lists. The o
 
 Transitive notes: `tauri-plugin-dialog` pulls in the `tauri-plugin-fs` crate (never registered), and `ureq`'s rustls pulls in `webpki-roots`.
 
-Anything else needs a PR labelled `new-dependency` that explains why std or an allowed crate cannot do it, with its transitive count (`cargo tree -e normal`). The orchestrator must approve it, and the table above is updated in the same PR.
+Anything else needs a PR labelled `new-dependency` that explains why std or an allowed crate cannot do it, with its transitive count (`cargo tree -e normal`). The maintainer must approve it, and the table above is updated in the same PR.
 
 `deny.toml`:
 - **licenses** `MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, ISC, Zlib, Unicode-3.0, MPL-2.0, CDLA-Permissive-2.0`;
@@ -228,7 +232,6 @@ A contract change updates all of these in one PR:
 - `ui-dev/mock.js`;
 - docs/CONTRACTS.md.
 
-After M0.3, contract changes are coordinated by the orchestrator: no new tasks start in affected tracks until the contract PR merges, and in-flight branches then merge `main`.
 
 ### 4.8 Testing
 
@@ -280,73 +283,38 @@ After M0.3, contract changes are coordinated by the orchestrator: no new tasks s
 - A parity test: `ipc.js` and `mock.js` export identical function names.
 - **IPC replay (E2):** `tests/ui/recorded-invokes.json` holds every invoke `ipc.js` makes in a scripted flow over all commands. `src-tauri/src/replay.rs` replays it through the real command handlers on Tauri's mock runtime (`tauri::test`), with fake-leapp and fake-idevice as dev overrides and an opener that records, and checks each answer and event against its contract type. The src-tauri tests find fake-leapp and fake-idevice next to their own `deps/` folder, which `cargo test --workspace` fills.
 
-**Screenshots:** UI PRs attach mock-mode screenshots (light and dark) of every changed screen state, delivered as described in §5.
+**Screenshots:** UI PRs link mock-mode screenshots (light and dark) of every changed screen state, made with `tests/ui/e2e/shots.mjs` (§2).
 
-## 5. Git and pull requests
+## 5. Commits and pull requests
 
-- **Branches:** `task/<id>-<slug>`, with the task ID lowercase and no dots (`task/m01-scaffold`, `task/b1-fake-leapp`, `task/x3a-acquire-core`). One bundle (docs/ROADMAP.md "Execution bundles") = one PR. Bundles may be large; keep commits focused, one per contained task where practical.
-- **Commits:** Conventional Commits (`feat(core): …`, `fix(ui): …`, `test: …`, `ci: …`, `docs: …`). Messages describe the change and contain no tool-attribution lines or co-author trailers for non-humans.
-- **Draft first:**
-  - Open PRs as **drafts**; CI skips drafts.
-  - Mark ready for review (`gh pr ready`) only after the local macOS and Windows gates pass on the head commit. That triggers CI once.
-- **Keeping current:**
-  - **Never rebase or amend a pushed branch; never force-push.**
-  - Merge `origin/main` into the branch **only when preparing to merge** (not every time `main` moves), then re-run the gate on the new head.
-- **Gate evidence** is recorded as **commit statuses** on the head SHA:
-  - `gate/macos` and `gate/windows`, posted by the gate tooling;
-  - the CI checks on GitHub.
-  
-  Anything else (comments, PR text) is informational.
-- **Merging:**
-  - One merger, one PR at a time.
-  - Squash only, pinned to the verified head: `gh pr merge <n> --squash --match-head-commit <sha>`. Never `--delete-branch`; the repo setting `delete_branch_on_merge` stays off; no branch is ever deleted.
-  - **Pre-merge checks**, all on the same head SHA:
-    - both gate statuses `success`;
-    - CI checks passed;
-    - `behind_by == 0` against `main` (compare API);
-    - an independent review verdict naming that SHA;
-    - no `.claude/`, `CLAUDE.md` or `AGENTS.md` paths in the diff.
-  - **Post-merge check:** `main`'s tree must equal the head's tree. Otherwise stop merging and revert via a PR.
-- **Docs-only PRs** (only `*.md` changes): no gate statuses are required. Review is still required.
-- **Screenshots:**
-  - Push PNGs to a separate, never-merged branch `shots/<task-id>` under `shots/<task-id>/`.
-  - Link them in the PR body.
-  - Reviewers fetch that branch and inspect the images.
-- **PR description:** the task ID, what changed, how it was verified (commands + results), dependency changes (normally "none"), contract changes, deviations from the task spec, and screenshot links for UI.
-- **Definition of done:**
-  - acceptance criteria from docs/ROADMAP.md met and demonstrated;
-  - the **verification gate** (§6) green on the PR head commit;
-  - docs updated for any behavior or contract change;
-  - an independent review with no unresolved blocking issues.
+- **Branches and merging:** work on a branch and open a pull request against `main`. `main` changes only through squash-merged pull requests. Never force-push, rewrite pushed history or delete branches.
+- **Commits:** Conventional Commits (`feat(core): …`, `fix(ui): …`, `test: …`, `ci: …`, `docs: …`).
+- **Before merging:** CI (§6) is green on the pull request's head commit, the branch is up to date with `main`, a review has no open blocking issues, and the docs are updated for any change in behavior or contracts.
+- **Pull request description:** what changed, how it was verified (commands and results), dependency changes (normally none), contract changes and, for UI changes, screenshot links (§4.8).
 
-## 6. Headless development and the verification gate
+## 6. CI and headless development
 
 The UI can be developed and screenshotted entirely in browser mock mode (`node scripts/serve-ui.mjs`, then open `/?mock`) using any headless browser. `?mock&scenario=<flags>` selects mock states (e.g. `empty`, `no_tools`, `dev_override`, `active_run`); the flags and the input-path and label suffixes that choose simulated outcomes are listed at the top of `ui-dev/mock.js`. Machines that cannot open GUI windows can still run every Rust test, including the fake-leapp and fake-idevice process tests.
 
-### Verification gate while the repository is private (local-first)
-
-GitHub Actions minutes are limited for private repositories (Windows minutes count about 2×, macOS about 10×), so the gate is split:
-
-| Status / check | Where | What |
+| Workflow | When | What |
 |---|---|---|
-| `gate/macos` | a Mac, clean checkout of the head SHA | `npm ci`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, `npm run typecheck`, `npm test`, `cargo tauri build --debug --no-bundle` |
-| `gate/windows` | a Windows machine, clean checkout of the head SHA | the same Rust commands (fmt, clippy, test, `cargo tauri build --debug --no-bundle`) |
-| CI (`ci-rust.yml`, `ci-js.yml`) | GitHub Actions, Linux, on non-draft PRs and on push to `main` | Rust: fmt, clippy, tests, `cargo build --workspace --locked`, cargo-deny (prebuilt, hash-checked), contracts-drift, notices-drift (`cargo xtask notices` must leave `THIRD-PARTY-NOTICES.md` unchanged), all in **one job** in an `ubuntu:22.04` container on `ubuntu-24.04`. JS: typecheck and tests. Each workflow has `paths` filters, so UI-only PRs skip Rust and vice versa. |
+| `ci-rust.yml` | Pull requests (not drafts) and pushes to `main`, filtered by path; dispatch | Linux, in an `ubuntu:22.04` container on `ubuntu-24.04`, as an unprivileged user: fmt, cargo-deny (prebuilt, hash-checked), clippy, contracts-drift, notices-drift (`cargo xtask notices` must leave `THIRD-PARTY-NOTICES.md` unchanged), tests, `cargo build --workspace --locked`. macOS (`macos-15`) and Windows (`windows-2025`): fmt, clippy, tests, build. |
+| `ci-js.yml` | The same, for the UI paths | Typecheck and tests. |
+| `leapp-smoke.yml` | See below | The real-LEAPP smoke tests (`leapp_smoke`, §4.8). |
+| `release.yml` | Dispatch (dry run) or a `v*` tag | Release bundles (below). |
 
 **CI rules:**
-- **Tauri CLI:** CI does **not** install the Tauri CLI; `cargo build` compiles the app, including `tauri-build` config validation. `cargo tauri build` runs in the local gates.
+- **Tauri CLI:** only `release.yml` installs the Tauri CLI. The other workflows compile the app with `cargo build`, which includes `tauri-build`'s config validation, and never launch it.
 - **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
-- **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. A `workflow_dispatch` runs only the job(s) selected by its `os` input (`linux`, `macos`, `windows` or `all`). On pull requests and pushes to `main`, the Linux job always runs, and the macOS and Windows jobs run only once the repository is public (`!github.event.repository.private`). Draft pull requests run no CI jobs.
 - **LEAPP smoke container:** `leapp-smoke.yml` runs its Linux legs (x64 and arm64) in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
-- **LEAPP smoke triggers** (the repository is public): a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process,run}/**`, `crates/core/src/{runner,tail,inspect,hashing}.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`, `windows-11-arm` (S3; `os=windows` runs both Windows legs).
-- **Release workflow (`release.yml`, F1):**
+- **LEAPP smoke triggers:** a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process,run}/**`, `crates/core/src/{runner,tail,inspect,hashing}.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`, `windows-11-arm` (`os=windows` runs both Windows legs). The smoke inputs are small synthetic fixtures that the tests write themselves, not real evidence.
+- **Release workflow (`release.yml`):**
   - `workflow_dispatch` is a build-only dry run: the `os` input picks the legs (default `linux`), and the bundles, the source-obligation files, `SHA256SUMS` and the release notes are uploaded to the run. No release is created.
-  - A pushed tag `v<version>` builds every leg and creates a **draft** release (never published by automation, H3) with the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script, its source patches and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json` and the hashes the `BUILDINFO.json` files record).
-  - Its macOS and Windows legs run only when dispatched with `os=macos|windows|all` (owner approval) or for a tag while the repository is public. Otherwise the macOS and Windows x64 bundles are built on local machines (§2), and the Windows arm64 installer (which has no local recipe) by a dispatch with `os=windows`, and they are added to the draft by hand.
-  - Legs, as the `os` input selects them: `linux` = Linux x64 and arm64 (AppImage + deb, both in the `ubuntu:22.04` container, on `ubuntu-24.04` and `ubuntu-24.04-arm`); `macos` = macOS arm64 and x64 (dmg); `windows` = Windows x64 (`windows-2025`, online and offline installers with the iOS tools) and Windows arm64 (`windows-11-arm`, online installer only, no iOS tools; S3).
-  - Signing and notarization run only when the H1 secrets exist; the release notes say which builds are unsigned.
+  - A pushed tag `v<version>` builds every leg and creates a **draft** release, which a maintainer reviews and publishes by hand. It holds the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script, its source patches and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json` and the hashes the `BUILDINFO.json` files record).
+  - Legs, as the `os` input selects them: `linux` = Linux x64 and arm64 (AppImage + deb, both in the `ubuntu:22.04` container, on `ubuntu-24.04` and `ubuntu-24.04-arm`); `macos` = macOS arm64 and x64 (dmg); `windows` = Windows x64 (`windows-2025`, online and offline installers with the iOS tools) and Windows arm64 (`windows-11-arm`, online installer only, no iOS tools).
+  - Signing and notarization run only when the signing secrets exist; the release notes say which builds are unsigned.
 - **Windows on Arm runners** (`windows-11-arm`, release and smoke legs): the Rust step sets `rustup set default-host aarch64-pc-windows-msvc` and checks `rustc -vV`, so the toolchain is native even if the image's rustup defaults to an emulated x64 host (an x64 smoke build would test the windows-x86_64 LEAPP builds). `ring` (rustls, in the app, the core tests and the Tauri CLI) compiles its aarch64-pc-windows-msvc assembly with `clang`, which the image's LLVM provides; the legs put `C:\Program Files\LLVM\bin` on `PATH` if `clang` is not found.
-- **Other builds:** the iOS tools (X1) are built on local machines. Dispatch requires a workflow file on the default branch, so tasks dispatch their branch's version with `--ref <branch>`.
+- **Other builds:** the iOS tools are built on local machines (§2). Dispatch requires a workflow file on the default branch; to test a branch's version of a workflow, dispatch it with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 
 ### Platform test caveats

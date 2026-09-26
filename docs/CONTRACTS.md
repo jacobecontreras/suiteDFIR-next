@@ -1,5 +1,7 @@
 # Contracts
 
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built).
+
 File formats on disk and the UI↔core API. During M0 this document is the spec. After M0.3, **the Rust types in `crates/core/src/contracts/` are the source of truth**; this document, `ui/types.d.ts` and the generated examples in `ui-dev/fixtures/contracts/` must match them (CI enforces the examples, see DEVELOPMENT.md §4.7).
 
 ## 1. Conventions
