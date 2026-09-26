@@ -1,9 +1,12 @@
 //! `cargo xtask notices` (ROADMAP F2): regenerates `THIRD-PARTY-NOTICES.md`, which the app embeds
 //! (`licenses_get`) and CI checks for drift.
 //!
-//! - **Rust crates:** every package in the normal dependency tree of the app package (`suitedfir`)
-//!   on every release target, exactly as `cargo tree -e normal --target <triple>` lists it (the
-//!   ROADMAP F2 acceptance measure), except the workspace's own packages. Each crate's license and
+//! - **Rust crates:** every package compiled into the app (`suitedfir`) on every release target,
+//!   exactly as `cargo tree -e normal,no-proc-macro --target <triple>` lists it, except the
+//!   workspace's own packages. Proc-macro crates (and what only they use) are left out: they run
+//!   in the compiler on the build machine and are not part of the app, and `cargo tree` resolves
+//!   their dependencies for the machine it runs on, so including them would make the file depend
+//!   on the host (a macOS host adds swift-rs, a Windows host windows-sys). Each crate's license and
 //!   registry source come from `cargo metadata`, and its license texts from the files in that
 //!   source (`LICENSE*`, `LICENCE*`, `COPYING*`, `NOTICE*`, `UNLICENSE*`, `COPYRIGHT*` and
 //!   `LICENSES/`). A crate that is not from crates.io, has no SPDX license or ships no license
@@ -150,11 +153,6 @@ const WEBVIEW2_AT_B74DC5E: &[(&str, &str, &str)] = &[(
     "https://raw.githubusercontent.com/wravery/webview2-rs/b74dc5e2b394044bea5191052868ce7a106c202c/LICENSE",
     WEBVIEW2_LICENSE_SHA256,
 )];
-const WEBVIEW2_AT_DFFA41A: &[(&str, &str, &str)] = &[(
-    "LICENSE",
-    "https://raw.githubusercontent.com/wravery/webview2-rs/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE",
-    WEBVIEW2_LICENSE_SHA256,
-)];
 
 const UPSTREAM: &[Upstream] = &[
     Upstream {
@@ -170,11 +168,6 @@ const UPSTREAM: &[Upstream] = &[
     Upstream {
         name: "dlopen2",
         version: "0.8.2",
-        files: DLOPEN2_AT_CC80E4A,
-    },
-    Upstream {
-        name: "dlopen2_derive",
-        version: "0.4.3",
         files: DLOPEN2_AT_CC80E4A,
     },
     Upstream {
@@ -212,12 +205,6 @@ const UPSTREAM: &[Upstream] = &[
         version: "0.3.2",
         files: OBJC2_AT_7B1ABFD,
     },
-    // servo/stylo has no license file at its root (MPL-2.0 file headers): the standard text only.
-    Upstream {
-        name: "selectors",
-        version: "0.36.1",
-        files: &[],
-    },
     Upstream {
         name: "unic-char-property",
         version: "0.9.0",
@@ -249,11 +236,6 @@ const UPSTREAM: &[Upstream] = &[
         files: WEBVIEW2_AT_B74DC5E,
     },
     Upstream {
-        name: "webview2-com-macros",
-        version: "0.8.1",
-        files: WEBVIEW2_AT_DFFA41A,
-    },
-    Upstream {
         name: "webview2-com-sys",
         version: "0.38.2",
         files: WEBVIEW2_AT_B74DC5E,
@@ -265,7 +247,7 @@ const UPSTREAM: &[Upstream] = &[
 /// often only statements that point to the standard text.
 const SPDX_TEXT_URL: &str =
     "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/{id}.txt";
-const SPDX_TEXTS: [(&str, &str); 4] = [
+const SPDX_TEXTS: [(&str, &str); 3] = [
     (
         "Apache-2.0",
         "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
@@ -273,10 +255,6 @@ const SPDX_TEXTS: [(&str, &str); 4] = [
     (
         "MIT",
         "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
-    ),
-    (
-        "MPL-2.0",
-        "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172",
     ),
     (
         "Zlib",
@@ -307,6 +285,18 @@ fn generate(repo_root: &Path) -> Result<String, String> {
     fs::create_dir_all(&cache).map_err(|e| format!("creating {}: {e}", cache.display()))?;
 
     let crates = shipped_crates(repo_root)?;
+    // Entries for crates that no longer ship would go stale unnoticed.
+    let unused: Vec<String> = UPSTREAM
+        .iter()
+        .filter(|u| !crates.contains_key(&(u.name.to_owned(), u.version.to_owned())))
+        .map(|u| format!("{} {}", u.name, u.version))
+        .collect();
+    if !unused.is_empty() {
+        return Err(format!(
+            "UPSTREAM (xtask/src/notices.rs) has entries for crates the app does not ship: {}",
+            unused.join(", ")
+        ));
+    }
     let mut crate_texts = Vec::new();
     let mut problems = Vec::new();
     for krate in crates.values() {
@@ -376,7 +366,7 @@ fn shipped_crates(repo_root: &Path) -> Result<BTreeMap<(String, String), Crate>,
                 "tree",
                 "--locked",
                 "-e",
-                "normal",
+                "normal,no-proc-macro",
                 "--target",
                 triple,
                 "-p",
@@ -1049,10 +1039,11 @@ fn render(
         .map(|(t, label)| format!("`{t}` ({label})"))
         .collect();
     push(&format!(
-        "The app is compiled from these {} crates.io crates: the normal dependencies (no dev or \
-         build dependencies) of the `{APP_PACKAGE}` package on the release targets {}, as \
-         `cargo tree -e normal --target <triple> -p {APP_PACKAGE}` lists them. \"Targets\" names \
-         the builds that include a crate when not all of them do.",
+        "The app is compiled from these {} crates.io crates: the normal dependencies of the \
+         `{APP_PACKAGE}` package on the release targets {}, as `cargo tree -e \
+         normal,no-proc-macro --target <triple> -p {APP_PACKAGE}` lists them. Development, build \
+         and proc-macro dependencies run only on the build machine and are not part of the app. \
+         \"Targets\" names the builds that include a crate when not all of them do.",
         crates.len(),
         triples.join(", ")
     ));
