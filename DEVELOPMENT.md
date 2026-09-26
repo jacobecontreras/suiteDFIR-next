@@ -55,7 +55,7 @@ cargo xtask fetch-idevice-tools [--target <triple>]  # fetch + verify the pinned
 cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1   # real LEAPP
 ```
 
-**Release bundles** (ROADMAP F1; unsigned until H1). The macOS and Windows bundles are built on local machines, the Linux ones by `release.yml` (§6); run from the repository root, without `RUSTC_WRAPPER`, and with `CI=true` on a Mac without a desktop session (the dmg script then skips its Finder step):
+**Release bundles** (ROADMAP F1; unsigned until H1). The macOS and Windows x64 bundles can be built on local machines as below, the Linux (x64 and arm64) and Windows arm64 ones only by `release.yml` (§6); run from the repository root, without `RUSTC_WRAPPER`, and with `CI=true` on a Mac without a desktop session (the dmg script then skips its Finder step):
 
 ```bash
 # macOS, per architecture: .app + .dmg in target/<triple>/release/bundle/{macos,dmg}/
@@ -341,7 +341,7 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **Release workflow (`release.yml`, F1):**
   - `workflow_dispatch` is a build-only dry run: the `os` input picks the legs (default `linux`), and the bundles, the source-obligation files, `SHA256SUMS` and the release notes are uploaded to the run. No release is created.
   - A pushed tag `v<version>` builds every leg and creates a **draft** release (never published by automation, H3) with the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json`).
-  - Its macOS and Windows legs run only when dispatched with `os=macos|windows|all` (owner approval) or for a tag while the repository is public. Otherwise those bundles are built on local machines (§2) and added to the draft by hand.
+  - Its macOS and Windows legs run only when dispatched with `os=macos|windows|all` (owner approval) or for a tag while the repository is public. Otherwise the macOS and Windows x64 bundles are built on local machines (§2), and the Windows arm64 installer (which has no local recipe) by a dispatch with `os=windows`, and they are added to the draft by hand.
   - Legs, as the `os` input selects them: `linux` = Linux x64 and arm64 (AppImage + deb, both in the `ubuntu:22.04` container, on `ubuntu-24.04` and `ubuntu-24.04-arm`); `macos` = macOS arm64 and x64 (dmg); `windows` = Windows x64 (`windows-2025`, online and offline installers with the iOS tools) and Windows arm64 (`windows-11-arm`, online installer only, no iOS tools; S3).
   - Signing and notarization run only when the H1 secrets exist; the release notes say which builds are unsigned.
 - **Windows on Arm runners** (`windows-11-arm`, release and smoke legs): the Rust step sets `rustup set default-host aarch64-pc-windows-msvc` and checks `rustc -vV`, so the toolchain is native even if the image's rustup defaults to an emulated x64 host (an x64 smoke build would test the windows-x86_64 LEAPP builds). `ring` (rustls, in the app, the core tests and the Tauri CLI) compiles its aarch64-pc-windows-msvc assembly with `clang`, which the image's LLVM provides; the legs put `C:\Program Files\LLVM\bin` on `PATH` if `clang` is not found.

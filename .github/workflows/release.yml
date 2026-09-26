@@ -6,8 +6,10 @@
 #   (retention-days: 1); no release is created.
 # - A pushed tag v<version>: every leg builds, then a DRAFT GitHub release is created with the
 #   bundles, SHA256SUMS and the source-obligation files. Automation never publishes it (H3). The
-#   macOS and Windows legs run only while the repository is public; otherwise those bundles are
-#   built locally (DEVELOPMENT.md §2) and added to the draft by hand.
+#   macOS and Windows legs run only while the repository is public; otherwise the macOS and
+#   Windows x64 bundles are built locally (DEVELOPMENT.md §2), and the Windows arm64 installer,
+#   which has no local recipe, by a dispatch of this workflow with os=windows, and they are added
+#   to the draft by hand.
 # - Legs (S3 added the arm64 ones): Linux x64 and arm64 (AppImage, deb) in the ubuntu:22.04
 #   container; macOS arm64 and x64 (dmg); Windows x64 (NSIS online and offline, iOS tools bundled);
 #   Windows arm64 (NSIS online only, no iOS tools: there is no pinned libimobiledevice build for
@@ -473,6 +475,7 @@ jobs:
           MACOS_BUILT: ${{ needs.macos.result == 'success' }}
           WINDOWS_BUILT: ${{ needs.windows.result == 'success' }}
           WINDOWS_ARM64_BUILT: ${{ needs.windows-arm64.result == 'success' }}
+          LINUX_BUILT: ${{ needs.linux.result == 'success' }}
         run: |
           set -euo pipefail
           version="$(jq -r .version src-tauri/tauri.conf.json)"
@@ -499,8 +502,14 @@ jobs:
               echo
               echo "**Not built by this workflow:**$missing. Those bundles are built locally or by a dispatch of this workflow (DEVELOPMENT.md §2, §6) and added to this draft by hand, with SHA256SUMS updated."
             fi
-            echo
-            echo "**Windows on Arm and Linux arm64.** Windows arm64 has only the online installer (it downloads WebView2 when it is missing), and iOS acquisition is not available there: there is no pinned build of the iOS tools for it. The Linux arm64 AppImage and deb, like the x64 ones, use the distribution's iOS tools."
+            if [ "$WINDOWS_ARM64_BUILT" = true ]; then
+              echo
+              echo "**Windows on Arm.** Windows arm64 has only the online installer (it downloads WebView2 when it is missing), and iOS acquisition is not available there: there is no pinned build of the iOS tools for it."
+            fi
+            if [ "$LINUX_BUILT" = true ]; then
+              echo
+              echo "**Linux arm64.** The Linux arm64 AppImage and deb, like the x64 ones, use the distribution's iOS tools."
+            fi
             echo
             echo "**Files.**"
             echo
