@@ -232,7 +232,6 @@ A contract change updates all of these in one PR:
 - `ui-dev/mock.js`;
 - docs/CONTRACTS.md.
 
-
 ### 4.8 Testing
 
 **Unit tests:**
@@ -298,8 +297,8 @@ The UI can be developed and screenshotted entirely in browser mock mode (`node s
 
 | Workflow | When | What |
 |---|---|---|
-| `ci-rust.yml` | Pull requests (not drafts) and pushes to `main`, filtered by path; dispatch | Linux, in an `ubuntu:22.04` container on `ubuntu-24.04`, as an unprivileged user: fmt, cargo-deny (prebuilt, hash-checked), clippy, contracts-drift, notices-drift (`cargo xtask notices` must leave `THIRD-PARTY-NOTICES.md` unchanged), tests, `cargo build --workspace --locked`. macOS (`macos-15`) and Windows (`windows-2025`): fmt, clippy, tests, build. |
-| `ci-js.yml` | The same, for the UI paths | Typecheck and tests. |
+| `ci-rust.yml` | Pull requests (not drafts) and pushes to `main`, filtered by path; dispatch (only the jobs its `os` input selects, default `linux`) | Linux, in an `ubuntu:22.04` container on `ubuntu-24.04`, as an unprivileged user: fmt, cargo-deny (prebuilt, hash-checked), clippy, contracts-drift, notices-drift (`cargo xtask notices` must leave `THIRD-PARTY-NOTICES.md` unchanged), tests, `cargo build --workspace --locked`. macOS (`macos-15`) and Windows (`windows-2025`): fmt, clippy, tests, build. |
+| `ci-js.yml` | The same, for the UI paths | Linux only: typecheck and tests. |
 | `leapp-smoke.yml` | See below | The real-LEAPP smoke tests (`leapp_smoke`, §4.8). |
 | `release.yml` | Dispatch (dry run) or a `v*` tag | Release bundles (below). |
 
@@ -312,7 +311,7 @@ The UI can be developed and screenshotted entirely in browser mock mode (`node s
   - `workflow_dispatch` is a build-only dry run: the `os` input picks the legs (default `linux`), and the bundles, the source-obligation files, `SHA256SUMS` and the release notes are uploaded to the run. No release is created.
   - A pushed tag `v<version>` builds every leg and creates a **draft** release, which a maintainer reviews and publishes by hand. It holds the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script, its source patches and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json` and the hashes the `BUILDINFO.json` files record).
   - Legs, as the `os` input selects them: `linux` = Linux x64 and arm64 (AppImage + deb, both in the `ubuntu:22.04` container, on `ubuntu-24.04` and `ubuntu-24.04-arm`); `macos` = macOS arm64 and x64 (dmg); `windows` = Windows x64 (`windows-2025`, online and offline installers with the iOS tools) and Windows arm64 (`windows-11-arm`, online installer only, no iOS tools).
-  - Signing and notarization run only when the signing secrets exist; the release notes say which builds are unsigned.
+  - macOS signing and notarization run only when the Apple secrets exist; Windows signing is not set up. The release notes say which builds are unsigned or not notarized.
 - **Windows on Arm runners** (`windows-11-arm`, release and smoke legs): the Rust step sets `rustup set default-host aarch64-pc-windows-msvc` and checks `rustc -vV`, so the toolchain is native even if the image's rustup defaults to an emulated x64 host (an x64 smoke build would test the windows-x86_64 LEAPP builds). `ring` (rustls, in the app, the core tests and the Tauri CLI) compiles its aarch64-pc-windows-msvc assembly with `clang`, which the image's LLVM provides; the legs put `C:\Program Files\LLVM\bin` on `PATH` if `clang` is not found.
 - **Other builds:** the iOS tools are built on local machines (§2). Dispatch requires a workflow file on the default branch; to test a branch's version of a workflow, dispatch it with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.

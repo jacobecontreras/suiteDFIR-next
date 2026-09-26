@@ -6,7 +6,7 @@ Facts about the upstream iLEAPP/aLEAPP command-line builds that suiteDFIR depend
 - by running `ileapp v2026.4.2` (macOS arm64 build);
 - by reading source at tags `iLEAPP v2026.4.2` and `ALEAPP v2026.4.1`.
 
-**VERIFIED** means an AI agent confirmed the item while building the app, by running the tool or reading its source. Where a CI run or a test backs an item, it is named; items marked *one-off check* were checked once by hand, with no saved log. Items marked **UNVERIFIED** must be confirmed before anything relies on them; ROADMAP task E3 confirmed the earlier ones with real runs, and §9 lists what only the human QA pass can check. When you bump the pinned version, re-run the smoke suite and update this file.
+**VERIFIED** means an AI agent confirmed the item while building the app, by running the tool or reading its source. Items that name a CI run or a test are backed by it; *(source)* means the item was read from the upstream source; items marked *one-off check* were checked once by an agent, with no saved log. Items marked **UNVERIFIED** must be confirmed before anything relies on them; ROADMAP task E3 confirmed the earlier ones with real runs, and §9 lists what only the human QA pass can check. When you bump the pinned version, re-run the smoke suite and update this file.
 
 ## 1. Pinned releases
 
@@ -39,7 +39,7 @@ aLEAPP **v2026.4.1**:
 | linux-x86_64 | `aleapp-v2026.4.1-Linux_x86_64.AppImage` | 63834616 | `0344db7fce169772b807a88fde3ee2eb7ff06c12c9c360b29928d50e7fc854be` |
 | linux-aarch64 | `aleapp-v2026.4.1-Linux_arm64.AppImage` | 63101448 | `6075153896a30d35e96aeefa47b73936a41aa78e6a0566cc03ba57e697563ebb` |
 
-**Digests:** `gh api repos/abrignoni/iLEAPP/releases/tags/<tag> --jq '.assets[]|{name,size,digest}'`. Downloaded assets matched these API digests (VERIFIED for 3 assets).
+**Digests:** `gh api repos/abrignoni/iLEAPP/releases/tags/<tag> --jq '.assets[]|{name,size,digest}'`. Downloaded assets matched these API digests (VERIFIED for 3 assets, one-off check).
 
 **Licensing:**
 - LEAPP is MIT-licensed. The zips contain no LICENSE file, so ship the notice ourselves.
@@ -50,8 +50,8 @@ aLEAPP **v2026.4.1**:
 - **macOS:**
   - The zip holds one PyInstaller **onefile** binary (arm64 ≈ 55.8 MB).
   - Developer ID signed (Johann POLEWCZYK, team N2G83326TZ), hardened runtime; `spctl` reports "Notarized Developer ID".
-  - Runs headless: `--help` ≈ 1 s, exit 0. VERIFIED.
-- **Windows:** one `ileapp.exe` (≈ 62.7 MB), onefile, **console** subsystem, **unsigned** (empty PE security directory). VERIFIED by inspection. Both tools were also executed by the A3 smoke on the Windows x64 test machine (introspection through the job object with `CREATE_NO_WINDOW`); Defender did not block them there.
+  - Runs headless: `--help` ≈ 1 s, exit 0. VERIFIED (one-off check).
+- **Windows:** one `ileapp.exe` (≈ 62.7 MB), onefile, **console** subsystem, **unsigned** (empty PE security directory). VERIFIED by inspection (one-off check). Both tools were also executed by the A3 smoke on the Windows x64 test machine (introspection through the job object with `CREATE_NO_WINDOW`); Defender did not block them there.
   - **windows-aarch64, VERIFIED (S3):** on a `windows-11-arm` runner with a native arm64 build of the tests (leapp-smoke run 36212509028), both arm64 tools install, verify against the pinned entry hashes, introspect with the same module lists as Windows x64 in the same run (iLEAPP 1138, list sha256 `34dbbc2c…4965`; aLEAPP 1287, `941ddecc…5658`), and pass every smoke run with the same outcomes as Windows x64 (`TEMP`/`TMP`, `\r\n` records, cancel, and the password prompt that blocks until stopped, Q5).
 - **Linux:**
   - A type-2 AppImage (≈ 71 MB) with the static runtime. Mounting needs FUSE; `--appimage-extract` does not.
@@ -171,7 +171,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off chec
 
 ## 6. Output layout (`<o>/<custom_output_folder>/`)
 
-The output folder contains (VERIFIED):
+The output folder contains (VERIFIED, one-off check):
 - `index.html`
 - `_HTML/`, including `_HTML/_Script_Logs/Screen_Output.html`
 - `_lava_artifacts.db`
@@ -207,8 +207,8 @@ The output folder contains (VERIFIED):
 | Q6 | `-tz` defaults to UTC silently; aLEAPP has none. | D19. |
 | Q7 | `param_input` is stored exactly as passed. | Always pass absolute paths. |
 | Q8 | `Screen_Output.html` records are `message + "<br>" + newline`, appended with an open/close per message. Messages are **not** HTML-escaped and may contain markup or evidence-derived text. The newline is `\n` on macOS and Linux and `\r\n` on Windows (VERIFIED by the E3 smoke on all four smoke platforms; `fixtures/leapp/` holds macOS samples). A message may itself contain a newline before its `<br>`. | Split on `<br>` followed by `\n` or `\r\n`; keep partial records; strip tags; render as text. |
-| Q9 | Asset naming drift and manual uploads; no attestations. The frozen artifact sources matched tag v2026.4.2 byte-for-byte (VERIFIED). | D6: exact names plus asset **and** entry SHA-256 pinned in the app. Plan a mirror (H2). |
-| Q10 | LEAPP copies matched evidence files into `report/data/` and opens SQLite DBs read-only. The input tree was unchanged after runs. Nothing was written to `~/Library/Application Support/LEAPP` (history is opt-in). | Principle 1 holds; seal the report (F6). |
+| Q9 | Asset naming drift and manual uploads; no attestations. The frozen artifact sources matched tag v2026.4.2 byte-for-byte (VERIFIED, one-off check). | D6: exact names plus asset **and** entry SHA-256 pinned in the app. Plan a mirror (H2). |
+| Q10 | LEAPP copies matched evidence files into `report/data/` and opens SQLite DBs read-only. The input tree was unchanged after runs (one-off check). Nothing was written to `~/Library/Application Support/LEAPP` (history is opt-in). | Principle 1 holds; seal the report (F6). |
 | Q11 | aLEAPP `--help` does not print its version. | The version comes from the manifest and `_lava_data.lava.parser_info`. |
 
 ## 8. Candidate upstream improvements (optional track U, owner approval H5)

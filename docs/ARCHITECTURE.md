@@ -2,7 +2,7 @@
 
 > Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built).
 
-This document is the source of truth for **what** suiteDFIR phase 1 is and **why** it is built this way. File formats and the UI↔core API are in [CONTRACTS.md](CONTRACTS.md). Verified upstream parser behavior is in [LEAPP-CLI.md](LEAPP-CLI.md). If code and this document disagree, fix one of them in the same PR.
+This document describes **what** suiteDFIR phase 1 is and **why** it is built this way. File formats and the UI↔core API are in [CONTRACTS.md](CONTRACTS.md). Verified upstream parser behavior is in [LEAPP-CLI.md](LEAPP-CLI.md). If code and this document disagree, fix one of them in the same PR.
 
 ## 1. Purpose and principles
 
@@ -16,7 +16,7 @@ suiteDFIR is a single-user desktop app that makes running iLEAPP (iOS) and aLEAP
 
 Principles, in priority order:
 
-1. **Never alter evidence.** The app never writes inside an input path (for acquisition's unavoidable device writes, see §6b). Inputs are opened read-only for hashing and inspection. The parsers are expected to read inputs and write only to the run folder. LEAPP did so in the checks so far (LEAPP-CLI.md Q10), but nothing enforces it: the parsers run as the user. Runs whose output would land inside the input are refused (§6 step 1).
+1. **Never alter evidence.** The app never writes inside an input path (for acquisition's unavoidable device writes, see §6b). Inputs are opened read-only for hashing and inspection. The parsers are expected to read inputs and write only to the run folder. LEAPP did so in a one-off check during development (LEAPP-CLI.md Q10), but nothing enforces it: the parsers run as the user. Runs whose output would land inside the input are refused (§6 step 1).
 2. **Record everything needed to defend a result:** which tool binary ran, with which parameters, against which input, when, and with what outcome.
 3. **Tell the truth about outcomes.** Never report success because a process exited 0. Derive status from the parser's actual output (LEAPP-CLI.md Q3).
 4. **Local and private.** No telemetry. The only network use is downloading pinned parser builds on explicit user action.

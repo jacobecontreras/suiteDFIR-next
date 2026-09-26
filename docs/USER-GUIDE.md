@@ -1,6 +1,6 @@
 # suiteDFIR user guide
 
-> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built). suiteDFIR has no releases yet: this guide describes how the app is meant to be installed and used, and the file names in section 1 are the ones the release build will produce.
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built). There is no release of the app yet: this guide describes how the app is meant to be installed and used, and the file names in section 1 are the ones the release build will produce.
 
 suiteDFIR 0.2.0 runs the iLEAPP (iOS) and aLEAPP (Android) mobile-forensics parsers and takes iOS backups over USB. It keeps the results in case folders, with an audit record and a hash manifest for every run and acquisition. This guide covers installing it, the parsers and the iOS prerequisites, parsing evidence, acquiring an iOS backup, what each result means, verifying a report, and privacy.
 
@@ -64,7 +64,7 @@ The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project 
 
 ### Linux
 
-The app itself runs on Ubuntu 22.04 (glibc 2.35) and newer distributions with WebKitGTK 4.1, on x64 and arm64. The commands below use the x64 file names; on arm64 use `suiteDFIR_0.2.0_aarch64.AppImage` and `suiteDFIR_0.2.0_arm64.deb`.
+The app itself is built for Ubuntu 22.04 (glibc 2.35) and newer distributions with WebKitGTK 4.1, on x64 and arm64; it hasn't been tried by hand on Linux yet. The commands below use the x64 file names; on arm64 use `suiteDFIR_0.2.0_aarch64.AppImage` and `suiteDFIR_0.2.0_arm64.deb`.
 
 - **AppImage** (bundles WebKitGTK): `chmod +x suiteDFIR_0.2.0_amd64.AppImage`, then run it. If it does not start because FUSE is missing, install your distribution's FUSE 2 package (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04 and later), or run it as `./suiteDFIR_0.2.0_amd64.AppImage --appimage-extract-and-run`.
 - **deb** (Debian, Ubuntu): `sudo apt install ./suiteDFIR_0.2.0_amd64.deb`. It installs the WebKitGTK and GTK packages it needs. It does not depend on the iOS tools; install those only if you acquire iOS backups (section 6).
@@ -145,7 +145,7 @@ On the case screen, choose **New run**.
    | `raw` | a disk image (`.e01`, `.dd`, `.img`, `.bin`, `.raw`, `.001`) | ✓ | ✓ |
    | `file` | any other single file | ✓ | |
 
-   suiteDFIR only opens inputs for reading. The parsers run as your user, so nothing stops them from writing to an input, but LEAPP didn't change its input in the checks so far. A run is refused if its output would land inside the input, or if the input is inside another run's output.
+   suiteDFIR only opens inputs for reading. The parsers run as your user, so nothing stops them from writing to an input, but LEAPP didn't change its input when this was checked once during development. A run is refused if its output would land inside the input, or if the input is inside another run's output.
 
    **Find iOS backups** (iLEAPP) lists the Finder/iTunes backups in the default folders, with device, iOS version, date, size and encryption; **Use** picks one as the input. The folders are `~/Library/Application Support/MobileSync/Backup` on macOS (needs Full Disk Access, section 1) and `%APPDATA%\Apple Computer\MobileSync\Backup` (iTunes) and `%USERPROFILE%\Apple\MobileSync\Backup` (Apple Devices) on Windows; Linux has none.
 3. **Options:**
@@ -233,7 +233,7 @@ An encrypted backup contains more data than an unencrypted one (for example save
 - **Backup encryption is already on:** the backup is encrypted with the owner's password, which suiteDFIR does not know and cannot change. The backup is taken as it is (`backup_encryption_preexisting`), but you need the owner's password to parse it. An unknown backup password can only be removed on the device with **Reset All Settings**, which suiteDFIR never does.
 - **The state cannot be read:** encryption cannot be turned on from suiteDFIR for this device.
 
-The password is never stored. It reaches the tools through an environment variable, never the command line. suiteDFIR clears its own copy from memory after the last encryption step; other copies made along the way, for example while starting the tools, are not cleared.
+The password is never stored. It reaches the tools through an environment variable, never the command line. suiteDFIR's core overwrites its copy in memory after the last encryption step. Other copies are not cleared: those made while starting the tools, and the one the app window keeps when you tick **Parse with iLEAPP now** (see Parse with iLEAPP below).
 
 ### Taking the backup
 
