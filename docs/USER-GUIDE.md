@@ -45,7 +45,7 @@ The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project 
      ```bash
      xattr -dr com.apple.quarantine /Applications/suiteDFIR.app
      ```
-3. **Full Disk Access** (only to parse Finder backups where Finder keeps them): macOS protects `~/Library/Application Support/MobileSync/Backup`. To read backups there, open **System Settings → Privacy & Security → Full Disk Access**, add suiteDFIR, and restart suiteDFIR. Without it, choosing such a backup shows "Access to the input was denied (on macOS, Finder backups need Full Disk Access)". Backups that suiteDFIR acquires itself go into the case folder and need no extra permission.
+3. **Full Disk Access** (only to parse Finder backups where Finder keeps them): macOS protects `~/Library/Application Support/MobileSync/Backup`. To read backups there, open **System Settings → Privacy & Security → Full Disk Access**, add suiteDFIR, and restart suiteDFIR. Without it, choosing such a backup shows "Access to the input was denied (on macOS, Finder backups need Full Disk Access)", and **Find iOS backups** (section 5) shows "suiteDFIR may not read the Finder backup folder: macOS protects it until suiteDFIR has Full Disk Access." Backups that suiteDFIR acquires itself go into the case folder and need no extra permission.
 
 ### Windows
 
@@ -80,15 +80,16 @@ The app itself runs on Ubuntu 22.04 (glibc 2.35) and newer distributions with We
 | RHEL / Rocky / Alma 9 and 10 | 2.34, 2.39 | do not start |
 | Rolling distributions (Arch, openSUSE Tumbleweed) | current | usually run; check `ldd --version` |
 
-On an older system, installing a parser fails at the module-list step (`introspection_failed`) and a run fails to start (`spawn_failed`), with the message "the pinned Linux iLEAPP build needs glibc X or newer; this system's glibc is too old". X is the first missing version that the system's loader reports, which can be lower than the full requirement (on Ubuntu 22.04 the loader stops at 2.38). There is no workaround inside suiteDFIR: use a distribution with glibc 2.43, or parse on macOS or Windows. Case folders are portable, so you can acquire on one machine and parse on another.
+On an older system, installing a parser fails at the module-list step (`introspection_failed`) and a run fails to start (`spawn_failed`), with the message "the pinned Linux iLEAPP build needs glibc X or newer; this system's glibc is too old". X is the highest missing version in the loader's error lines, which can be lower than the full requirement because the loader stops at the first library it cannot load (on Ubuntu 22.04 it reports 2.38). There is no workaround inside suiteDFIR: use a distribution with glibc 2.43, or parse on macOS or Windows. Case folders are portable, so you can acquire on one machine and parse on another.
 
 ## 2. First start
 
 suiteDFIR allows one instance at a time; a second start shows a message and exits.
 
 - **Cases folder:** new cases go into `Documents/suiteDFIR Cases` unless you choose another folder (**Settings → Storage → Cases folder**).
-- **Case defaults:** **Settings → Case defaults** sets the examiner, agency and timezone that new cases start with.
-- **About:** the version, the folders the app uses (data, configuration, cache, log, tools), the privacy statement and **Third-party licenses**.
+- **Case defaults:** **Settings → Case defaults** sets the examiner and agency that new cases start with, and the timezone iLEAPP runs use when their case has none.
+- **Tools folder:** **Settings → Storage → Tools folder** shows where the parsers are installed (section 1, AppLocker or WDAC).
+- **About:** the version, the pinned parser versions, the app's folders (app data, settings, cache, app log), the privacy statement and **Third-party licenses**.
 - **Clean temporary files:** removes leftover per-run temporary folders (normally removed automatically). It is refused while a job runs.
 
 ## 3. Install the parsers (online or offline)
@@ -231,11 +232,11 @@ The password is never stored. It reaches the tools through an environment variab
 
 The options show the free space against the space the device uses (`ok`, `warn` below 1.1 ×, and a block below 0.5 ×), and a **Label**. **Start acquisition** starts it; the screen shows the phase, the overall progress, the log and any passcode prompt.
 
-**Cancel** depends on the phase: while encryption is being turned on, the app waits for that step and then turns encryption off again; during the backup it stops the backup and then turns encryption off again; while turning encryption off, the cancel is ignored so the device is not left changed. Quitting the app during an acquisition asks first; it shows "finishing safely…" while the device is restored, with a **Quit anyway** option (the acquisition is then marked **Interrupted** at the next start, with its encryption warnings).
+**Cancel** depends on the phase: while encryption is being turned on, the app waits for that step to finish; during the backup it stops the backup; in both cases it then turns encryption off again if **Turn encryption off again afterwards** is on. While encryption is being turned off, the cancel is ignored so that step completes. Quitting the app during an acquisition asks first, then shows "Finishing safely…" until the device work has stopped and the record is written, with a **Quit anyway** option (the acquisition is then marked **Interrupted**, with its encryption warnings, when the case is next opened).
 
 | Status | Meaning |
 |---|---|
-| **Succeeded** | The tool reported success, and the backup has `Manifest.db`, `Info.plist` and `Status.plist` with a finished snapshot. |
+| **Succeeded** | The tool reported success, and the backup has `Manifest.db` (or `Manifest.mbdb` on very old iOS), `Info.plist` and `Status.plist` with a finished snapshot. |
 | **Failed** | See the reasons, for example `cancelled_on_device`, `device_disconnected`, `sync_lock_failed` (Finder, iTunes or Apple Devices was syncing the device: close them and retry), `success_message_missing`, `snapshot_not_finished`, `encryption_enable_failed`. |
 | **Cancelled** | You cancelled it. |
 | **Interrupted** | suiteDFIR stopped during the acquisition. |
@@ -251,7 +252,7 @@ If encryption was left on (the device disconnected, the passcode was not entered
 
 ### Parse with iLEAPP
 
-**Parse with iLEAPP** (for a succeeded acquisition) opens New run with the backup as the input and the type `itunes`. If you set the encryption password in this session, the form keeps it in memory only until that run starts or the form closes. The run's `run.json` records the acquisition it came from.
+**Parse with iLEAPP** (for a succeeded acquisition) opens New run with the backup as the input and the type `itunes`. The password is filled in only if you turned encryption on for this acquisition and ticked **Parse with iLEAPP now** before starting it: the app then keeps that password in memory (never stored) until the run starts or its form closes, and drops it when you leave the acquisition's result without parsing. Otherwise, enter the backup password yourself. The run's `run.json` records the acquisition it came from.
 
 ## 7. Verify a report or a backup
 

@@ -19,6 +19,7 @@ Keep real evidence, passwords and device data out of the repository and out of i
   - [ ] **[Windows]** The online installer on a machine without WebView2 but with internet access downloads it.
   - [ ] **[Linux]** The AppImage starts (with and without FUSE); the deb installs with `apt` on Ubuntu 22.04 and 24.04; the `WEBKIT_DISABLE_DMABUF_RENDERER=1` fallback on a machine or VM with a blank window.
 - [ ] **[all]** The bundled iOS tools are verified: the Acquire screen shows the tools as ready (no verification banner); in `acquisition.json`, `tools.binaries.*.verified_against` is `manifest` (macOS, Windows) or `recorded_only` (Linux).
+- [ ] **[macOS] [Windows]** Once signing is set up (H1): signed builds verify their bundled tools (`code_signature` on macOS). `release.yml` does not check this yet: its signed macOS legs skip the bundled-tool check, and its Windows leg checks `target\release` rather than the installed payload. Check an installed signed build by hand until the workflow does.
 - [ ] **[all]** Settings → About: versions, paths, the privacy statement, and **Third-party licenses** shows `THIRD-PARTY-NOTICES.md`.
 - [ ] **[all]** A second instance shows a message and exits, without a window and without touching the first instance's state.
 
@@ -37,6 +38,9 @@ Keep real evidence, passwords and device data out of the repository and out of i
   - [ ] the encrypted one with a **wrong** password: `failed` with `no_modules_ran` (or the observed result, recorded here);
   - [ ] **grep the whole run folder (report, logs, `run.json`) for the password**: it must appear nowhere, including `Screen_Output.html` and `_lava_data.lava` (LEAPP-CLI §9 item 2).
 - [ ] **[macOS]** A backup in `~/Library/Application Support/MobileSync/Backup` without Full Disk Access shows the Full Disk Access guidance; after granting it, the backup can be parsed.
+- [ ] **[macOS]** **Find iOS backups** (New run, iLEAPP) with a real TCC denial: without Full Disk Access the search shows the Full Disk Access guidance ("suiteDFIR may not read the Finder backup folder…") instead of a list.
+- [ ] **[macOS]** **Find iOS backups** with real Finder backups on disk, after granting Full Disk Access: each backup is listed with the right device name, model, iOS version, last backup date, size and encryption; **Use** fills New run, and the input is inspected as an iTunes backup (type `itunes`, encryption as listed).
+- [ ] **[Windows]** **Find iOS backups** lists real backups in both `%APPDATA%\Apple Computer\MobileSync\Backup` (iTunes) and `%USERPROFILE%\Apple\MobileSync\Backup` (Apple Devices), with the right details; **Use** fills New run.
 - [ ] **[all]** An Android file-system extraction (folder) and a zip of it with aLEAPP.
 - [ ] **[all]** An E01 image (type `raw`) with iLEAPP or aLEAPP.
 - [ ] **[all]** A large input (≥ 100 GB) with input hashing on: the hash progresses, the run and the hash finish, and `input.hash` in `run.json` matches an independent `sha256sum` of the input.
