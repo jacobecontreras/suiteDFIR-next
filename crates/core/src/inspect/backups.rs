@@ -137,7 +137,7 @@ impl From<FindError> for AppError {
 ///   (on macOS the protected Finder backup folder, EPERM, until the app has Full Disk Access),
 ///   otherwise an I/O error.
 /// - In it, every folder with `Manifest.db` or `Manifest.plist` is a backup (as input inspection
-///   detects one), with details from its `Info.plist` and `Manifest.plist` ([`read_backup`]).
+///   detects one), with details from its `Info.plist` and `Manifest.plist` (see `read_backup`).
 ///   Files and other folders are skipped.
 /// - One bad entry never fails the search: a folder whose contents cannot be checked is listed
 ///   with unknown details (every folder there is a device's backup, and choosing it as the input
@@ -226,7 +226,7 @@ fn unknown_backup(dir: &Path) -> IosBackup {
 /// - `size_bytes`: the total size of the files in the folder, `null` if any part is unreadable.
 ///
 /// A value that is missing, unreadable or of the wrong type is `null`.
-pub fn read_backup(dir: &Path) -> IosBackup {
+fn read_backup(dir: &Path) -> IosBackup {
     let info = read_dict(&dir.join("Info.plist"));
     let manifest = read_dict(&dir.join("Manifest.plist"));
     let lockdown = manifest
@@ -278,23 +278,24 @@ fn timestamp(date: plist::Date) -> Option<Timestamp> {
 }
 
 /// A plist file's top-level dictionary (XML or binary), or `None` (logged) when the file is
-/// missing, too large, unreadable, unparsable or not a dictionary. Opened read-only.
+/// missing, not a regular file, too large, unreadable, unparsable or not a dictionary. Only a
+/// regular file is opened (a FIFO would block the open), read-only.
 fn read_dict(path: &Path) -> Option<plist::Dictionary> {
     let skip = |why: &dyn std::fmt::Display| {
         log::warn!("backup finder: {}: {why}", path.display());
         None
     };
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
-        Err(e) => return skip(&e),
-    };
-    match file.metadata() {
+    match fs::metadata(path) {
         Ok(meta) if !meta.is_file() => return skip(&"not a file"),
         Ok(meta) if meta.len() > MAX_PLIST_BYTES => return skip(&"too large to be a backup plist"),
         Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
         Err(e) => return skip(&e),
     }
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) => return skip(&e),
+    };
     match plist::Value::from_reader(BufReader::new(file)) {
         Ok(plist::Value::Dictionary(dict)) => Some(dict),
         Ok(_) => skip(&"not a dictionary"),
@@ -900,6 +901,39 @@ mod tests {
         }
         mode(&locked, 0o755);
         mode(&locked_info.join("Info.plist"), 0o644);
+    }
+
+    /// A FIFO named like a plist is never opened (opening it would block until a writer comes).
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_plist_does_not_block_the_search() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Backup");
+        let dir = root.join(UDID_A);
+        Synthetic {
+            info: None,
+            manifest: Some(manifest(Some(true))),
+            binary: false,
+        }
+        .write(&dir);
+        let made = std::process::Command::new("mkfifo")
+            .arg(dir.join("Info.plist"))
+            .status();
+        if !made.as_ref().is_ok_and(|status| status.success()) {
+            eprintln!("SKIPPED: mkfifo is not available here ({made:?})");
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(find(&[root]));
+        });
+        let found = rx
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("the search blocked on the FIFO")
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].device_name.as_deref(), Some("Lockdown name"));
+        assert_eq!(found[0].encrypted, Some(true));
     }
 
     #[cfg(not(unix))]
