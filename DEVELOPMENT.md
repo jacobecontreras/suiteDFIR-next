@@ -118,6 +118,7 @@ fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <R
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
 scripts/build-idevice-tools.sh  scripted (not bit-reproducible) libimobiledevice build from pinned tarballs (X1)
+scripts/idevice-tools-patches/  the two source patches that build applies, pinned in the script (FX1)
 .github/workflows/            ci-rust.yml, ci-js.yml, leapp-smoke.yml, release.yml
 docs/                         ARCHITECTURE, CONTRACTS, LEAPP-CLI, IDEVICE-CLI, ROADMAP, USER-GUIDE, QA-CHECKLIST
 ```
@@ -340,7 +341,7 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **LEAPP smoke triggers** (the repository is public): a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process,run}/**`, `crates/core/src/{runner,tail,inspect,hashing}.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`, `windows-11-arm` (S3; `os=windows` runs both Windows legs).
 - **Release workflow (`release.yml`, F1):**
   - `workflow_dispatch` is a build-only dry run: the `os` input picks the legs (default `linux`), and the bundles, the source-obligation files, `SHA256SUMS` and the release notes are uploaded to the run. No release is created.
-  - A pushed tag `v<version>` builds every leg and creates a **draft** release (never published by automation, H3) with the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json`).
+  - A pushed tag `v<version>` builds every leg and creates a **draft** release (never published by automation, H3) with the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script, its source patches and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json` and the hashes the `BUILDINFO.json` files record).
   - Its macOS and Windows legs run only when dispatched with `os=macos|windows|all` (owner approval) or for a tag while the repository is public. Otherwise the macOS and Windows x64 bundles are built on local machines (§2), and the Windows arm64 installer (which has no local recipe) by a dispatch with `os=windows`, and they are added to the draft by hand.
   - Legs, as the `os` input selects them: `linux` = Linux x64 and arm64 (AppImage + deb, both in the `ubuntu:22.04` container, on `ubuntu-24.04` and `ubuntu-24.04-arm`); `macos` = macOS arm64 and x64 (dmg); `windows` = Windows x64 (`windows-2025`, online and offline installers with the iOS tools) and Windows arm64 (`windows-11-arm`, online installer only, no iOS tools; S3).
   - Signing and notarization run only when the H1 secrets exist; the release notes say which builds are unsigned.

@@ -1,0 +1,14 @@
+--- a/src/idevice.c
++++ b/src/idevice.c
+@@ -1459,6 +1459,11 @@
+ 
+ 	mbedtls_ssl_setup(&ssl_data_loc->ctx, &ssl_data_loc->config);
+ 
++	/* Modified for suiteDFIR on 2026-09-26: mbedtls 3.6.3+ refuses to verify a server certificate
++	 * unless the host name was set (MBEDTLS_ERR_SSL_CERTIFICATE_VERIFICATION_WITHOUT_HOSTNAME).
++	 * The device certificate has no host name, and cert_verify_cb accepts it, so set none. */
++	mbedtls_ssl_set_hostname(&ssl_data_loc->ctx, NULL);
++
+ 	mbedtls_ssl_set_bio(&ssl_data_loc->ctx, connection, (mbedtls_ssl_send_t*)&internal_ssl_write, (mbedtls_ssl_recv_t*)&internal_ssl_read, NULL);
+ 
+ 	mbedtls_x509_crt_init(&ssl_data_loc->certificate);

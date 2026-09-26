@@ -541,6 +541,14 @@ mod tests {
     fn the_embedded_manifest_parses() {
         let manifest = embedded_manifest().unwrap();
         assert_eq!(manifest.version, "1.4.0");
+        // The build release (FX1) names the bundles; the tools still report the version.
+        assert_eq!(manifest.release, "1.4.0-p2");
+        for (platform, bundle) in &manifest.platforms {
+            assert_eq!(
+                bundle.bundle,
+                format!("idevice-tools-{}-{platform}.zip", manifest.release)
+            );
+        }
         assert!(manifest.platforms.contains_key(&PlatformKey::MacosAarch64));
         assert!(
             manifest

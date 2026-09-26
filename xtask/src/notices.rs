@@ -13,7 +13,8 @@
 //!   file fails the generation.
 //! - **libimobiledevice tools:** the notice files inside the published tool bundles (each bundle is
 //!   downloaded and checked against its `bundle_sha256` in `idevice-tools.json`; the tool fetch
-//!   installs only the tools), plus the source tarball URLs and hashes from `idevice-tools.json`.
+//!   installs only the tools), plus the source tarball URLs and hashes from `idevice-tools.json`
+//!   and the source patches the bundles' `BUILDINFO.json` files list (the same in every bundle).
 //! - **iLEAPP and aLEAPP:** their MIT license at the pinned tags, and the license files of the
 //!   libraries their builds bundle, each fetched from a pinned URL and checked against a pinned
 //!   SHA-256.
@@ -703,24 +704,38 @@ struct BundleFile {
     platforms: Vec<String>,
 }
 
+/// A source patch the tool bundles were built with (from their `BUILDINFO.json`).
+#[derive(Debug, PartialEq, Eq)]
+struct SourcePatch {
+    file: String,
+    /// The source tarball it applies to.
+    applies_to: String,
+    sha256: String,
+}
+
 struct IdeviceNotices {
     version: String,
+    /// The tool build (`idevice-tools-<release>-<platform>.zip`).
+    release: String,
     /// `(name, version, url, sha256)` of each source tarball.
     sources: Vec<(String, String, String, String)>,
+    /// The same in every bundle (checked).
+    patches: Vec<SourcePatch>,
     files: Vec<BundleFile>,
 }
 
 fn idevice_notices(repo_root: &Path, cache: &Path) -> Result<IdeviceNotices, String> {
     let manifest = idevice_tools::read_manifest(&repo_root.join("idevice-tools.json"))?;
     let mut files: BTreeMap<String, BundleFile> = BTreeMap::new();
+    let mut patches: Option<Vec<SourcePatch>> = None;
     for (platform, bundle) in &manifest.platforms {
-        idevice_tools::check_bundle_files(bundle, *platform)?;
+        idevice_tools::check_manifest_bundle(&manifest, *platform, bundle)?;
         let zip_path = cache.join(&bundle.bundle_sha256);
         let cached = zip_path.is_file()
             && sha256_file(&zip_path).ok().as_deref() == Some(bundle.bundle_sha256.as_str());
         if !cached {
             let partial = cache.join(format!("{}.partial", bundle.bundle_sha256));
-            idevice_tools::download_bundle(&manifest.version, bundle, &partial)?;
+            idevice_tools::download_bundle(&manifest.release, bundle, &partial)?;
             fs::rename(&partial, &zip_path)
                 .map_err(|e| format!("caching {}: {e}", bundle.bundle))?;
         }
@@ -733,14 +748,30 @@ fn idevice_notices(repo_root: &Path, cache: &Path) -> Result<IdeviceNotices, Str
                 .by_index(index)
                 .map_err(|e| format!("{}: {e}", bundle.bundle))?;
             let name = entry.name().to_owned();
-            // The tools (installed by fetch-idevice-tools) and the build record are not notices.
-            if !entry.is_file() || bundle.files.contains_key(&name) || name == "BUILDINFO.json" {
+            // The tools (installed by fetch-idevice-tools) are not notices.
+            if !entry.is_file() || bundle.files.contains_key(&name) {
                 continue;
             }
             let mut bytes = Vec::new();
             entry
                 .read_to_end(&mut bytes)
                 .map_err(|e| format!("{}: {name}: {e}", bundle.bundle))?;
+            // Nor is the build record; it names the source patches the bundle was built with.
+            if name == "BUILDINFO.json" {
+                let found = buildinfo_patches(&bytes)
+                    .map_err(|e| format!("{}: BUILDINFO.json: {e}", bundle.bundle))?;
+                match &patches {
+                    Some(seen) if *seen != found => {
+                        return Err(format!(
+                            "the source patches in BUILDINFO.json differ between the tool \
+                             bundles ({platform})"
+                        ));
+                    }
+                    Some(_) => {}
+                    None => patches = Some(found),
+                }
+                continue;
+            }
             let text = normalize(&String::from_utf8_lossy(&bytes));
             match files.get_mut(&name) {
                 Some(existing) if existing.text != text => {
@@ -779,9 +810,40 @@ fn idevice_notices(repo_root: &Path, cache: &Path) -> Result<IdeviceNotices, Str
     files.sort_by_key(|f| notice_order(&f.path));
     Ok(IdeviceNotices {
         version: manifest.version,
+        release: manifest.release,
         sources,
+        patches: patches.unwrap_or_default(),
         files,
     })
+}
+
+/// The `patches` a bundle's `BUILDINFO.json` lists (none if it has no such key).
+fn buildinfo_patches(bytes: &[u8]) -> Result<Vec<SourcePatch>, String> {
+    let info: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    let Some(list) = info.get("patches") else {
+        return Ok(Vec::new());
+    };
+    let list = list.as_array().ok_or("patches is not an array")?;
+    list.iter()
+        .map(|patch| {
+            let field = |key: &str| {
+                patch[key]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("a patch without {key}"))
+            };
+            let file = field("file")?;
+            let sha256 = field("sha256")?;
+            if !idevice_tools::is_plain_name(&file) || !idevice_tools::is_sha256_hex(&sha256) {
+                return Err(format!("patch {file:?}: not a plain name with a SHA-256"));
+            }
+            Ok(SourcePatch {
+                file,
+                applies_to: field("applies_to")?,
+                sha256,
+            })
+        })
+        .collect()
 }
 
 /// The order of the bundle notice files: the license texts first, then the rest by path.
@@ -942,14 +1004,22 @@ fn render(
     // ---- libimobiledevice ----
     push("## libimobiledevice tools");
     push("");
+    let (inputs, attached) = if idevice.patches.is_empty() {
+        ("the source tarballs below", "these exact tarballs")
+    } else {
+        (
+            "the source tarballs and patches below",
+            "these exact tarballs and patches",
+        )
+    };
     push(&format!(
         "The macOS (arm64 and x64) and Windows x64 builds include `idevice_id`, `ideviceinfo`, \
          `idevicepair` and `idevicebackup2` from libimobiledevice {}, built by \
-         `scripts/build-idevice-tools.sh` from the source tarballs below and linked statically. \
-         Every release attaches these exact tarballs, the build script and each tool bundle's \
-         `BUILDINFO.json`. The Windows arm64 build includes none of this code (there is no \
-         pinned build for it, so it has no iOS acquisition), and the Linux builds use the \
-         distribution's tools and include none of it either.",
+         `scripts/build-idevice-tools.sh` from {inputs} and linked statically. Every release \
+         attaches {attached}, the build script and each tool bundle's `BUILDINFO.json`. The \
+         Windows arm64 build includes none of this code (there is no pinned build for it, so it \
+         has no iOS acquisition), and the Linux builds use the distribution's tools and include \
+         none of it either.",
         idevice.version
     ));
     push("");
@@ -962,6 +1032,24 @@ fn render(
         ));
     }
     push("");
+    if !idevice.patches.is_empty() {
+        push(
+            "The build applies the source patches listed below to the extracted tarballs \
+             (`patch -p1`). Each patch marks its change in the modified file with a dated notice \
+             that gives the reason (\"Modified for suiteDFIR on <date>: …\"). The patches are in \
+             `scripts/idevice-tools-patches/`, and each bundle's `BUILDINFO.json` lists them:",
+        );
+        push("");
+        push("| Patch | Applies to | SHA-256 |");
+        push("|---|---|---|");
+        for patch in &idevice.patches {
+            push(&format!(
+                "| `{}` | `{}` | `{}` |",
+                patch.file, patch.applies_to, patch.sha256
+            ));
+        }
+        push("");
+    }
     push("Licenses:");
     push("");
     push(
@@ -984,7 +1072,7 @@ fn render(
         "The texts below are the notice files of the published tool bundles \
          (`idevice-tools-{}-<platform>.zip`, each checked against its `bundle_sha256` in \
          `idevice-tools.json`).",
-        idevice.version
+        idevice.release
     ));
     push("");
     for file in &idevice.files {
@@ -1371,6 +1459,28 @@ mod tests {
             assert!(notices.contains(&source.url), "{}", source.url);
             assert!(notices.contains(&source.sha256), "{}", source.name);
         }
+        // FX1: the bundles are named after the release, and every source patch is listed.
+        assert!(
+            notices.contains(&format!(
+                "`idevice-tools-{}-<platform>.zip`",
+                manifest.release
+            )),
+            "{}",
+            manifest.release
+        );
+        let patch_dir = root.join("scripts").join("idevice-tools-patches");
+        let mut patches = 0;
+        for entry in fs::read_dir(&patch_dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let sha256 = sha256_file(&path).unwrap();
+            assert!(
+                notices.contains(&format!("| `{name}` |")) && notices.contains(&sha256),
+                "{name} {sha256}"
+            );
+            patches += 1;
+        }
+        assert_eq!(patches, 2);
         for heading in [
             "### `COPYING`",
             "### `COPYING.LESSER`",
@@ -1397,6 +1507,37 @@ mod tests {
             }
         }
         assert!(mpl > 0, "the app ships MPL-2.0 crates (option-ext)");
+    }
+
+    #[test]
+    fn buildinfo_patches_are_read() {
+        let sha = "a".repeat(64);
+        let info = format!(
+            r#"{{ "name": "idevice-tools", "patches": [
+                {{ "file": "x.patch", "sha256": "{sha}", "applies_to": "x-1.0.tar.bz2" }} ] }}"#
+        );
+        assert_eq!(
+            buildinfo_patches(info.as_bytes()).unwrap(),
+            [SourcePatch {
+                file: "x.patch".into(),
+                applies_to: "x-1.0.tar.bz2".into(),
+                sha256: sha.clone(),
+            }]
+        );
+        // A bundle built before FX1 lists none.
+        assert!(buildinfo_patches(b"{}").unwrap().is_empty());
+        for bad in [
+            r#"{ "patches": {} }"#.to_owned(),
+            format!(r#"{{ "patches": [{{ "file": "x.patch", "sha256": "{sha}" }}] }}"#),
+            format!(
+                r#"{{ "patches": [{{ "file": "../x.patch", "sha256": "{sha}", "applies_to": "x" }}] }}"#
+            ),
+            r#"{ "patches": [{ "file": "x.patch", "sha256": "ABC", "applies_to": "x" }] }"#
+                .to_owned(),
+            "not json".to_owned(),
+        ] {
+            assert!(buildinfo_patches(bad.as_bytes()).is_err(), "{bad}");
+        }
     }
 
     #[test]

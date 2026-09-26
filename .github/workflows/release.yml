@@ -46,9 +46,10 @@ defaults:
     shell: bash
 
 jobs:
-  # The pinned libimobiledevice sources, the build script that built the pinned tool bundles and
-  # each bundle's BUILDINFO.json: the exact files on the idevice-tools-<version> prerelease, checked
-  # against idevice-tools.json (and the script against the hash every BUILDINFO.json records).
+  # The pinned libimobiledevice sources, the build script and source patches that built the pinned
+  # tool bundles, and each bundle's BUILDINFO.json: the exact files on the idevice-tools-<release>
+  # prerelease, checked against idevice-tools.json (and the script and patches against the hashes
+  # every BUILDINFO.json records).
   sources:
     name: Source obligations (libimobiledevice stack)
     runs-on: ubuntu-24.04
@@ -70,13 +71,13 @@ jobs:
             exit 1
           fi
 
-      - name: Fetch and check the source tarballs, build script and BUILDINFO files
+      - name: Fetch and check the source tarballs, build script, patches and BUILDINFO files
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           manifest=idevice-tools.json
-          tag="idevice-tools-$(jq -r .version "$manifest")"
+          tag="idevice-tools-$(jq -er .release "$manifest")"
           mkdir -p "$RUNNER_TEMP/dl" dist
           fetch() {
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$1" --dir "$RUNNER_TEMP/dl"
@@ -94,6 +95,7 @@ jobs:
               fetch "$bundle" "$sha"
               unzip -p "$RUNNER_TEMP/dl/$bundle" BUILDINFO.json > "dist/BUILDINFO-$platform.json"
               jq -r .build_script_sha256 "dist/BUILDINFO-$platform.json" >> "$RUNNER_TEMP/script-sha256"
+              jq -c '[(.patches // [])[] | [.file, .sha256]] | sort' "dist/BUILDINFO-$platform.json" >> "$RUNNER_TEMP/patches"
             done
           # The build script that built them: every BUILDINFO.json must name the same one.
           script_sha="$(sort -u "$RUNNER_TEMP/script-sha256")"
@@ -103,6 +105,21 @@ jobs:
           fi
           fetch build-idevice-tools.sh "$script_sha"
           mv "$RUNNER_TEMP/dl/build-idevice-tools.sh" dist/
+          # The source patches it applied: every BUILDINFO.json must list the same ones.
+          patches="$(sort -u "$RUNNER_TEMP/patches")"
+          if [ "$(printf '%s\n' "$patches" | wc -l)" -ne 1 ]; then
+            echo "::error::the tool bundles were built with different patches: $patches"
+            exit 1
+          fi
+          printf '%s\n' "$patches" | jq -r '.[] | @tsv' |
+            while IFS=$'\t' read -r name sha; do
+              if ! printf '%s\n' "$name" | grep -Eqx '[A-Za-z0-9._-]+\.patch'; then
+                echo "::error::unexpected patch name $name"
+                exit 1
+              fi
+              fetch "$name" "$sha"
+              mv "$RUNNER_TEMP/dl/$name" dist/
+            done
           ls -l dist
           (cd dist && sha256sum -- *)
 
@@ -523,7 +540,7 @@ jobs:
             echo
             echo "**Installation, prerequisites and privacy:** docs/USER-GUIDE.md. The Linux parser builds need glibc 2.43 or later."
             echo
-            echo "**Source code for the bundled iOS tools.** The macOS and Windows x64 builds include libimobiledevice $tools tools (LGPL-2.1-or-later; the Windows arm64 and Linux builds include none), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`). THIRD-PARTY-NOTICES.md lists every license."
+            echo "**Source code for the bundled iOS tools.** The macOS and Windows x64 builds include libimobiledevice $tools tools (LGPL-2.1-or-later; the Windows arm64 and Linux builds include none), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`), which applies the attached \`*.patch\` files (changes to the upstream sources, each marked in the modified file with a dated \"Modified for suiteDFIR\" notice; their SHA-256s are in each \`BUILDINFO-<platform>.json\` too). THIRD-PARTY-NOTICES.md lists every license."
           } > "$RUNNER_TEMP/RELEASE-NOTES.md"
           # Only now, so the file table above does not list the notes themselves.
           mv "$RUNNER_TEMP/RELEASE-NOTES.md" dist/RELEASE-NOTES.md

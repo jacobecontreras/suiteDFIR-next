@@ -385,7 +385,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
   - the four tools (+ DLLs);
   - `BUILDINFO.json` (source URLs + hashes, compiler and toolchain versions, configure flags, date);
   - `COPYING`, `COPYING.LESSER`, the `3rd_party/` notices and the mbedtls notice.
-- **Publishing:** all bundles are built locally (no GitHub Actions) and uploaded to a **prerelease** named `idevice-tools-<version>` (`gh release upload --clobber` is allowed for these prereleases). This way both machines and release builds fetch the same pinned artifacts.
+- **Publishing:** all bundles are built locally (no GitHub Actions) and uploaded to a **prerelease** named `idevice-tools-<release>` (`gh release upload --clobber` is allowed for these prereleases). `release` in `idevice-tools.json` is `1.4.0-p2` since FX1, which added two source patches (IDEVICE-CLI.md §1); the earlier `idevice-tools-1.4.0` (unpatched) and `idevice-tools-1.4.0-p1` stay as they are. This way both machines and release builds fetch the same pinned artifacts.
 - **`cargo xtask fetch-idevice-tools`:**
   - Downloads the host bundle via the **API asset URL** with `Accept: application/octet-stream` and a token from `GH_TOKEN`, or `gh auth token` while private.
   - Verifies `bundle_sha256` and every (unsigned) file hash.
@@ -517,7 +517,7 @@ The gate is green.
   - Windows x64: NSIS online installer (default `downloadBootstrapper`) and an offline installer built with a config overlay `{"bundle":{"windows":{"webviewInstallMode":{"type":"offlineInstaller","silent":true}}}}` via `cargo tauri build --config <file>`. Rename the outputs to `suiteDFIR_<ver>_x64-online-setup.exe` and `…_x64-offline-setup.exe`.
   - Linux: AppImage + `.deb`, built in the `ubuntu:22.04` container.
 - **iOS tools:** `cargo xtask fetch-idevice-tools` + `--config src-tauri/tauri.release.conf.json` bundle the pinned X1 tools as sidecars (macOS arm64/x64, Windows x64). Signing changes their bytes; runtime verification follows D22 (`code_signature` on signed macOS builds). Linux packages declare no dependency on them; the user guide explains installing them.
-- **Source obligations:** every release (draft) attaches the exact libimobiledevice-stack source tarballs, `scripts/build-idevice-tools.sh` and each bundle's `BUILDINFO.json`.
+- **Source obligations:** every release (draft) attaches the exact libimobiledevice-stack source tarballs, `scripts/build-idevice-tools.sh`, the source patches it applied (`scripts/idevice-tools-patches/`, as each `BUILDINFO.json` lists them; FX1) and each bundle's `BUILDINFO.json`.
 - **While private:** macOS and Windows bundles are built **locally** (the Mac, and the Windows machine over ssh). The CI dry run is Linux-only. Artifacts use `retention-days: 1`.
 - **Builds** use `cargo tauri build --runner <abs>/scripts/cargo-auditable` (a wrapper that execs `cargo auditable "$@"`). The Windows `.cmd` wrapper must be verified; if it can't work, document that Windows builds are not auditable and proceed.
 - **`release.yml`:**
