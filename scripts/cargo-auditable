@@ -1,0 +1,5 @@
+#!/bin/sh
+# Cargo runner for release builds (ROADMAP F1): `cargo tauri build --runner <abs path to this file>`
+# builds with cargo-auditable, which embeds the dependency list in the binary (`cargo auditable`
+# must be installed: `cargo install cargo-auditable --version "=0.7.6" --locked`).
+exec cargo auditable "$@"

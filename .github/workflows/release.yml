@@ -1,17 +1,439 @@
-# Release builds (ROADMAP F1). Skeleton: it exists on main so later tasks can dispatch their
-# branch's version with `gh workflow run release.yml --ref <branch>` (DEVELOPMENT.md §6).
+# Release builds (ROADMAP F1, DEVELOPMENT.md §2 and §6).
+#
+# - workflow_dispatch: a build-only dry run. The `os` input picks the build legs (default: linux).
+#   Everything up to the release notes and SHA256SUMS is produced and uploaded to the run
+#   (retention-days: 1); no release is created.
+# - A pushed tag v<version>: every leg builds, then a DRAFT GitHub release is created with the
+#   bundles, SHA256SUMS and the source-obligation files. Automation never publishes it (H3). The
+#   macOS and Windows legs run only while the repository is public; otherwise those bundles are
+#   built locally (DEVELOPMENT.md §2) and added to the draft by hand.
+# - Signing (H1): the macOS legs sign and notarize only when the APPLE_* secrets exist; Windows
+#   signing is not set up yet. The release notes say which builds are unsigned.
+#
+# Release builds use no build cache and run `cargo tauri build --runner scripts/cargo-auditable`,
+# so every binary carries its dependency list (cargo-auditable).
 name: release
 
 on:
   workflow_dispatch:
+    inputs:
+      os:
+        description: "Which build legs to run (a dry run: no release is created)"
+        type: choice
+        options: [linux, macos, windows, all]
+        default: linux
+  push:
+    tags: ["v*"]
 
 permissions: {}
 
+env:
+  CARGO_TERM_COLOR: always
+  # The exact Tauri CLI (DEVELOPMENT.md §1). Release builds are the only place CI installs it.
+  TAURI_CLI_VERSION: "2.11.5"
+  CARGO_AUDITABLE_VERSION: "0.7.6"
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  release:
-    name: Release (Linux)
+  # The pinned libimobiledevice sources, the build script that built the pinned tool bundles and
+  # each bundle's BUILDINFO.json: the exact files on the idevice-tools-<version> prerelease, checked
+  # against idevice-tools.json (and the script against the hash every BUILDINFO.json records).
+  sources:
+    name: Source obligations (libimobiledevice stack)
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - name: Not implemented
-        run: echo "not implemented"
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: The tag must name the app version
+        if: github.event_name == 'push'
+        run: |
+          version="$(jq -r .version src-tauri/tauri.conf.json)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the app version $version (tauri.conf.json)"
+            exit 1
+          fi
+
+      - name: Fetch and check the source tarballs, build script and BUILDINFO files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          manifest=idevice-tools.json
+          tag="idevice-tools-$(jq -r .version "$manifest")"
+          mkdir -p "$RUNNER_TEMP/dl" dist
+          fetch() {
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$1" --dir "$RUNNER_TEMP/dl"
+            echo "$2  $RUNNER_TEMP/dl/$1" | sha256sum -c -
+          }
+          # The exact source tarballs.
+          jq -r '.sources[] | [(.url | split("/") | last), .sha256] | @tsv' "$manifest" |
+            while IFS=$'\t' read -r name sha; do
+              fetch "$name" "$sha"
+              mv "$RUNNER_TEMP/dl/$name" dist/
+            done
+          # Each tool bundle's BUILDINFO.json (the bundle is checked against bundle_sha256).
+          jq -r '.platforms | to_entries[] | [.key, .value.bundle, .value.bundle_sha256] | @tsv' "$manifest" |
+            while IFS=$'\t' read -r platform bundle sha; do
+              fetch "$bundle" "$sha"
+              unzip -p "$RUNNER_TEMP/dl/$bundle" BUILDINFO.json > "dist/BUILDINFO-$platform.json"
+              jq -r .build_script_sha256 "dist/BUILDINFO-$platform.json" >> "$RUNNER_TEMP/script-sha256"
+            done
+          # The build script that built them: every BUILDINFO.json must name the same one.
+          script_sha="$(sort -u "$RUNNER_TEMP/script-sha256")"
+          if [ "$(printf '%s\n' "$script_sha" | wc -l)" -ne 1 ]; then
+            echo "::error::the tool bundles were built by different scripts: $script_sha"
+            exit 1
+          fi
+          fetch build-idevice-tools.sh "$script_sha"
+          mv "$RUNNER_TEMP/dl/build-idevice-tools.sh" dist/
+          ls -l dist
+          (cd dist && sha256sum -- *)
+
+      - name: Upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sources
+          path: dist/*
+          retention-days: 1
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64 (AppImage, deb)
+    if: github.event_name == 'push' || inputs.os == 'linux' || inputs.os == 'all'
+    runs-on: ubuntu-24.04
+    # glibc baseline for Linux builds (ARCHITECTURE.md §10). The Linux packages bundle no iOS tools
+    # (the distribution's are used) and declare no dependency on them.
+    container: ubuntu:22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      # git must exist before checkout, otherwise actions/checkout falls back to a REST download.
+      - name: Install system packages (DEVELOPMENT.md §1, plus git, CA certificates and jq)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git jq \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            build-essential libssl-dev pkg-config curl wget file
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (pinned rustup-init; toolchain from rust-toolchain.toml)
+        env:
+          # https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+          # (the same pin as ci-rust.yml).
+          RUSTUP_INIT_VERSION: "1.29.1"
+          RUSTUP_INIT_SHA256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+        run: |
+          dl="$(mktemp -d)"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$dl/rustup-init" \
+            "https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+          echo "${RUSTUP_INIT_SHA256}  $dl/rustup-init" | sha256sum -c -
+          chmod +x "$dl/rustup-init"
+          "$dl/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install
+          rustc --version
+
+      - name: Install the Tauri CLI and cargo-auditable (exact versions)
+        run: |
+          cargo install tauri-cli --version "=${TAURI_CLI_VERSION}" --locked
+          cargo install cargo-auditable --version "=${CARGO_AUDITABLE_VERSION}" --locked
+          cargo install --list | grep -E '^(tauri-cli|cargo-auditable) '
+
+      - name: Build (unsigned)
+        env:
+          # linuxdeploy (AppImage) is itself an AppImage, and containers have no FUSE.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: cargo tauri build --ci --runner "$GITHUB_WORKSPACE/scripts/cargo-auditable"
+
+      - name: Collect and describe the bundles
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage dist/
+          [ "$(ls dist | wc -l)" -eq 2 ] || { ls -l dist; echo "::error::expected one deb and one AppImage"; exit 1; }
+          ls -l dist
+          (cd dist && sha256sum -- *)
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+
+      - name: Upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-linux-x64
+          path: dist/*
+          retention-days: 1
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }} (dmg)
+    # Dispatch with os = macos or all; tag pushes only while the repository is public.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'macos' || inputs.os == 'all')) ||
+      (github.event_name == 'push' && !github.event.repository.private)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, target: aarch64-apple-darwin, arch: arm64, platform: macos-aarch64 }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin, arch: x64, platform: macos-x86_64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (toolchain from rust-toolchain.toml)
+        run: |
+          rustup set profile minimal
+          rustup toolchain install
+          rustup target add "${{ matrix.target }}"
+          rustc --version
+
+      - name: Install the Tauri CLI and cargo-auditable (exact versions)
+        run: |
+          cargo install tauri-cli --version "=${TAURI_CLI_VERSION}" --locked
+          cargo install cargo-auditable --version "=${CARGO_AUDITABLE_VERSION}" --locked
+          cargo install --list | grep -E '^(tauri-cli|cargo-auditable) '
+
+      - name: Fetch the pinned iOS tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo xtask fetch-idevice-tools --target "${{ matrix.target }}"
+
+      - name: Build (signed and notarized only when the H1 secrets exist)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            # Signing changes the bundled tools' bytes; the app then checks them against this team's
+            # Developer ID signature instead of the pinned hashes.
+            export SUITEDFIR_APPLE_TEAM_ID="$APPLE_TEAM_ID"
+            sign=""
+            echo "signed=yes" >> "$GITHUB_ENV"
+          else
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            sign="--no-sign"
+            echo "signed=no" >> "$GITHUB_ENV"
+          fi
+          cargo tauri build --ci $sign --runner "$GITHUB_WORKSPACE/scripts/cargo-auditable" \
+            --target "${{ matrix.target }}" --config src-tauri/tauri.release.conf.json
+
+      - name: Check the bundled iOS tools against idevice-tools.json (unsigned builds)
+        if: env.signed == 'no'
+        env:
+          SUITEDFIR_BUNDLED_TOOLS_DIR: ${{ github.workspace }}/target/${{ matrix.target }}/release/bundle/macos/suiteDFIR.app/Contents/MacOS
+          SUITEDFIR_BUNDLED_TOOLS_PLATFORM: ${{ matrix.platform }}
+        run: |
+          cargo test -p suitedfir-core --test idevice --locked -- --ignored --exact \
+            release_bundle_tools_verify_against_the_manifest --nocapture
+
+      - name: Collect
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/
+          ls -l dist
+          (cd dist && shasum -a 256 -- *)
+
+      - name: Upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-macos-${{ matrix.arch }}
+          path: dist/*
+          retention-days: 1
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64 (NSIS online and offline)
+    # Dispatch with os = windows or all; tag pushes only while the repository is public.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'windows' || inputs.os == 'all')) ||
+      (github.event_name == 'push' && !github.event.repository.private)
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (toolchain from rust-toolchain.toml)
+        run: |
+          rustup set profile minimal
+          rustup toolchain install
+          rustc --version
+
+      - name: Install the Tauri CLI and cargo-auditable (exact versions)
+        run: |
+          cargo install tauri-cli --version "=${TAURI_CLI_VERSION}" --locked
+          cargo install cargo-auditable --version "=${CARGO_AUDITABLE_VERSION}" --locked
+          cargo install --list | grep -E '^(tauri-cli|cargo-auditable) '
+
+      - name: Fetch the pinned iOS tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo xtask fetch-idevice-tools --target x86_64-pc-windows-msvc
+
+      # Windows signing is not set up (H1): both installers are unsigned. The online installer
+      # downloads WebView2 when it is missing; the offline one embeds its installer.
+      - name: Build the online and offline installers (unsigned)
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version src-tauri/tauri.conf.json)"
+          runner="$(cygpath -w "$GITHUB_WORKSPACE/scripts/cargo-auditable.cmd")"
+          nsis=target/release/bundle/nsis
+          mkdir -p dist
+          cargo tauri build --ci --no-sign --runner "$runner" --config src-tauri/tauri.release.conf.json
+          mv "$nsis/suiteDFIR_${version}_x64-setup.exe" "dist/suiteDFIR_${version}_x64-online-setup.exe"
+          cargo tauri build --ci --no-sign --runner "$runner" \
+            --config src-tauri/tauri.release.conf.json --config src-tauri/tauri.offline.conf.json
+          mv "$nsis/suiteDFIR_${version}_x64-setup.exe" "dist/suiteDFIR_${version}_x64-offline-setup.exe"
+          ls -l dist
+          (cd dist && sha256sum -- *)
+
+      - name: Check the bundled iOS tools against idevice-tools.json
+        env:
+          SUITEDFIR_BUNDLED_TOOLS_DIR: ${{ github.workspace }}\target\release
+        run: |
+          cargo test -p suitedfir-core --test idevice --locked -- --ignored --exact \
+            release_bundle_tools_verify_against_the_manifest --nocapture
+
+      - name: Upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-windows-x64
+          path: dist/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # SHA256SUMS and the release notes over everything the build legs and the sources job produced.
+  # On a dry run it stops here (read-only token); the draft job below runs for tags only.
+  assemble:
+    name: Assemble the release files
+    needs: [sources, linux, macos, windows]
+    # Legs that did not run are skipped; any failed or cancelled leg stops the release.
+    if: >-
+      !cancelled() && needs.sources.result == 'success' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the build and source files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: SHA256SUMS and release notes
+        env:
+          MACOS_SIGNED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_TEAM_ID != '' }}
+          MACOS_BUILT: ${{ needs.macos.result == 'success' }}
+          WINDOWS_BUILT: ${{ needs.windows.result == 'success' }}
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version src-tauri/tauri.conf.json)"
+          tools="$(jq -r .version idevice-tools.json)"
+          (cd dist && sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS" && mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS)
+          cat dist/SHA256SUMS
+          if [ "$MACOS_SIGNED" = true ]; then
+            macos_signing="The macOS builds are signed with a Developer ID and notarized."
+          else
+            macos_signing="The macOS builds are **unsigned** (not signed with a Developer ID and not notarized): macOS blocks them until you allow them, see the user guide."
+          fi
+          missing=""
+          [ "$MACOS_BUILT" = true ] || missing="$missing macOS (arm64 and x64 dmg)"
+          [ "$WINDOWS_BUILT" = true ] || missing="$missing${missing:+,} Windows (online and offline installers)"
+          {
+            echo "suiteDFIR $version (draft created by release.yml; review before publishing)."
+            echo
+            echo "**Code signing.** $macos_signing The Windows installers are **unsigned**: SmartScreen warns before running them. The Linux packages are not signed."
+            if [ -n "$missing" ]; then
+              echo
+              echo "**Not built by this workflow:**$missing. Those bundles are built locally (DEVELOPMENT.md §2) and added to this draft by hand, with SHA256SUMS updated."
+            fi
+            echo
+            echo "**Files.**"
+            echo
+            echo "| File | Size (bytes) |"
+            echo "|---|---|"
+            for f in dist/*; do
+              echo "| \`$(basename "$f")\` | $(stat -c %s "$f") |"
+            done
+            echo
+            echo "Check a download with \`sha256sum -c SHA256SUMS --ignore-missing\` (macOS: \`shasum -a 256 -c SHA256SUMS --ignore-missing\`)."
+            echo
+            echo "**Installation, prerequisites and privacy:** docs/USER-GUIDE.md. The Linux parser builds need glibc 2.43 or later."
+            echo
+            echo "**Source code for the bundled iOS tools.** The macOS and Windows builds include libimobiledevice $tools tools (LGPL-2.1-or-later), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`). THIRD-PARTY-NOTICES.md lists every license."
+          } > dist/RELEASE-NOTES.md
+          cat dist/RELEASE-NOTES.md
+
+      - name: Upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: dist/*
+          retention-days: 1
+          if-no-files-found: error
+
+  draft:
+    name: Draft release (never published by automation, H3)
+    needs: [assemble]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download the release files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: dist
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/RELEASE-NOTES.md"
+          mv dist/RELEASE-NOTES.md "$notes"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "suiteDFIR ${GITHUB_REF_NAME#v}" --notes-file "$notes" dist/*
