@@ -1,12 +1,17 @@
 # Release builds (ROADMAP F1, DEVELOPMENT.md §2 and §6).
 #
-# - workflow_dispatch: a build-only dry run. The `os` input picks the build legs (default: linux).
+# - workflow_dispatch: a build-only dry run. The `os` input picks the build legs (default: linux):
+#   linux = Linux x64 and arm64, macos = macOS arm64 and x64, windows = Windows x64 and arm64.
 #   Everything up to the release notes and SHA256SUMS is produced and uploaded to the run
 #   (retention-days: 1); no release is created.
 # - A pushed tag v<version>: every leg builds, then a DRAFT GitHub release is created with the
 #   bundles, SHA256SUMS and the source-obligation files. Automation never publishes it (H3). The
 #   macOS and Windows legs run only while the repository is public; otherwise those bundles are
 #   built locally (DEVELOPMENT.md §2) and added to the draft by hand.
+# - Legs (S3 added the arm64 ones): Linux x64 and arm64 (AppImage, deb) in the ubuntu:22.04
+#   container; macOS arm64 and x64 (dmg); Windows x64 (NSIS online and offline, iOS tools bundled);
+#   Windows arm64 (NSIS online only, no iOS tools: there is no pinned libimobiledevice build for
+#   it, so the app reports acquisition as unsupported there).
 # - Signing (H1): the macOS legs sign only when APPLE_CERTIFICATE, APPLE_SIGNING_IDENTITY and
 #   APPLE_TEAM_ID exist, and notarize only when APPLE_ID and APPLE_PASSWORD exist as well; Windows
 #   signing is not set up yet. The release notes say which builds are unsigned or not notarized.
@@ -108,11 +113,27 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux x64 (AppImage, deb)
+    name: Linux ${{ matrix.arch }} (AppImage, deb)
     if: github.event_name == 'push' || inputs.os == 'linux' || inputs.os == 'all'
-    runs-on: ubuntu-24.04
-    # glibc baseline for Linux builds (ARCHITECTURE.md §10). The Linux packages bundle no iOS tools
-    # (the distribution's are used) and declare no dependency on them.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            rustup_target: x86_64-unknown-linux-gnu
+            # https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+            # (the same pin as ci-rust.yml).
+            rustup_sha256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            rustup_target: aarch64-unknown-linux-gnu
+            # https://static.rust-lang.org/rustup/archive/1.29.1/aarch64-unknown-linux-gnu/rustup-init
+            # (the same pin as leapp-smoke.yml).
+            rustup_sha256: 15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
+    runs-on: ${{ matrix.runner }}
+    # glibc baseline for Linux builds (ARCHITECTURE.md §10), on both architectures. The Linux
+    # packages bundle no iOS tools (the distribution's are used) and declare no dependency on them.
     container: ubuntu:22.04
     timeout-minutes: 90
     permissions:
@@ -137,14 +158,13 @@ jobs:
 
       - name: Install Rust (pinned rustup-init; toolchain from rust-toolchain.toml)
         env:
-          # https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
-          # (the same pin as ci-rust.yml).
           RUSTUP_INIT_VERSION: "1.29.1"
-          RUSTUP_INIT_SHA256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+          RUSTUP_INIT_TARGET: ${{ matrix.rustup_target }}
+          RUSTUP_INIT_SHA256: ${{ matrix.rustup_sha256 }}
         run: |
           dl="$(mktemp -d)"
           curl --proto '=https' --tlsv1.2 -fsSL -o "$dl/rustup-init" \
-            "https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+            "https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/${RUSTUP_INIT_TARGET}/rustup-init"
           echo "${RUSTUP_INIT_SHA256}  $dl/rustup-init" | sha256sum -c -
           chmod +x "$dl/rustup-init"
           "$dl/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
@@ -179,7 +199,7 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundles-linux-x64
+          name: bundles-linux-${{ matrix.arch }}
           path: dist/*
           retention-days: 1
           if-no-files-found: error
@@ -344,11 +364,84 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Windows on Arm (S3). Only the online installer: for non-x64 targets Tauri would embed the x86
+  # WebView2 offline installer (ARCHITECTURE.md §10). No iOS tools: there is no pinned
+  # libimobiledevice build for Windows arm64 (IDEVICE-CLI.md §7), so this leg fetches none and does
+  # not use the tauri.release.conf.json overlay, and the app reports acquisition as
+  # `unsupported_platform` there.
+  windows-arm64:
+    name: Windows arm64 (NSIS online)
+    # Dispatch with os = windows or all; tag pushes only while the repository is public.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'windows' || inputs.os == 'all')) ||
+      (github.event_name == 'push' && !github.event.repository.private)
+    runs-on: windows-11-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A native arm64 toolchain even if the image's rustup defaults to an (emulated) x64 host.
+      - name: Install Rust (native arm64 toolchain from rust-toolchain.toml)
+        run: |
+          rustup set profile minimal
+          rustup set default-host aarch64-pc-windows-msvc
+          rustup toolchain install
+          rustc -vV
+          rustc -vV | grep -qx 'host: aarch64-pc-windows-msvc'
+
+      # ring (rustls, used by the app and the Tauri CLI) compiles its aarch64-pc-windows-msvc
+      # assembly with clang; the image's LLVM provides it.
+      - name: Put clang on PATH
+        run: |
+          if ! command -v clang >/dev/null; then
+            echo 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
+            export PATH="/c/Program Files/LLVM/bin:$PATH"
+          fi
+          clang --version
+
+      - name: Install the Tauri CLI and cargo-auditable (exact versions)
+        run: |
+          cargo install tauri-cli --version "=${TAURI_CLI_VERSION}" --locked
+          cargo install cargo-auditable --version "=${CARGO_AUDITABLE_VERSION}" --locked
+          cargo install --list | grep -E '^(tauri-cli|cargo-auditable) '
+
+      # Windows signing is not set up (H1): the installer is unsigned. It downloads WebView2 when
+      # it is missing.
+      - name: Build the online installer (unsigned, no iOS tools)
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version src-tauri/tauri.conf.json)"
+          runner="$(cygpath -w "$GITHUB_WORKSPACE/scripts/cargo-auditable.cmd")"
+          target=aarch64-pc-windows-msvc
+          mkdir -p dist
+          cargo tauri build --ci --no-sign --runner "$runner" --target "$target"
+          if ls "target/$target/release/" | grep -i '^idevice'; then
+            echo "::error::iOS tools in the Windows arm64 build output; there is no pinned build for it"
+            exit 1
+          fi
+          mv "target/$target/release/bundle/nsis/suiteDFIR_${version}_arm64-setup.exe" \
+            "dist/suiteDFIR_${version}_arm64-online-setup.exe"
+          ls -l dist
+          (cd dist && sha256sum -- *)
+
+      - name: Upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-windows-arm64
+          path: dist/*
+          retention-days: 1
+          if-no-files-found: error
+
   # SHA256SUMS and the release notes over everything the build legs and the sources job produced.
   # On a dry run it stops here (read-only token); the draft job below runs for tags only.
   assemble:
     name: Assemble the release files
-    needs: [sources, linux, macos, windows]
+    needs: [sources, linux, macos, windows, windows-arm64]
     # Legs that did not run are skipped; any failed or cancelled leg stops the release.
     if: >-
       !cancelled() && needs.sources.result == 'success' &&
@@ -379,6 +472,7 @@ jobs:
           MACOS_NOTARIZATION_SECRETS: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}
           MACOS_BUILT: ${{ needs.macos.result == 'success' }}
           WINDOWS_BUILT: ${{ needs.windows.result == 'success' }}
+          WINDOWS_ARM64_BUILT: ${{ needs.windows-arm64.result == 'success' }}
         run: |
           set -euo pipefail
           version="$(jq -r .version src-tauri/tauri.conf.json)"
@@ -395,15 +489,18 @@ jobs:
           fi
           missing=""
           [ "$MACOS_BUILT" = true ] || missing="$missing macOS (arm64 and x64 dmg)"
-          [ "$WINDOWS_BUILT" = true ] || missing="$missing${missing:+,} Windows (online and offline installers)"
+          [ "$WINDOWS_BUILT" = true ] || missing="$missing${missing:+,} Windows x64 (online and offline installers)"
+          [ "$WINDOWS_ARM64_BUILT" = true ] || missing="$missing${missing:+,} Windows arm64 (online installer)"
           {
             echo "suiteDFIR $version (draft created by release.yml; review before publishing)."
             echo
             echo "**Code signing.** $macos_signing The Windows installers are **unsigned**: SmartScreen warns before running them. The Linux packages are not signed."
             if [ -n "$missing" ]; then
               echo
-              echo "**Not built by this workflow:**$missing. Those bundles are built locally (DEVELOPMENT.md §2) and added to this draft by hand, with SHA256SUMS updated."
+              echo "**Not built by this workflow:**$missing. Those bundles are built locally or by a dispatch of this workflow (DEVELOPMENT.md §2, §6) and added to this draft by hand, with SHA256SUMS updated."
             fi
+            echo
+            echo "**Windows on Arm and Linux arm64.** Windows arm64 has only the online installer (it downloads WebView2 when it is missing), and iOS acquisition is not available there: there is no pinned build of the iOS tools for it. The Linux arm64 AppImage and deb, like the x64 ones, use the distribution's iOS tools."
             echo
             echo "**Files.**"
             echo
@@ -417,7 +514,7 @@ jobs:
             echo
             echo "**Installation, prerequisites and privacy:** docs/USER-GUIDE.md. The Linux parser builds need glibc 2.43 or later."
             echo
-            echo "**Source code for the bundled iOS tools.** The macOS and Windows builds include libimobiledevice $tools tools (LGPL-2.1-or-later), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`). THIRD-PARTY-NOTICES.md lists every license."
+            echo "**Source code for the bundled iOS tools.** The macOS and Windows x64 builds include libimobiledevice $tools tools (LGPL-2.1-or-later; the Windows arm64 and Linux builds include none), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`). THIRD-PARTY-NOTICES.md lists every license."
           } > "$RUNNER_TEMP/RELEASE-NOTES.md"
           # Only now, so the file table above does not list the notes themselves.
           mv "$RUNNER_TEMP/RELEASE-NOTES.md" dist/RELEASE-NOTES.md
