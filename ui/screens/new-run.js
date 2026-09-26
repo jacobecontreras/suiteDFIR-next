@@ -1,14 +1,17 @@
 // @ts-check
 /**
  * New run screen (ROADMAP D3). Sections in order: Tool (installed tools only), Input (choose a file
- * or folder, the inspection result, a type override limited to `allowed_types`, inline overlap and
- * permission errors), Options (timezone, backup password, keychain, input hashing, label), Modules
- * (all / profile / custom with the module picker; save, import and export profiles), then Start,
- * which stays disabled with inline reasons until the form is complete.
+ * or folder, or find a local iOS backup (S1: iLEAPP, not on Linux); the inspection result, a type
+ * override limited to `allowed_types`, inline overlap and permission errors), Options (timezone,
+ * backup password, keychain, input hashing, label), Modules (all / profile / custom with the module
+ * picker; save, import and export profiles), then Start, which stays disabled with inline reasons
+ * until the form is complete.
  */
 import { appError, errorSlot } from "../components/app-error.js";
+import { backupFinder } from "../components/backup-finder.js";
 import { confirmDialog, modal } from "../components/dialog.js";
 import { modulePicker } from "../components/module-picker.js";
+import { canFindBackups, chosenBackupType } from "../lib/backups.js";
 import { folderLabel } from "../lib/cases.js";
 import { h, keepFocus } from "../lib/dom.js";
 import { isAppError } from "../lib/errors.js";
@@ -94,6 +97,9 @@ export function newRunScreen(ctx) {
   let picker = null;
   /** @type {unknown} */
   let inputError = null;
+  /** The path of the backup chosen from the "Find iOS backups" list, read as `itunes` (S1). */
+  /** @type {string | null} */
+  let chosenBackup = null;
   let inspectSeq = 0;
   let starting = false;
 
@@ -129,11 +135,49 @@ export function newRunScreen(ctx) {
     f.label = labelInput.value;
   });
 
+  // The Input section's pickers and the backup finder stay in place while the inspection result
+  // below them re-renders, so a focused button keeps the focus.
+  const chooseFileButton = /** @type {HTMLButtonElement} */ (
+    h("button", { class: "btn", type: "button", disabled: true, onClick: () => chooseInput(false) }, "Choose file…")
+  );
+  const chooseFolderButton = /** @type {HTMLButtonElement} */ (
+    h("button", { class: "btn", type: "button", disabled: true, onClick: () => chooseInput(true) }, "Choose folder…")
+  );
+  const findButton = /** @type {HTMLButtonElement} */ (
+    h("button", { class: "btn", type: "button", hidden: true, onClick: () => void finder.search() }, icon("search"), "Find iOS backups")
+  );
+  const finder = backupFinder({
+    api,
+    os: () => store.get().appInfo?.os ?? null,
+    onChoose: (backup) => {
+      findButton.focus();
+      startErrors.clear();
+      chosenBackup = backup.path;
+      f.inputPath = backup.path;
+      void inspectInput();
+    },
+    onClose: () => findButton.focus(),
+    // One search at a time: Find is disabled while one runs (its focus goes to the panel).
+    onBusy: (busy) => {
+      if (busy && document.activeElement === findButton) finder.focus();
+      findButton.disabled = busy;
+    },
+  });
+  /** @param {ToolId | null} tool */
+  const offerFinder = (tool) => canFindBackups(tool, store.get().appInfo?.os ?? null);
+  const inputResultSlot = h("div", { class: "stack-sm" });
+
   // ---- Layout ----
 
   const caseName = h("a", { href: caseHref }, folderLabel(casePath));
   const toolBody = h("div", { class: "stack" });
-  const inputBody = h("div", { class: "stack" });
+  const inputBody = h(
+    "div",
+    { class: "stack" },
+    h("div", { class: "inline-row" }, chooseFileButton, chooseFolderButton, findButton, h("span", { class: "muted small" }, "Inputs are only read, never changed.")),
+    finder.node,
+    inputResultSlot,
+  );
   const optionsBody = h("div", { class: "stack" });
   const modulesBody = h("div", { class: "stack" });
   const modulesErrors = errorSlot();
@@ -336,6 +380,9 @@ export function newRunScreen(ctx) {
   function selectTool(tool) {
     if (f.tool === tool) return;
     f.tool = tool;
+    // Only a tool that reads iTunes backups offers the finder.
+    if (!offerFinder(tool)) finder.close();
+    renderInput();
     if (f.inputPath) void inspectInput();
     renderOptions();
     void loadToolData();
@@ -344,14 +391,10 @@ export function newRunScreen(ctx) {
   // ---- 2. Input ----
 
   function renderInput() {
-    const pickers = h(
-      "div",
-      { class: "inline-row" },
-      h("button", { class: "btn", type: "button", disabled: !f.tool, onClick: () => chooseInput(false) }, "Choose file…"),
-      h("button", { class: "btn", type: "button", disabled: !f.tool, onClick: () => chooseInput(true) }, "Choose folder…"),
-      h("span", { class: "muted small" }, "Inputs are only read, never changed."),
-    );
-    inputBody.replaceChildren(pickers, inputResult());
+    chooseFileButton.disabled = !f.tool;
+    chooseFolderButton.disabled = !f.tool;
+    findButton.hidden = !offerFinder(f.tool);
+    inputResultSlot.replaceChildren(inputResult());
   }
 
   function inputResult() {
@@ -427,6 +470,7 @@ export function newRunScreen(ctx) {
     try {
       const path = await api.dialog_open({ title: directory ? "Choose the input folder" : "Choose the input file", directory });
       if (!path || disposed) return;
+      chosenBackup = null;
       f.inputPath = path;
       await inspectInput();
     } catch (err) {
@@ -451,7 +495,8 @@ export function newRunScreen(ctx) {
       const insp = await api.input_inspect({ tool, path, case_path: casePath });
       if (disposed || seq !== inspectSeq) return;
       f.inspection = insp;
-      f.inputType = initialInputType(insp);
+      // A backup chosen from the "Find iOS backups" list is read as an iTunes backup (S1).
+      f.inputType = path === chosenBackup ? chosenBackupType(insp) : initialInputType(insp);
       f.hashInput = true;
       hashBox.checked = true;
       if (path === handedInput) {
@@ -891,6 +936,7 @@ export function newRunScreen(ctx) {
       disposed = true;
       handedPassword = null;
       clearPassword();
+      finder.dispose();
       picker?.dispose();
       modulesErrors.dispose();
       startErrors.dispose();

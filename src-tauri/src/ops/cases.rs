@@ -12,7 +12,7 @@ use suitedfir_core::contracts::{
     RunRecord, RunRef, Timestamp, ToolId, parse_versioned,
 };
 use suitedfir_core::fsutil;
-use suitedfir_core::inspect::{self, OverlapContext};
+use suitedfir_core::inspect::{self, OverlapContext, backups};
 use suitedfir_core::run::profile::{ProfileFormat, ProfileStore};
 use suitedfir_core::run::record;
 use suitedfir_core::settings;
@@ -190,9 +190,11 @@ impl AppState {
         )?)
     }
 
-    /// `ios_backups_find` (S1, a Should task after E2 and E3, fills this in): no backups yet.
-    pub fn ios_backups_find(&self) -> Vec<IosBackup> {
-        Vec::new()
+    /// `ios_backups_find` (S1): the backups in the OS's default Finder/iTunes backup folders
+    /// (none on Linux), read-only. A folder the app may not read is `permission_denied`, with the
+    /// Full Disk Access guidance on macOS.
+    pub fn ios_backups_find(&self) -> Result<Vec<IosBackup>, AppError> {
+        Ok(backups::find(&self.ios_backup_dirs)?)
     }
 
     // ---- profiles ----

@@ -174,7 +174,7 @@ pub async fn input_inspect(
 
 #[tauri::command]
 pub async fn ios_backups_find(state: State<'_, Shared>) -> Result<Vec<IosBackup>, AppError> {
-    blocking(&state, |s| Ok(s.ios_backups_find())).await
+    blocking(&state, |s| s.ios_backups_find()).await
 }
 
 // ---- §10: profiles ----
