@@ -1247,7 +1247,8 @@ const SCREENS = [
         const vp = document.querySelector(".log-viewport");
         if (vp) vp.scrollTop = 50_000 * 20 - 100;
       });
-      await page.locator(".log-view input[type=checkbox]:not(:checked)").waitFor();
+      // The Auto-scroll box (the Run log also has "Only matching lines", S2).
+      await page.locator(".log-toolbar input[type=checkbox]:not(:checked)").waitFor();
     },
   },
   // ---- S2: log search ----
@@ -1260,7 +1261,7 @@ const SCREENS = [
     await searchStatus(page, "3 of 3,003 matching lines");
     // The first matching line is line 947, so the third is line 949.
     await page.locator(".log-row-current:not([hidden]) .log-no", { hasText: "949" }).waitFor();
-    await page.locator(".log-view input[type=checkbox]:not(:checked)").first().waitFor();
+    await page.locator(".log-toolbar input[type=checkbox]:not(:checked)").waitFor();
   }),
   logSearchScreen("run-log-search-none", "Traceback", "No matching lines"),
   // Only the matching lines (every 97th flood line), with their own line numbers.
