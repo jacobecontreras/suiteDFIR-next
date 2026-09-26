@@ -16,7 +16,9 @@
 // - `perf`: render + filter of 1,300 fixture modules in the module picker, under 100 ms
 //   (<out>/perf.json);
 // - `perf-log`: the Run screen with a 100,000-line mock run; no long task, scroll jump or scroll
-//   frame reaches 100 ms, and the log stays virtualized (<out>/perf-log.json).
+//   frame reaches 100 ms, and the log stays virtualized (<out>/perf-log.json). Then the log search
+//   (S2) on it: no query, next-match step, "Only matching lines" toggle, jump, scroll frame or long
+//   task reaches 100 ms, and the match counts and shown rows are right (`search` in perf-log.json).
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -234,6 +236,48 @@ function attachedMidPhaseScreen(name, flags, label, assert) {
       const current = await page.locator(".phase-step-current").textContent({ timeout: 1000 });
       if (!current?.includes(label)) throw new Error(`attached mid-phase, the current step is ${JSON.stringify(current)}, expected ${label}`);
       if (assert) await assert(page);
+    },
+  };
+}
+
+/**
+ * Waits until the log search reports `text` ("" = no search).
+ * @param {Page} page
+ * @param {string} text
+ * @param {number} [timeoutMs]
+ */
+async function searchStatus(page, text, timeoutMs = 10000) {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const now = await page.evaluate(() => document.querySelector(".log-search-status")?.textContent ?? null);
+    if (now === text) return;
+    if (Date.now() > until) throw new Error(`the log search says ${JSON.stringify(now)}, expected ${JSON.stringify(text)}`);
+    await page.waitForTimeout(50);
+  }
+}
+
+/**
+ * The Run screen's log after the 100,000-line flood run (finished, so the log no longer moves),
+ * searched for `query` (S2).
+ * @param {string} name
+ * @param {string} query
+ * @param {string} status The search status to wait for.
+ * @param {(page: Page) => Promise<void>} [then]
+ * @returns {Screen}
+ */
+function logSearchScreen(name, query, status, then) {
+  return {
+    name,
+    query: "?mock",
+    hash: newRunHash,
+    element: ".log-view",
+    setup: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/flood");
+      await waitForLines(page, 100_000);
+      await runResult(page, "Succeeded");
+      await page.getByRole("searchbox", { name: "Search the log" }).fill(query);
+      await searchStatus(page, status);
+      if (then) await then(page);
     },
   };
 }
@@ -1274,9 +1318,30 @@ const SCREENS = [
         const vp = document.querySelector(".log-viewport");
         if (vp) vp.scrollTop = 50_000 * 20 - 100;
       });
-      await page.locator(".log-view input[type=checkbox]:not(:checked)").waitFor();
+      // The Auto-scroll box (the Run log also has "Only matching lines", S2).
+      await page.locator(".log-toolbar input[type=checkbox]:not(:checked)").waitFor();
     },
   },
+  // ---- S2: log search ----
+  // Matches highlighted (the query's case differs from the lines'); Enter three times goes to the
+  // third matching line, which is outlined, and auto-scroll turns itself off.
+  // The counts are those of the flood log (100,090 lines), counted independently.
+  logSearchScreen("run-log-search-matches", "SAFARI", "3,003 matching lines", async (page) => {
+    const search = page.getByRole("searchbox", { name: "Search the log" });
+    for (let i = 0; i < 3; i++) await search.press("Enter");
+    await searchStatus(page, "3 of 3,003 matching lines");
+    // The first matching line is line 947, so the third is line 949.
+    await page.locator(".log-row-current:not([hidden]) .log-no", { hasText: "949" }).waitFor();
+    await page.locator(".log-toolbar input[type=checkbox]:not(:checked)").waitFor();
+  }),
+  logSearchScreen("run-log-search-none", "Traceback", "No matching lines"),
+  // Only the matching lines (every 97th flood line), with their own line numbers.
+  logSearchScreen("run-log-search-filter", "parsed 42 records", "1,031 matching lines", async (page) => {
+    await page.getByLabel("Only matching lines").check();
+    await page.waitForTimeout(100);
+    const texts = await page.evaluate(() => [...document.querySelectorAll(".log-row:not([hidden]) .log-text")].map((e) => e.textContent ?? ""));
+    if (texts.length === 0 || texts.some((t) => !t.includes("parsed 42 records"))) throw new Error(`rows that do not match are shown: ${JSON.stringify(texts.slice(0, 3))}`);
+  }),
 ];
 
 /**
@@ -1684,6 +1749,199 @@ const CHECKS = [
       if (again !== "") throw new Error(`the password came back after the form closed: ${JSON.stringify(again)}`);
     },
   },
+  {
+    // Log search (S2) by keyboard, on a live run whose log is complete (held in Analyzing: 90
+    // lines, 42 of them "<module> artifact completed", at the even line numbers 6 to 88):
+    // case-insensitive matches in <mark>; a 256-character cap; an input-method Enter does nothing;
+    // Enter / Shift+Enter and the buttons go round the matches; "Only matching lines";
+    // regular-expression characters are literal; Escape clears the query and the filter; a match
+    // beyond the right edge is scrolled into view. No key in the box does anything else (the run
+    // stays live, no dialog opens), and the live region changes at most once per second, with the
+    // last match reached among its updates.
+    name: "check-log-search",
+    query: "?mock&scenario=hold_analyzing",
+    hash: newRunHash,
+    run: async (page) => {
+      await startRun(page, "Choose folder…", "Pixel-7-extraction");
+      await page.locator(".phase-step-current", { hasText: "Analyzing" }).waitFor();
+      await waitForLines(page, 90);
+      await page.evaluate(() => {
+        const w = /** @type {any} */ (window);
+        w.__live = [];
+        const region = /** @type {HTMLElement} */ (document.querySelector(".log-view [aria-live]"));
+        new MutationObserver(() => w.__live.push({ t: performance.now(), text: region.textContent ?? "" })).observe(region, { childList: true, characterData: true, subtree: true });
+      });
+      const search = page.getByRole("searchbox", { name: "Search the log" });
+      /** @param {string} step */
+      const rows = async (step) => {
+        const r = await page.evaluate(() =>
+          [...document.querySelectorAll(".log-row:not([hidden])")].map((row) => ({
+            no: Number(row.querySelector(".log-no")?.textContent),
+            text: row.querySelector(".log-text")?.textContent ?? "",
+            marks: [...row.querySelectorAll(".log-text mark")].map((m) => m.textContent ?? ""),
+            current: row.classList.contains("log-row-current"),
+          })),
+        );
+        if (r.length === 0) throw new Error(`${step}: no rows are shown`);
+        return r;
+      };
+      /** @param {string} step @param {number} line */
+      const currentIs = async (step, line) => {
+        const current = (await rows(step)).filter((row) => row.current);
+        if (current.length !== 1 || current[0].no !== line || current[0].marks.length !== 1) {
+          throw new Error(`${step}: the current row is ${JSON.stringify(current)}, expected line ${line} with one mark`);
+        }
+      };
+
+      await search.fill("ARTIFACT Completed");
+      await searchStatus(page, "42 matching lines");
+      const marked = (await rows("typed")).flatMap((row) => row.marks);
+      if (marked.length === 0 || marked.some((m) => m !== "artifact completed")) throw new Error(`marks: ${JSON.stringify(marked)}`);
+      if ((await page.evaluate(() => /** @type {HTMLInputElement} */ (document.querySelector(".log-search-input")).maxLength)) !== 256) {
+        throw new Error("the search box does not cap the query at 256 characters");
+      }
+      // The Enter that commits an input-method composition (WebKit: keyCode 229) does nothing.
+      await page.evaluate(() => {
+        const input = /** @type {HTMLInputElement} */ (document.querySelector(".log-search-input"));
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(150);
+      await searchStatus(page, "42 matching lines", 1);
+      if (!(await page.getByLabel("Auto-scroll").isChecked())) throw new Error("an input-method Enter went to a match");
+      // Nothing is current yet, so Enter goes to the first match in view: the view is at the end
+      // (lines 72 to 90), and line 72 is match 34.
+      await search.press("Enter");
+      await searchStatus(page, "34 of 42 matching lines");
+      await currentIs("Enter", 72);
+      if (await page.getByLabel("Auto-scroll").isChecked()) throw new Error("going to a match left auto-scroll on");
+      await search.press("Enter");
+      await searchStatus(page, "35 of 42 matching lines");
+      await currentIs("Enter again", 74);
+      await search.press("Shift+Enter");
+      await search.press("Shift+Enter");
+      await searchStatus(page, "33 of 42 matching lines");
+      await currentIs("Shift+Enter twice", 70);
+      // The buttons, by keyboard; both ends wrap around.
+      const nextButton = page.getByRole("button", { name: "Next match" });
+      for (let i = 0; i < 9; i++) await nextButton.press("Enter");
+      await searchStatus(page, "42 of 42 matching lines");
+      await currentIs("Next nine times", 88);
+      await search.press("Enter");
+      await searchStatus(page, "1 of 42 matching lines");
+      await currentIs("Enter at the last match", 6);
+      await page.getByRole("button", { name: "Previous match" }).press("Space");
+      await searchStatus(page, "42 of 42 matching lines");
+      await currentIs("Previous at the first match", 88);
+      // Rapid presses: the live region still changes at most once per second.
+      await search.focus();
+      for (let i = 0; i < 10; i++) await search.press("Enter");
+      await searchStatus(page, "10 of 42 matching lines");
+      await currentIs("ten Enters", 24);
+      // Let the throttle deliver the last of them before the next announcement replaces it.
+      await page.waitForTimeout(1100);
+
+      // The rows change on the next frame; the status does not change.
+      await page.getByLabel("Only matching lines").check();
+      for (let tries = 0; ; tries++) {
+        const only = await rows("only matching");
+        if (only.every((row, i) => row.text.includes("artifact completed") && (i === 0 || row.no === only[i - 1].no + 2))) break;
+        if (tries > 50) throw new Error(`"Only matching lines" shows ${JSON.stringify(only.map((row) => row.no))}`);
+        await page.waitForTimeout(50);
+      }
+      await currentIs("only matching", 24);
+
+      // Regular-expression characters match themselves.
+      for (const query of [".*", "(", "[a-z]+", "\\"]) {
+        await search.fill(query);
+        await searchStatus(page, "No matching lines");
+      }
+      const empty = await page.evaluate(() => document.querySelector(".log-empty:not([hidden])")?.textContent ?? null);
+      if (empty !== "No lines match the search.") throw new Error(`the filtered log with no matches says ${JSON.stringify(empty)}`);
+      await search.fill("Pixel-7-extraction");
+      await searchStatus(page, "1 matching line");
+      // Escape clears the query and unticks "Only matching lines".
+      await search.press("Escape");
+      await searchStatus(page, "");
+      if ((await search.inputValue()) !== "") throw new Error("Escape did not clear the search");
+      if (await page.getByLabel("Only matching lines").isChecked()) throw new Error("Escape left \"Only matching lines\" ticked");
+      const all = await rows("cleared");
+      if (all.some((row) => row.marks.length > 0 || row.current) || all.some((row, i) => i > 0 && row.no !== all[i - 1].no + 1)) {
+        throw new Error("after Escape, the log still shows a search");
+      }
+
+      // Sideways: in a narrow view the match lies beyond the right edge; going to it scrolls there.
+      await page.evaluate(() => {
+        const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+        vp.style.width = "240px";
+        vp.scrollLeft = 0;
+      });
+      await search.fill("artifact COMPLETED");
+      await searchStatus(page, "42 matching lines");
+      await search.press("Enter");
+      await page.locator(".log-row-current:not([hidden]) mark").waitFor();
+      await page.waitForTimeout(100);
+      const side = await page.evaluate(() => {
+        const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+        const mark = /** @type {HTMLElement} */ (vp.querySelector(".log-row-current:not([hidden]) mark"));
+        const v = vp.getBoundingClientRect();
+        const m = mark.getBoundingClientRect();
+        const left = v.left + vp.clientLeft;
+        return { scrollLeft: vp.scrollLeft, visible: m.left >= left && m.right <= left + vp.clientWidth };
+      });
+      if (side.scrollLeft <= 0 || !side.visible) throw new Error(`the match beyond the right edge was not scrolled into view: ${JSON.stringify(side)}`);
+      await page.evaluate(() => {
+        const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+        vp.style.width = "";
+      });
+      await search.press("Escape");
+      await searchStatus(page, "");
+
+      const state = await page.evaluate(() => ({
+        hash: location.hash,
+        dialog: document.querySelector("dialog") !== null,
+        badge: document.querySelector(".run-status .badge")?.textContent ?? "",
+        cancel: document.querySelector(".screen-head .btn-danger:not([hidden])")?.textContent ?? "",
+      }));
+      if (!state.hash.startsWith("#/run") || state.dialog || state.badge !== "Running" || state.cancel !== "Cancel run") {
+        throw new Error(`a key in the log search did something else: ${JSON.stringify(state)}`);
+      }
+
+      await page.waitForTimeout(1200);
+      const live = await page.evaluate(() => /** @type {{ t: number, text: string }[]} */ (/** @type {any} */ (window).__live));
+      const gaps = live.slice(1).map((x, i) => x.t - live[i].t);
+      // The throttle waits 1,000 ms by Date.now(); the observer stamps performance.now().
+      if (live.length < 2 || gaps.some((g) => g < 990)) throw new Error(`live region updates ${JSON.stringify(live.map((x) => Math.round(x.t)))}`);
+      if (!live.some((x) => x.text.startsWith("Match 10 of 42, line 24: "))) throw new Error(`the rapid presses did not end with match 10: ${JSON.stringify(live.map((x) => x.text))}`);
+    },
+  },
+  {
+    // With a query left in the box on a streaming run, the live region still gets the latest line
+    // (DEVELOPMENT.md §4.6): the search report goes out first, then the latest line resumes, and
+    // updates stay at least a second apart.
+    name: "check-log-search-live",
+    hash: newRunHash,
+    run: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/slow");
+      await waitForLines(page, 10);
+      await page.evaluate(() => {
+        const w = /** @type {any} */ (window);
+        w.__live = [];
+        const region = /** @type {HTMLElement} */ (document.querySelector(".log-view [aria-live]"));
+        new MutationObserver(() => w.__live.push({ t: performance.now(), text: region.textContent ?? "" })).observe(region, { childList: true, characterData: true, subtree: true });
+      });
+      await page.getByRole("searchbox", { name: "Search the log" }).fill("artifact completed");
+      await page.waitForTimeout(3500);
+      const live = await page.evaluate(() => /** @type {{ t: number, text: string }[]} */ (/** @type {any} */ (window).__live));
+      const texts = live.map((x) => x.text);
+      const report = texts.findIndex((t) => /^[\d,]+ matching lines?$/.test(t));
+      if (report < 0) throw new Error(`no search report: ${JSON.stringify(texts)}`);
+      if (texts.slice(report + 1).filter((t) => / artifact (started|completed)$/.test(t)).length < 2) {
+        throw new Error(`the latest line did not resume after the search report: ${JSON.stringify(texts)}`);
+      }
+      const gaps = live.slice(1).map((x, i) => x.t - live[i].t);
+      if (gaps.some((g) => g < 990)) throw new Error(`live region updates ${JSON.stringify(live.map((x) => Math.round(x.t)))}`);
+    },
+  },
 ];
 
 /**
@@ -1898,6 +2156,203 @@ async function measureLog(page) {
   };
 }
 
+/** The flood run's log: 4 header lines, 100,000 flood lines, 84 artifact lines and 2 closing lines. */
+const FLOOD_LOG_LINES = 100_090;
+/**
+ * Search queries measured on the flood log, with the status each must give (counted independently).
+ * @type {[string, string | null][]}
+ */
+const LOG_SEARCH_QUERIES = [
+  // Typed one key at a time: each key searches every line again.
+  ["s", null],
+  ["sa", null],
+  ["saf", null],
+  ["safa", null],
+  ["safar", null],
+  ["safari", "3,003 matching lines"],
+  ["SAFARI", "3,003 matching lines"],
+  ["parsed 42 records", "1,031 matching lines"],
+  ["a", "100,088 matching lines"],
+  ["Traceback", "No matching lines"],
+];
+
+/**
+ * Log search at 100,000 lines (ROADMAP S2), on the page `measureLog` leaves, once the flood run has
+ * finished (100,090 lines), measured in the page as `measureLog` does:
+ * - query: setting the search box (an `input` event) until two animation frames later (every line
+ *   searched, then the rows in view rendered with their highlights), 5 times per query, each from
+ *   an empty box: typed prefixes of "safari", then queries matching ~3%, ~1%, all and none of the
+ *   lines. `work` is the view's own part of that frame (the search and the row updates);
+ * - next: 30 Enter presses in the box through the "SAFARI" matches, each until two frames later,
+ *   with a check that the current match's row is rendered;
+ * - "Only matching lines" with "a" (every line: the most rows) and with "SAFARI": the time to turn
+ *   it on, then 50 jumps and 120 scroll frames as in `measureLog`, with a check that every
+ *   rendered row contains the query;
+ * - main-thread long tasks throughout.
+ * @param {Page} page
+ */
+async function measureLogSearch(page) {
+  await runResult(page, "Succeeded");
+  await waitForLines(page, FLOOD_LOG_LINES);
+  await page.evaluate(() => void (/** @type {any} */ (window).__longTasks.splice(0)));
+  const r = await page.evaluate(async (queries) => {
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    const twoFrames = async () => {
+      await frame();
+      await frame();
+    };
+    const input = /** @type {HTMLInputElement} */ (document.querySelector(".log-search-input"));
+    const only = /** @type {HTMLInputElement} */ (document.querySelector(".log-search input[type=checkbox]"));
+    const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+    const status = () => document.querySelector(".log-search-status")?.textContent ?? "";
+    /**
+     * Sets the query; returns the time until two frames later, and the view's own work in the
+     * frame (animation-frame callbacks run in order: one before the view's render, one after).
+     * @param {string} q
+     */
+    const setQuery = async (q) => {
+      let before = 0;
+      requestAnimationFrame(() => {
+        before = performance.now();
+      });
+      const t = performance.now();
+      input.value = q;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const after = await new Promise((resolve) => requestAnimationFrame(() => resolve(performance.now())));
+      await frame();
+      return { total: performance.now() - t, work: /** @type {number} */ (after) - before };
+    };
+    /** @param {boolean} on */
+    const setOnly = async (on) => {
+      const t = performance.now();
+      only.checked = on;
+      only.dispatchEvent(new Event("change", { bubbles: true }));
+      await twoFrames();
+      return performance.now() - t;
+    };
+
+    const typed = [];
+    for (const [q] of queries) {
+      /** @type {number[]} */
+      const ms = [];
+      /** @type {number[]} */
+      const work = [];
+      for (let run = 0; run < 5; run++) {
+        await setQuery("");
+        const m = await setQuery(q);
+        ms.push(m.total);
+        work.push(m.work);
+      }
+      typed.push({ query: q, ms, work, status: status() });
+    }
+
+    await setQuery("SAFARI");
+    /** @type {number[]} */
+    const next = [];
+    let missing = 0;
+    for (let i = 0; i < 30; i++) {
+      const t = performance.now();
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await twoFrames();
+      next.push(performance.now() - t);
+      if (!vp.querySelector(".log-row-current:not([hidden])")) missing += 1;
+    }
+    const nextStatus = status();
+
+    const filtered = [];
+    for (const q of ["a", "SAFARI"]) {
+      await setQuery(q);
+      const toggle = await setOnly(true);
+      const needle = q.toLowerCase();
+      let wrong = 0;
+      const check = () => {
+        for (const e of vp.querySelectorAll(".log-row:not([hidden]) .log-text")) {
+          if (!(e.textContent ?? "").toLowerCase().includes(needle)) wrong += 1;
+        }
+      };
+      check();
+      /** @type {number[]} */
+      const jumps = [];
+      const max = vp.scrollHeight - vp.clientHeight;
+      for (let i = 0; i < 50; i++) {
+        const t = performance.now();
+        vp.scrollTop = Math.round((max * ((i * 37) % 50)) / 49);
+        await twoFrames();
+        jumps.push(performance.now() - t);
+        check();
+      }
+      vp.scrollTop = 0;
+      await frame();
+      /** @type {number[]} */
+      const intervals = [];
+      let last = performance.now();
+      for (let i = 0; i < 120; i++) {
+        vp.scrollTop += 700;
+        await frame();
+        const now = performance.now();
+        intervals.push(now - last);
+        last = now;
+        check();
+      }
+      filtered.push({ query: q, status: status(), rows: Math.round(vp.scrollHeight / 20), toggle, jumps, intervals, wrong });
+      await setOnly(false);
+    }
+    await setQuery("");
+    return { typed, next, missing, nextStatus, filtered, rows: vp.querySelectorAll(".log-row").length, lines: Number(vp.dataset.count) };
+  }, LOG_SEARCH_QUERIES);
+  const longTasks = await page.evaluate(() => /** @type {number[]} */ (/** @type {any} */ (window).__longTasks.splice(0)));
+  const round = (/** @type {number} */ v) => Number(v.toFixed(1));
+  const stats = (/** @type {number[]} */ values) => ({ runs: values.length, median: round(median(values)), max: round(Math.max(...values)) });
+  return {
+    lines: r.lines,
+    row_elements: r.rows,
+    query_ms: r.typed.map((q) => ({ query: q.query, status: q.status, ...stats(q.ms), work: stats(q.work) })),
+    next_ms: { ...stats(r.next), status: r.nextStatus, missing_current_rows: r.missing },
+    only_matching: r.filtered.map((f) => ({
+      query: f.query,
+      status: f.status,
+      rows: f.rows,
+      toggle_ms: round(f.toggle),
+      jump_ms: stats(f.jumps),
+      scroll_frame_ms: stats(f.intervals),
+      wrong_rows: f.wrong,
+    })),
+    long_tasks: { count: longTasks.length, max_ms: Math.max(0, ...longTasks) },
+  };
+}
+
+/**
+ * The problems in a `measureLogSearch` report: a missed budget, a wrong count or row.
+ * @param {Awaited<ReturnType<typeof measureLogSearch>>} s
+ * @returns {string[]}
+ */
+function logSearchProblems(s) {
+  /** @type {string[]} */
+  const problems = [];
+  if (s.lines !== FLOOD_LOG_LINES) problems.push(`perf-log search: the log has ${s.lines} lines, expected ${FLOOD_LOG_LINES}`);
+  if (s.row_elements > 80) problems.push(`perf-log search: ${s.row_elements} row elements in the DOM (not virtualized?)`);
+  for (const [query, status] of LOG_SEARCH_QUERIES) {
+    const q = s.query_ms.find((x) => x.query === query);
+    if (!q) continue;
+    if (status !== null && q.status !== status) problems.push(`perf-log search: "${query}" gave "${q.status}", expected "${status}"`);
+    if (q.max >= LOG_BUDGET_MS) problems.push(`perf-log search: "${query}" took up to ${q.max} ms (budget ${LOG_BUDGET_MS} ms)`);
+  }
+  if (s.next_ms.max >= LOG_BUDGET_MS) problems.push(`perf-log search: going to the next match took up to ${s.next_ms.max} ms (budget ${LOG_BUDGET_MS} ms)`);
+  if (s.next_ms.missing_current_rows > 0) problems.push(`perf-log search: ${s.next_ms.missing_current_rows} next-match steps did not render the current match`);
+  for (const f of s.only_matching) {
+    if (f.wrong_rows > 0) problems.push(`perf-log search: "Only matching lines" (${f.query}) rendered ${f.wrong_rows} rows without a match`);
+    for (const [what, ms] of /** @type {const} */ ([
+      ["turning it on", f.toggle_ms],
+      ["the slowest jump", f.jump_ms.max],
+      ["the slowest scroll frame", f.scroll_frame_ms.max],
+    ])) {
+      if (ms >= LOG_BUDGET_MS) problems.push(`perf-log search: "Only matching lines" (${f.query}): ${what} took ${ms} ms (budget ${LOG_BUDGET_MS} ms)`);
+    }
+  }
+  if (s.long_tasks.max_ms >= LOG_BUDGET_MS) problems.push(`perf-log search: the longest task took ${s.long_tasks.max_ms} ms (budget ${LOG_BUDGET_MS} ms)`);
+  return problems;
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const wanted = opts.screens;
@@ -1988,7 +2443,8 @@ async function main() {
       try {
         await page.goto(`${base}?mock${newRunHash}`);
         const r = await measureLog(page);
-        const report = { budget_ms: LOG_BUDGET_MS, ...r };
+        const search = await measureLogSearch(page);
+        const report = { budget_ms: LOG_BUDGET_MS, ...r, search };
         await writeFile(path.join(opts.out, "perf-log.json"), `${JSON.stringify(report, null, 2)}\n`);
         process.stdout.write(`perf-log ${JSON.stringify(report)}\n`);
         if (r.lines < 100_000) problems.push(`perf-log: only ${r.lines} lines reached the log view`);
@@ -2002,6 +2458,7 @@ async function main() {
         ])) {
           if (ms >= LOG_BUDGET_MS) problems.push(`perf-log: ${what} took ${ms} ms (budget ${LOG_BUDGET_MS} ms)`);
         }
+        problems.push(...logSearchProblems(search));
       } catch (err) {
         problems.push(`perf-log: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
