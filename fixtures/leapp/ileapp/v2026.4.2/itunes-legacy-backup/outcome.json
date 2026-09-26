@@ -1,0 +1,13 @@
+{
+  "always_run": [
+    "itunes_backup_info",
+    "itunes_backup_installed_applications"
+  ],
+  "exit_code": 0,
+  "index_html": true,
+  "input_type": "itunes",
+  "reasons": [],
+  "status": "succeeded",
+  "tool": "ileapp",
+  "version": "v2026.4.2"
+}

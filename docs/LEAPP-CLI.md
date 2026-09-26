@@ -4,7 +4,7 @@ Facts about the upstream iLEAPP/aLEAPP command-line builds that suiteDFIR depend
 - by running `ileapp v2026.4.2` (macOS arm64 build);
 - by reading source at tags `iLEAPP v2026.4.2` and `ALEAPP v2026.4.1`.
 
-Items marked **UNVERIFIED** must be confirmed by ROADMAP task E3 before anything relies on them. §9 is the running list. When you bump the pinned version, re-run the smoke suite and update this file.
+Items marked **UNVERIFIED** must be confirmed before anything relies on them; ROADMAP task E3 confirmed the earlier ones with real runs, and §9 lists what only the human QA pass can check. When you bump the pinned version, re-run the smoke suite and update this file.
 
 ## 1. Pinned releases
 
@@ -57,12 +57,14 @@ aLEAPP **v2026.4.1**:
 
     | Tool | linux-x86_64 | linux-aarch64 |
     |---|---|---|
-    | iLEAPP v2026.4.2 | **2.43** | UNVERIFIED (not inspected or run) |
-    | aLEAPP v2026.4.1 | **2.42** | UNVERIFIED (not inspected or run) |
+    | iLEAPP v2026.4.2 | **2.43** | not inspected; runs with 2.43 (below) |
+    | aLEAPP v2026.4.1 | **2.42** | not inspected; runs with 2.43 (below) |
 
     - These are the highest glibc symbol versions that any bundled library requires, read from the ELF version references of every shared object in the PyInstaller archives. iLEAPP bundles glibc's own `libmvec.so.1`, which requires `libm.so.6` `GLIBC_2.43` (and `GLIBC_PRIVATE`). `libtinfo.so.6` and the `termios` extension require 2.42. `libpython3.14.so.1.0`, `libssl`, `libsqlite3`, `libstdc++` and others require 2.38.
     - **Too old, VERIFIED:** `ubuntu:22.04` (glibc 2.35), leapp-smoke run 36170550467, both tools. `--appimage-extract` works there as an unprivileged user, but the inner binary exits 255: `[PYI-…:ERROR] Failed to load Python shared library '…/_MEI…/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version 'GLIBC_2.38' not found`. Introspection reports this as `introspection_failed`, saying which glibc the build needs.
-    - **New enough, VERIFIED:** `ubuntu:26.04` (glibc 2.43, `ldd (Ubuntu GLIBC 2.43-2ubuntu2.4) 2.43`), leapp-smoke run 36176500110. Both tools install via `--appimage-extract` as an unprivileged user and introspect with the same module lists as macOS arm64 and Windows x64 (iLEAPP 1138, aLEAPP 1287, identical list digests). The extracted entries hash to `c23c4bdc…ed44` (iLEAPP) and `c12e82ce…90fd` (aLEAPP); E3 fills the manifest.
+    - **New enough, VERIFIED:** `ubuntu:26.04` (glibc 2.43, `ldd (Ubuntu GLIBC 2.43-2ubuntu2.4) 2.43`), leapp-smoke run 36176500110. Both tools install via `--appimage-extract` as an unprivileged user and introspect with the same module lists as macOS arm64 and Windows x64 (iLEAPP 1138, aLEAPP 1287, identical list digests). The extracted entries hash to `c23c4bdc…ed44` (iLEAPP) and `c12e82ce…90fd` (aLEAPP), now pinned in the manifest.
+    - **linux-aarch64, VERIFIED (E3):** in `ubuntu:26.04` on an arm64 runner (leapp-smoke run 36193682690) both tools install, introspect with the same list digests, and pass every smoke run. Their extracted entries hash to `e7b64127…575d` (iLEAPP) and `5ad769aa…3e53` (aLEAPP), now pinned in the manifest. Their minimum glibc was not inspected.
+    - When a pinned Linux build fails to load (glibc too old), introspection reports `introspection_failed` and a run reports `spawn_failed`, both saying which glibc the build needs.
     - suiteDFIR itself keeps the `ubuntu:22.04` build baseline (ARCHITECTURE.md §10). Only these parser builds need the newer glibc.
 - **Every run:** extracts ≈ 132 MB into `$TMPDIR/_MEI*` and adds ≈ 2 s of startup.
 
@@ -95,7 +97,7 @@ aLEAPP **v2026.4.1**:
 
 **Process setup:**
 - cwd = run dir; stdin = null; no controlling terminal (`setsid`).
-- Env: inherit, plus `TMPDIR`, `TEMP` and `TMP` = the per-run temp dir. The bootloader honours `TMPDIR` (VERIFIED on macOS); `TEMP`/`TMP` on Windows is UNVERIFIED.
+- Env: inherit, plus `TMPDIR`, `TEMP` and `TMP` = the per-run temp dir. The bootloader extracts its runtime (`_MEI*`) there: VERIFIED by the E3 smoke on macOS arm64 and Linux x64/arm64 (`TMPDIR`) and on Windows x64 (`TEMP`/`TMP`), which see `_MEI*` in the run's temp dir mid-run and the dir gone after a cancel.
 - `PYTHON*` variables have **no effect** on the frozen binary (VERIFIED).
 
 ## 5. Introspection: modules, always-run and timezones (D11)
@@ -157,7 +159,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP
 3. Read the JSON, drop the probe itself, and apply the tool's rules:
    - **iLEAPP v2026.4.2:**
      - Selection excludes `module_name == "iTunesBackupInfo"`, `name == "last_build"`, and `module_name == "logarchive" and name != "logarchive"`.
-     - `always_run`: `default: ["last_build"]`. With `-t itunes`, `last_build` is replaced by `itunes_backup_info` and `itunes_backup_installed_applications` (from source; that they run this way is UNVERIFIED until E3).
+     - `always_run`: `default: ["last_build"]`. With `-t itunes`, `last_build` is replaced by `itunes_backup_info` and `itunes_backup_installed_applications`. VERIFIED by the E3 smoke on every smoke platform: an `fs` run's lava data has `last_build`; an `-t itunes` run on a minimal backup runs the two iTunes artifacts (they read `Info.plist`) and not `last_build`. `ileapp.py` calls the iTunes pair directly, outside its plugin loop, so they never appear in `_lava_data.lava` `modules`.
      - The always-run plugins' module names (which the status rules also match, CONTRACTS.md §7.3) are `lastBuild` and `iTunesBackupInfo`.
      - `timezones` = the probe's `pytz.all_timezones`; a missing or empty list fails (runs validate `-tz` against it, D19).
    - **aLEAPP v2026.4.1:** nothing is excluded from the plugin list except that plugins with `module_name == "usagestatsVersion"` are removed from the selectable list and always run first (`aleapp.py:206-212, 329`). `always_run.default` = those plugins' names (`["usagestatsVersion"]`). `timezones` is `null`.
@@ -198,10 +200,10 @@ The output folder contains (VERIFIED):
 | Q2 | Onefile = bootloader + worker. SIGKILL to the parent orphans the worker (re-parented to PID 1, still running) and leaks `_MEI*`. SIGTERM to the parent or the group → both exit in ≈ 0.18 s and `_MEI` is cleaned. | D9 + D10. |
 | Q3 | The exit code is meaningless for success. An invalid iTunes folder logged "not a valid iTunes backup", exited 0, and `_lava_data.lava` said `Complete` with **empty** `modules` and no `index.html`. Failed artifacts also exit 0. Invalid profile/case-data content → exit 0, no output. Argparse errors → exit 2. | D8 status rules (CONTRACTS.md §7.3). |
 | Q4 | Profiles: unknown plugin names are silently dropped (`["noSuchModule","callHistory"]` ran `last_build` + `callHistory`, exit 0). Upstream's own sample profiles already contain removed names. | D12: validate before the run; record the resolved modules. |
-| Q5 | With no password, an encrypted backup triggers a prompt. iLEAPP opens `/dev/tty` before stdin. A child in a background process group of a terminal session gets SIGTTOU/SIGTTIN-stopped. | `setsid` (no controlling terminal) + stdin null + password required when `IsEncrypted`. Behavior after `setsid` is UNVERIFIED (expected: the tty open fails → EOF → error exit). |
+| Q5 | With no password, an encrypted backup triggers a prompt (`getpass`). iLEAPP opens `/dev/tty` before stdin. A child in a background process group of a terminal session gets SIGTTOU/SIGTTIN-stopped. VERIFIED by the E3 smoke (an encrypted backup without a password, spawned like a run): on macOS arm64 and Linux x64/arm64 the tty open fails (new session), stdin is null → `EOFError`, which iLEAPP logs ("Had an exception in Seeker") before it exits **0** without a report. On **Windows x64** `getpass` waits for console keystrokes, which a process without a console never gets: it **blocks until stopped** (a cancel terminates the job). | `setsid` (no controlling terminal) + stdin null + **a password is required when `IsEncrypted` is true or cannot be read** (owner decision, K8: a backup whose `Manifest.plist` is missing or unreadable, or has no boolean `IsEncrypted`, counts as encrypted), so suiteDFIR never starts iLEAPP on a backup that could prompt without one, on any OS (D15). iLEAPP prompts only when `Manifest.plist` says encrypted, so a folder that is not a backup needs no password. |
 | Q6 | `-tz` defaults to UTC silently; aLEAPP has none. | D19. |
 | Q7 | `param_input` is stored exactly as passed. | Always pass absolute paths. |
-| Q8 | `Screen_Output.html` records are `message + "<br>" + newline`, appended with an open/close per message. Messages are **not** HTML-escaped and may contain markup or evidence-derived text. On Windows the newline is probably `\r\n` (UNVERIFIED). | Split on `<br>` followed by `\n` or `\r\n`; keep partial records; strip tags; render as text. |
+| Q8 | `Screen_Output.html` records are `message + "<br>" + newline`, appended with an open/close per message. Messages are **not** HTML-escaped and may contain markup or evidence-derived text. The newline is `\n` on macOS and Linux and `\r\n` on Windows (VERIFIED by the E3 smoke on all four smoke platforms; `fixtures/leapp/` holds macOS samples). A message may itself contain a newline before its `<br>`. | Split on `<br>` followed by `\n` or `\r\n`; keep partial records; strip tags; render as text. |
 | Q9 | Asset naming drift and manual uploads; no attestations. The frozen artifact sources matched tag v2026.4.2 byte-for-byte (VERIFIED). | D6: exact names plus asset **and** entry SHA-256 pinned in the app. Plan a mirror (H2). |
 | Q10 | LEAPP copies matched evidence files into `report/data/` and opens SQLite DBs read-only. The input tree was unchanged after runs. Nothing was written to `~/Library/Application Support/LEAPP` (history is opt-in). | Principle 1 holds; seal the report (F6). |
 | Q11 | aLEAPP `--help` does not print its version. | The version comes from the manifest and `_lava_data.lava.parser_info`. |
@@ -215,13 +217,17 @@ The output folder contains (VERIFIED):
 - a warning on unknown profile names;
 - a Windows code signature.
 
-## 9. UNVERIFIED items (E3 must resolve each, per platform)
+## 9. Open items: what CI cannot verify (G2 QA checklist)
 
-1. Windows: the bootloader honours `TEMP`/`TMP`; `Screen_Output.html` newline style; the console window stays hidden with `CREATE_NO_WINDOW`.
-2. Linux: AppImage extraction works on `ubuntu:22.04`, and the inner binary runs there (glibc).
-   - **Resolved by A3 (negative):** extraction works, but the inner binary does not run there. The pinned linux-x86_64 builds need glibc ≥ 2.43 (iLEAPP) and ≥ 2.42 (aLEAPP) (§2); the failing run is 36170550467. The owner decided to keep the app's 22.04 build baseline and run the LEAPP smoke in `ubuntu:26.04` (glibc 2.43), where extraction and the inner binaries work: run 36176500110 (§2). linux-aarch64 is UNVERIFIED.
-3. iLEAPP `-t itunes` always-run artifact names; aLEAPP always-run names.
-   - **A3:** introspection confirms on macOS arm64, Windows x64 and Linux x86_64 that the binaries contain `last_build` (module `lastBuild`), `itunes_backup_info` and `itunes_backup_installed_applications` (module `iTunesBackupInfo`) and aLEAPP `usagestatsVersion` (module `usagestatsVersion`). That they run as described in §5 still needs E3 runs.
-4. Behavior of the password prompt after `setsid` with stdin null (fake `prompt` scenario mirrors the expected result).
-5. The iTunes password never appears in `Screen_Output.html`, `_lava_data.lava` or other report files. It can't be tested in CI without an encrypted fixture, so it is also in the G2 QA checklist.
-6. AppImage `entry_sha256` values for linux-x86_64 and linux-aarch64 (fill the manifest).
+E3 resolved every earlier UNVERIFIED item with real runs (`crates/core/tests/leapp_smoke.rs`: locally on macOS arm64 and the Windows x64 test machine, and in the leapp-smoke workflow on Linux x64 and arm64; once public the workflow also runs macos-15, macos-15-intel and windows-2025):
+
+- **Windows `TEMP`/`TMP`:** honoured (§4). **`Screen_Output.html` newlines:** `\r\n` on Windows, `\n` elsewhere (Q8).
+- **Linux:** the builds need glibc ≥ 2.43 / 2.42 and do not run on `ubuntu:22.04` (A3, negative); they run on `ubuntu:26.04` on x64 and arm64 (§2).
+- **Always-run artifacts:** `last_build` and the iTunes pair run as §5 says; aLEAPP's `usagestatsVersion` runs on every input (its fs fixture completes it).
+- **The password prompt** after `setsid` / in a job with stdin null: EOF and exit 0 on macOS and Linux; blocks on Windows until cancelled (Q5). suiteDFIR requires the password first, also when the backup's encryption cannot be read (owner decision, K8), so it never gets there. (The fake-leapp `prompt` scenario keeps its CONTRACTS.md §7.4 outcome as a stand-in for a prompt that fails.)
+- **AppImage `entry_sha256`:** pinned for linux-x86_64 and linux-aarch64 (§2).
+
+Left for the human QA pass (G2), because CI has neither a desktop session nor encrypted evidence:
+
+1. **Windows:** the LEAPP console window stays hidden (`CREATE_NO_WINDOW`) while a run is watched in the app on a desktop session.
+2. **The iTunes password never appears** in `Screen_Output.html`, `_lava_data.lava` or other report files of a run on a real encrypted backup (only the redacted argv is recorded; LEAPP gets it in argv, D15).

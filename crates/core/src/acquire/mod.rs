@@ -127,6 +127,15 @@ pub enum AcqError {
         #[source]
         source: io::Error,
     },
+    /// The final `acquisition.json` was written (complete, with its status) but could not be made
+    /// read-only, e.g. on a share that refuses permission changes. The record on disk is final:
+    /// recovery never touches it.
+    #[error("{path} was written but could not be made read-only: {source}")]
+    NotReadOnly {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
 }
 
 /// Why `acq_restore_encryption` is refused with `restore_not_applicable`.
@@ -179,7 +188,9 @@ impl AcqError {
             | Self::FolderMismatch { .. }
             | Self::Invalid { .. }
             | Self::NoFreeId { .. } => ErrorCode::Internal,
-            Self::Io { source, .. } => fsutil::io_error_code(source),
+            Self::Io { source, .. } | Self::NotReadOnly { source, .. } => {
+                fsutil::io_error_code(source)
+            }
         }
     }
 
@@ -223,6 +234,9 @@ impl AcqError {
                     .to_owned(),
             },
             Self::Io { .. } => "The acquisition folder could not be read or written.".to_owned(),
+            Self::NotReadOnly { .. } => {
+                "The acquisition record was written but could not be made read-only.".to_owned()
+            }
             _ => "The acquisition record could not be written.".to_owned(),
         }
     }
@@ -421,7 +435,16 @@ struct ControlState {
     cancel_requested: bool,
     backup: Option<Arc<process::Handle>>,
     seal_cancel: Arc<AtomicBool>,
+    /// An `encryption on|off` command was started and has not been seen to end. It cannot be
+    /// stopped and has no timeout (it may wait for the device passcode). Cleared only when the
+    /// command returned, never by unwinding.
+    encryption_command: bool,
 }
+
+/// How long [`AcqControl::stop_after_panic`] may wait for the backup's tree: its kill grace
+/// (SIGTERM, then SIGKILL after 30 s on Unix), the supervisor's checks that the tree is gone and
+/// the output drained (up to 7 s), and a margin.
+pub const ACQ_STOP_WAIT: Duration = Duration::from_secs(60);
 
 /// Shared with the shell: the phase (for `job_active`) and cancel (`acq_cancel`).
 #[derive(Debug)]
@@ -437,6 +460,7 @@ impl Default for AcqControl {
                 cancel_requested: false,
                 backup: None,
                 seal_cancel: Arc::new(AtomicBool::new(false)),
+                encryption_command: false,
             }),
         }
     }
@@ -466,6 +490,32 @@ impl AcqControl {
 
     pub fn phase(&self) -> AcqPhase {
         lock(&self.state).phase
+    }
+
+    /// After the thread running [`AcqJob::run`] died (a panic): stops the backup if it runs (and
+    /// the seal), whatever the phase, and waits up to `timeout` until no process of the
+    /// acquisition can still be running. `true` once that is confirmed: the backup's tree is gone,
+    /// or none was running and no `encryption on|off` command is in flight (short device commands
+    /// finish on the job thread, so none outlives it). `false` while an encryption command may
+    /// still run (it cannot be stopped and has no timeout) or when the backup outlived `timeout`.
+    pub fn stop_after_panic(&self, timeout: Duration) -> bool {
+        let (backup, encryption_command) = {
+            let mut state = lock(&self.state);
+            state.cancel_requested = true;
+            state.seal_cancel.store(true, Ordering::SeqCst);
+            if let Some(handle) = &state.backup {
+                handle.cancel();
+            }
+            (state.backup.clone(), state.encryption_command)
+        };
+        if encryption_command {
+            return false;
+        }
+        match backup {
+            // A result (even a supervisor error) is published only once the tree was stopped.
+            Some(handle) => !matches!(handle.wait_timeout(timeout), Ok(None)),
+            None => true,
+        }
     }
 
     fn cancel_requested(&self) -> bool {
@@ -502,8 +552,47 @@ pub struct AcqOutcome {
     pub record: AcquisitionRecord,
     pub summary: AcqSummary,
     /// The final write failed: the record on disk stays `running` and is recovered on the next
-    /// open; `finished` reported `failed` with `record_write_failed`.
+    /// open; `finished` reported `failed` with `record_write_failed`. (A record that was written
+    /// but could not be made read-only is final: no error here, only a log line.)
     pub write_error: Option<String>,
+}
+
+/// What `finished` reports after the final write (ARCHITECTURE.md §6b step 11), and the write
+/// error for [`AcqOutcome::write_error`]: the record's status and reasons when it was written,
+/// also when it could not be made read-only ([`AcqError::NotReadOnly`]: the final record is on
+/// disk; logged); otherwise `failed` with `record_write_failed` (the record on disk stays
+/// `running` and becomes `interrupted` when the case is next opened).
+fn finished_verdict(
+    record: &AcquisitionRecord,
+    write: Result<(), AcqError>,
+) -> (AcqStatus, Vec<Reason>, Option<String>) {
+    match write {
+        Ok(()) => (record.status, record.status_reasons.clone(), None),
+        Err(e @ AcqError::NotReadOnly { .. }) => {
+            log::error!(
+                "acquisition {}: {e}; the record is final but writable",
+                record.acq_id
+            );
+            (record.status, record.status_reasons.clone(), None)
+        }
+        Err(e) => {
+            log::error!(
+                "the final record of acquisition {} could not be written: {e}",
+                record.acq_id
+            );
+            (
+                AcqStatus::Failed,
+                vec![Reason {
+                    code: "record_write_failed".to_owned(),
+                    message: format!(
+                        "The final acquisition.json could not be written ({e}); the \
+                         acquisition will show as interrupted when the case is next opened"
+                    ),
+                }],
+                Some(e.to_string()),
+            )
+        }
+    }
 }
 
 /// Emits events, batching log lines and throttling progress.
@@ -691,29 +780,12 @@ impl AcqJob {
                 self.acq_id
             );
         }
-        let write_error = record::finalize(&self.acq_dir, &mut record, Timestamp::now())
-            .err()
-            .map(|e| {
-                log::error!(
-                    "the final record of acquisition {} could not be written: {e}",
-                    self.acq_id
-                );
-                e.to_string()
-            });
+        let write = record::finalize(&self.acq_dir, &mut record, Timestamp::now());
         let summary = record::summary(&DiscoveredAcq {
             dir: self.acq_dir.clone(),
             record: record.clone(),
         });
-        let (status, reasons) = match &write_error {
-            None => (record.status, record.status_reasons.clone()),
-            Some(error) => (
-                AcqStatus::Failed,
-                vec![Reason {
-                    code: "record_write_failed".to_owned(),
-                    message: format!("The final acquisition.json could not be written: {error}"),
-                }],
-            ),
-        };
+        let (status, reasons, write_error) = finished_verdict(&record, write);
         let mut finished_summary = summary.clone();
         finished_summary.status = status;
         events.flush_lines();
@@ -919,10 +991,14 @@ impl AcqJob {
         let argv = encryption_argv(&self.tools, &self.udid, enable);
         log::info!("acquisition {}: running {}", self.acq_id, argv.join(" "));
         let index = self.begin_command(record, purpose, argv);
+        // Set around the command; if this thread unwinds meanwhile, it stays set (see
+        // `AcqControl::stop_after_panic`).
+        lock(&self.control.state).encryption_command = true;
         let result = session.set_encryption(&self.udid, enable, password, &mut |line| {
             events.output_line(line);
             events.flush_lines();
         });
+        lock(&self.control.state).encryption_command = false;
         events.flush_lines();
         match &result {
             Ok(command) => {
@@ -1383,6 +1459,44 @@ fn later_restore_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn after_a_panic_an_encryption_command_in_flight_is_never_taken_as_stopped() {
+        // No backup and no encryption command: nothing of ours runs.
+        let control = AcqControl::default();
+        assert!(control.stop_after_panic(Duration::from_millis(10)));
+        assert!(control.cancel_requested());
+        // `encryption on|off` cannot be stopped and has no timeout.
+        let control = AcqControl::default();
+        lock(&control.state).phase = AcqPhase::RestoringEncryption;
+        lock(&control.state).encryption_command = true;
+        assert!(!control.stop_after_panic(Duration::from_millis(10)));
+    }
+
+    #[test]
+    fn finished_reports_the_record_or_record_write_failed() {
+        let record = crate::contracts::examples::acquisition_record();
+        assert_eq!(record.status, AcqStatus::Succeeded);
+        let written = finished_verdict(&record, Ok(()));
+        assert_eq!(
+            written,
+            (record.status, record.status_reasons.clone(), None)
+        );
+        // Written, but not made read-only: the final record is on disk, so its status stands.
+        let not_read_only = AcqError::NotReadOnly {
+            path: "acquisition.json".to_owned(),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        assert_eq!(finished_verdict(&record, Err(not_read_only)), written);
+        // Not written: the record on disk stays running (interrupted on the next open).
+        let failed = AcqError::io(Path::new("acquisition.json"), io::Error::other("disk full"));
+        let (status, reasons, error) = finished_verdict(&record, Err(failed));
+        assert_eq!(status, AcqStatus::Failed);
+        assert_eq!(reasons.len(), 1);
+        assert_eq!(reasons[0].code, "record_write_failed");
+        assert!(reasons[0].message.contains("interrupted"), "{reasons:?}");
+        assert_eq!(error.as_deref(), Some("acquisition.json: disk full"));
+    }
 
     #[test]
     fn preflight_levels() {

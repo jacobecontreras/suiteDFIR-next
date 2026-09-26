@@ -1,0 +1,425 @@
+[
+  {
+    "cmd": "app_info",
+    "args": {}
+  },
+  {
+    "cmd": "licenses_get",
+    "args": {}
+  },
+  {
+    "cmd": "settings_get",
+    "args": {}
+  },
+  {
+    "cmd": "settings_update",
+    "args": {
+      "req": {
+        "cases_root": "<ROOT>/cases",
+        "defaults": {
+          "examiner": "J. Doe",
+          "agency": "County Forensics Lab",
+          "timezone": "America/Chicago"
+        }
+      }
+    }
+  },
+  {
+    "cmd": "tools_status",
+    "args": {}
+  },
+  {
+    "cmd": "tool_verify",
+    "args": {
+      "req": {
+        "tool": "ileapp"
+      }
+    }
+  },
+  {
+    "cmd": "tool_modules",
+    "args": {
+      "req": {
+        "tool": "ileapp"
+      }
+    }
+  },
+  {
+    "cmd": "tool_install",
+    "args": {
+      "req": {
+        "tool": "aleapp"
+      },
+      "onEvent": "__CHANNEL__:1"
+    }
+  },
+  {
+    "cmd": "tool_import",
+    "args": {
+      "req": {
+        "tool": "aleapp",
+        "archive_path": "<ROOT>/aleapp-replay.zip"
+      },
+      "onEvent": "__CHANNEL__:2"
+    }
+  },
+  {
+    "cmd": "tool_verify",
+    "args": {
+      "req": {
+        "tool": "aleapp"
+      }
+    }
+  },
+  {
+    "cmd": "tool_modules",
+    "args": {
+      "req": {
+        "tool": "aleapp"
+      }
+    }
+  },
+  {
+    "cmd": "settings_update",
+    "args": {
+      "req": {
+        "tools_dir": null
+      }
+    }
+  },
+  {
+    "cmd": "cases_list",
+    "args": {}
+  },
+  {
+    "cmd": "case_create",
+    "args": {
+      "req": {
+        "name": "Operation Nightjar",
+        "case_number": "2026-0142",
+        "examiner": "J. Doe",
+        "agency": "County Forensics Lab",
+        "description": "Seized handset, item 3",
+        "default_timezone": "America/Chicago",
+        "parent_dir": null
+      }
+    }
+  },
+  {
+    "cmd": "case_update",
+    "args": {
+      "req": {
+        "path": "<CASE>",
+        "fields": {
+          "name": "Operation Nightjar",
+          "case_number": "2026-0142",
+          "examiner": "J. Doe",
+          "agency": "County Forensics Lab",
+          "description": "Seized handset, item 3 (updated)",
+          "default_timezone": null
+        }
+      }
+    }
+  },
+  {
+    "cmd": "case_open",
+    "args": {
+      "req": {
+        "path": "<CASE>"
+      }
+    }
+  },
+  {
+    "cmd": "input_inspect",
+    "args": {
+      "req": {
+        "tool": "ileapp",
+        "path": "<ROOT>/evidence/fs",
+        "case_path": "<CASE>"
+      }
+    }
+  },
+  {
+    "cmd": "ios_backups_find",
+    "args": {}
+  },
+  {
+    "cmd": "profiles_list",
+    "args": {
+      "req": {
+        "tool": "aleapp"
+      }
+    }
+  },
+  {
+    "cmd": "profile_save",
+    "args": {
+      "req": {
+        "tool": "aleapp",
+        "name": "Triage",
+        "modules": [
+          "callLogs"
+        ]
+      }
+    }
+  },
+  {
+    "cmd": "profile_import",
+    "args": {
+      "req": {
+        "tool": "aleapp",
+        "path": "<ROOT>/Imported.alprofile",
+        "name": null,
+        "overwrite": false
+      }
+    }
+  },
+  {
+    "cmd": "profile_export",
+    "args": {
+      "req": {
+        "tool": "aleapp",
+        "name": "Triage",
+        "dest_path": "<ROOT>/Triage.alprofile"
+      }
+    }
+  },
+  {
+    "cmd": "profile_delete",
+    "args": {
+      "req": {
+        "tool": "aleapp",
+        "name": "Imported"
+      }
+    }
+  },
+  {
+    "cmd": "run_start",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "tool": "ileapp",
+        "input_path": "<ROOT>/evidence/slow",
+        "input_type": "fs",
+        "modules": {
+          "mode": "all"
+        },
+        "timezone": "America/Chicago",
+        "itunes_password": null,
+        "keychain_path": null,
+        "hash_input": false,
+        "label": "Long triage"
+      },
+      "onEvent": "__CHANNEL__:3"
+    }
+  },
+  {
+    "cmd": "job_active",
+    "args": {}
+  },
+  {
+    "cmd": "job_attach",
+    "args": {
+      "req": {
+        "kind": "run",
+        "id": "<RUN_1>"
+      },
+      "onEvent": "__CHANNEL__:4"
+    }
+  },
+  {
+    "cmd": "run_cancel",
+    "args": {
+      "req": {
+        "run_id": "<RUN_1>"
+      }
+    }
+  },
+  {
+    "cmd": "run_start",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "tool": "aleapp",
+        "input_path": "<ROOT>/evidence/fs",
+        "input_type": "fs",
+        "modules": {
+          "mode": "profile",
+          "profile_name": "Triage"
+        },
+        "timezone": null,
+        "itunes_password": null,
+        "keychain_path": null,
+        "hash_input": false,
+        "label": null
+      },
+      "onEvent": "__CHANNEL__:5"
+    }
+  },
+  {
+    "cmd": "run_get",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "run_id": "<RUN_2>"
+      }
+    }
+  },
+  {
+    "cmd": "open_report",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "run_id": "<RUN_2>"
+      }
+    }
+  },
+  {
+    "cmd": "open_text_file",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "run_id": "<RUN_2>",
+        "which": "stdout"
+      }
+    }
+  },
+  {
+    "cmd": "reveal_path",
+    "args": {
+      "req": {
+        "path": "<CASE>/runs/<RUN_2>"
+      }
+    }
+  },
+  {
+    "cmd": "temp_cleanup",
+    "args": {}
+  },
+  {
+    "cmd": "devices_list",
+    "args": {}
+  },
+  {
+    "cmd": "device_pair",
+    "args": {
+      "req": {
+        "udid": "<UDID>"
+      }
+    }
+  },
+  {
+    "cmd": "device_pair",
+    "args": {
+      "req": {
+        "udid": "<UDID>"
+      }
+    }
+  },
+  {
+    "cmd": "acq_preflight",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "udid": "<UDID>"
+      }
+    }
+  },
+  {
+    "cmd": "acq_start",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "udid": "<UDID>",
+        "label": "Seized iPhone, item 7",
+        "enable_encryption": false,
+        "encryption_password": null,
+        "restore_encryption": true
+      },
+      "onEvent": "__CHANNEL__:6"
+    }
+  },
+  {
+    "cmd": "acq_get",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "acq_id": "<ACQ_1>"
+      }
+    }
+  },
+  {
+    "cmd": "open_acq_file",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "acq_id": "<ACQ_1>",
+        "which": "acquisition_json"
+      }
+    }
+  },
+  {
+    "cmd": "acq_start",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "udid": "<UDID>",
+        "label": "Seized iPhone, item 7/slow",
+        "enable_encryption": false,
+        "encryption_password": null,
+        "restore_encryption": true
+      },
+      "onEvent": "__CHANNEL__:7"
+    }
+  },
+  {
+    "cmd": "job_attach",
+    "args": {
+      "req": {
+        "kind": "acquisition",
+        "id": "<ACQ_2>"
+      },
+      "onEvent": "__CHANNEL__:8"
+    }
+  },
+  {
+    "cmd": "acq_cancel",
+    "args": {
+      "req": {
+        "acq_id": "<ACQ_2>"
+      }
+    }
+  },
+  {
+    "cmd": "acq_start",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "udid": "<UDID>",
+        "label": "Seized iPhone, item 7/restore_fail",
+        "enable_encryption": true,
+        "encryption_password": "e2-Replay-Pw",
+        "restore_encryption": true
+      },
+      "onEvent": "__CHANNEL__:9"
+    }
+  },
+  {
+    "cmd": "acq_restore_encryption",
+    "args": {
+      "req": {
+        "case_path": "<CASE>",
+        "acq_id": "<ACQ_3>",
+        "password": "e2-Replay-Pw"
+      }
+    }
+  },
+  {
+    "cmd": "case_forget",
+    "args": {
+      "req": {
+        "path": "<CASE>"
+      }
+    }
+  }
+]

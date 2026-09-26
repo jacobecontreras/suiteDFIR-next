@@ -366,11 +366,17 @@ fn warnings(input: &StatusInput<'_>, status: RunStatus, lava: Option<&LavaData>)
             "Hashing the input failed; no input hash was recorded",
         )),
         // A cancel after the exit only stops input hashing. A cancel before it already made the
-        // run `cancelled`, which says why the hash is missing.
-        HashStatus::Cancelled if status != RunStatus::Cancelled => warnings.push(reason(
-            "input_hash_cancelled",
-            "A cancel after LEAPP finished stopped input hashing; no input hash was recorded",
-        )),
+        // run `cancelled`, which says why the hash is missing; a run that failed to prepare or to
+        // start never had an exit, and its hash was never run to the end.
+        HashStatus::Cancelled
+            if status != RunStatus::Cancelled
+                && matches!(input.outcome, Outcome::Exited { .. }) =>
+        {
+            warnings.push(reason(
+                "input_hash_cancelled",
+                "A cancel after LEAPP finished stopped input hashing; no input hash was recorded",
+            ))
+        }
         _ => {}
     }
     if input.seal == SealStatus::Failed {
@@ -1079,6 +1085,20 @@ mod tests {
             &["cancelled_by_user"],
             &[],
         );
+        // A run that failed to prepare or to start had no exit: its unfinished hash is no warning.
+        for proc in [
+            Proc::PrepareFailed {
+                detail: "x".to_owned(),
+            },
+            Proc::SpawnFailed {
+                detail: "x".to_owned(),
+            },
+        ] {
+            case.proc = proc;
+            let verdict = case.run();
+            assert_eq!(verdict.status, RunStatus::Failed);
+            assert_eq!(codes(&verdict.warnings), Vec::<&str>::new());
+        }
         // Other hash statuses are not warnings.
         for status in [
             HashStatus::Completed,
@@ -1147,5 +1167,97 @@ mod tests {
         assert_eq!(data.parser_info, None);
         assert_eq!(data.modules.len(), 1);
         assert_eq!(data.modules[0].artifact_name, None);
+    }
+
+    // ---- captured real-LEAPP outputs (ROADMAP E3) ----
+
+    /// Every capture in `fixtures/leapp/<tool>/<version>/<case>/` (from the smoke tests, with
+    /// `SUITEDFIR_SMOKE_CAPTURE`): its `_lava_data.lava` (and `index.html` if the run had one)
+    /// give the verdict the real run got, recorded in `outcome.json`.
+    #[test]
+    fn captured_real_leapp_outputs_give_the_recorded_verdicts() {
+        use crate::contracts::{InputType, ToolId};
+        use crate::leapp::modules;
+        use std::collections::BTreeMap;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/leapp");
+        let mut seen = Vec::new();
+        let dirs = |dir: &Path| -> Vec<PathBuf> {
+            let mut dirs: Vec<PathBuf> = fs::read_dir(dir)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.is_dir())
+                .collect();
+            dirs.sort();
+            dirs
+        };
+        for tool_dir in dirs(&root) {
+            for version_dir in dirs(&tool_dir) {
+                for case_dir in dirs(&version_dir) {
+                    let outcome: serde_json::Value =
+                        serde_json::from_slice(&fs::read(case_dir.join("outcome.json")).unwrap())
+                            .unwrap();
+                    let tool: ToolId = serde_json::from_value(outcome["tool"].clone()).unwrap();
+                    let input_type: InputType =
+                        serde_json::from_value(outcome["input_type"].clone()).unwrap();
+                    let names: Vec<String> =
+                        serde_json::from_value(outcome["always_run"].clone()).unwrap();
+                    let always = modules::always_run(
+                        tool,
+                        &BTreeMap::from([(input_type.as_str().to_owned(), names)]),
+                        input_type,
+                    );
+                    let mut report = Report::empty();
+                    fs::copy(case_dir.join(LAVA_FILE), report.dir.join(LAVA_FILE)).unwrap();
+                    fs::copy(
+                        case_dir.join("Screen_Output.html"),
+                        report.dir.join("_HTML/_Script_Logs/Screen_Output.html"),
+                    )
+                    .unwrap();
+                    if outcome["index_html"] == true {
+                        report = report.with_index();
+                    }
+                    let verdict = evaluate(&StatusInput {
+                        outcome: &Outcome::Exited {
+                            exit_code: outcome["exit_code"].as_i64().map(|c| c as i32),
+                            signal: None,
+                            cancelled_before_exit: false,
+                            report: report.analysis(),
+                        },
+                        always_run: always.for_status(),
+                        stderr_traceback: false,
+                        input_hash: HashStatus::NotApplicable,
+                        seal: SealStatus::Sealed,
+                        seal_warnings: &[],
+                    });
+                    let what = case_dir.display();
+                    assert_eq!(
+                        verdict.status.as_str(),
+                        outcome["status"].as_str().unwrap(),
+                        "{what}"
+                    );
+                    let reasons: Vec<String> =
+                        serde_json::from_value(outcome["reasons"].clone()).unwrap();
+                    assert_eq!(codes(&verdict.reasons), reasons, "{what}");
+                    let result = verdict.leapp_result.unwrap();
+                    assert!(result.lava_data_found, "{what}");
+                    assert_eq!(result.processing_status.as_deref(), Some("Complete"));
+                    seen.push(format!(
+                        "{}/{}",
+                        tool,
+                        case_dir.file_name().unwrap().to_string_lossy()
+                    ));
+                }
+            }
+        }
+        assert_eq!(
+            seen,
+            [
+                "aleapp/fs-fixture",
+                "ileapp/fs-fixture",
+                "ileapp/itunes-legacy-backup",
+                "ileapp/itunes-not-a-backup",
+            ]
+        );
     }
 }

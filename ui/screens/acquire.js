@@ -35,6 +35,7 @@ import {
   pickDevice,
   preflightInfo,
   resetAcqControls,
+  toolPasswordProblem,
   toolsGuidance,
   withPairOutcomes,
 } from "../lib/acquire.js";
@@ -143,6 +144,7 @@ export function acquireScreen(ctx) {
   for (const el of [labelInput, password, password2]) el.addEventListener("input", () => renderStart());
   for (const el of [enableBox, restoreBox, parseBox]) el.addEventListener("change", () => renderOptions());
   password2.addEventListener("blur", () => renderPasswordError(true));
+  password.addEventListener("input", () => renderPasswordError(false));
 
   // ---- Layout ----
   const caseLink = h("a", { href: caseHref }, folderLabel(casePath));
@@ -214,7 +216,12 @@ export function acquireScreen(ctx) {
     progressErrors.node,
   );
   const resultCard = h("section", { class: "card result-card", "aria-labelledby": "acq-result-heading", hidden: true });
-  const resultSlot = keyedSlot(resultCard);
+  // Three parts that stay in place (`display: contents`, so the card's own spacing applies), each
+  // rebuilt only when what it shows changes: the encryption alert is announced once, not again
+  // when the final record arrives.
+  const resultHeadSlot = keyedSlot(h("div", { class: "slot-contents" }));
+  const encryptionSlot = keyedSlot(h("div", { class: "slot-contents" }));
+  const resultBodySlot = keyedSlot(h("div", { class: "slot-contents" }));
   const log = logView({ label: "Backup log", emptyText: "No log lines yet." });
   const logCard = h("section", { class: "card", "aria-labelledby": "acq-log-heading" }, h("div", { class: "card-head" }, h("h2", { id: "acq-log-heading" }, "Log")), log.node);
   const cancelButton = /** @type {HTMLButtonElement} */ (h("button", { class: "btn btn-danger", type: "button", onClick: askCancel }, "Cancel acquisition"));
@@ -286,6 +293,8 @@ export function acquireScreen(ctx) {
     view = "setup";
     stream = null;
     record = null;
+    // Pair answers of an earlier acquisition no longer describe the devices.
+    pairOutcomes = new Map();
     title.textContent = "Acquire iOS backup";
     statusBadgeSlot.reset();
     statusSlot.replaceChildren();
@@ -306,9 +315,9 @@ export function acquireScreen(ctx) {
     summaryNow = null;
     cancelling = false;
     finalRecordAsked = false;
-    for (const slot of [facts, statusBadgeSlot, promptSlot, phaseSlot, progressSlot, resultSlot]) slot.reset();
+    for (const slot of [facts, statusBadgeSlot, promptSlot, phaseSlot, progressSlot, resultHeadSlot, encryptionSlot, resultBodySlot]) slot.reset();
     resultCard.hidden = true;
-    resultCard.replaceChildren();
+    resultCard.replaceChildren(resultHeadSlot.node, encryptionSlot.node, resultBodySlot.node);
     progressErrors.clear();
     poller.stop();
     unwatchHandoff();
@@ -318,6 +327,9 @@ export function acquireScreen(ctx) {
     headActions.replaceChildren(cancelButton);
     body.replaceChildren(facts.node, promptSlot.node, progressCard, resultCard, logCard);
     void loadRecord();
+    // A result shown again (the screen was left and reopened) may be out of date: a later restore
+    // may have turned encryption off since its `finished` event. Re-read the case's row.
+    if (s.finished && s.id) void reloadSummary(s.id);
     render();
   }
 
@@ -569,6 +581,7 @@ export function acquireScreen(ctx) {
       password2: password2.value,
       restoreEncryption: restoreBox.checked,
       jobActive: store.get().activeJob !== null,
+      windows: store.get().appInfo?.os === "windows",
     };
   }
 
@@ -676,12 +689,17 @@ export function acquireScreen(ctx) {
   /** @param {boolean} touched Show the mismatch only after the second field was left. */
   function renderPasswordError(touched) {
     const f = form();
-    if (!enablesEncryption(f) || (password2.value === "" && !touched)) {
+    const on = enablesEncryption(f);
+    // A password the iOS tools cannot take (Windows: printable ASCII only) shows at once, inline.
+    const toolProblem = on ? toolPasswordProblem(f.password, f.windows) : null;
+    passwordField.setError(toolProblem);
+    if (!on || (password2.value === "" && !touched)) {
       password2Field.setError(null);
       return;
     }
     const problem = passwordProblem(f);
-    password2Field.setError(problem && (touched || password2.value.length >= password.value.length) ? problem : null);
+    const second = problem === toolProblem ? null : problem;
+    password2Field.setError(second && (touched || password2.value.length >= password.value.length) ? second : null);
   }
 
   function renderStart() {
@@ -893,8 +911,38 @@ export function acquireScreen(ctx) {
     const backupPath = summary.backup_path;
     const canParse = fin.status === "succeeded" && backupPath !== null;
     const kept = handoff.has(acqId);
-    const key = JSON.stringify([fin.status, current.warnings, r ? [r.status, r.output.seal, r.encryption, r.backup_result?.final_message ?? null] : null, kept]);
-    resultSlot.update(key, () => {
+    resultHeadSlot.update(fin.status, () => [
+      h("div", { class: "card-head" }, h("h2", { id: "acq-result-heading" }, "Result"), statusBadge(fin.status)),
+      h("p", null, OUTCOME[/** @type {Exclude<AcqStatus, "running">} */ (fin.status)] ?? ""),
+    ]);
+    encryptionSlot.update(JSON.stringify([offerOff, turnedOffLater, current.warnings]), () => [
+      offerOff &&
+        h(
+          "div",
+          { class: "banner banner-danger", role: "alert" },
+          icon("lock"),
+          h(
+            "div",
+            { class: "stack-sm" },
+            h("strong", null, "Backup encryption may still be on for this device."),
+            h("p", null, encryptionLeftOnText(current.warnings) ?? "", " Turn it off now with the password you set."),
+            h(
+              "div",
+              null,
+              h("button", { class: "btn btn-sm", type: "button", "data-focus-key": "restore", onClick: () => openRestore(acqId, summary) }, "Turn backup encryption off"),
+            ),
+          ),
+        ),
+      turnedOffLater &&
+        h(
+          "div",
+          { class: "banner banner-ok", role: "status" },
+          icon("check-circle"),
+          h("p", null, "Backup encryption was turned off after this acquisition. That restore is recorded in its own file in the acquisition folder; acquisition.json still lists the warnings below."),
+        ),
+    ]);
+    const key = JSON.stringify([fin.status, r ? [r.status, r.output.seal, r.encryption, r.backup_result?.final_message ?? null] : null, kept]);
+    resultBodySlot.update(key, () => {
       /** @type {[string, Node | string][]} */
       const rows = [];
       if (backupPath) rows.push(["Backup", h("span", { class: "mono break" }, backupPath)]);
@@ -904,32 +952,6 @@ export function acquireScreen(ctx) {
         if (r.backup_result?.final_message) rows.push(["Tool said", h("span", { class: "mono" }, r.backup_result.final_message)]);
       }
       return [
-        h("div", { class: "card-head" }, h("h2", { id: "acq-result-heading" }, "Result"), statusBadge(fin.status)),
-        h("p", null, OUTCOME[/** @type {Exclude<AcqStatus, "running">} */ (fin.status)] ?? ""),
-        offerOff &&
-          h(
-            "div",
-            { class: "banner banner-danger", role: "alert" },
-            icon("lock"),
-            h(
-              "div",
-              { class: "stack-sm" },
-              h("strong", null, "Backup encryption may still be on for this device."),
-              h("p", null, encryptionLeftOnText(current.warnings) ?? "", " Turn it off now with the password you set."),
-              h(
-                "div",
-                null,
-                h("button", { class: "btn btn-sm", type: "button", "data-focus-key": "restore", onClick: () => openRestore(acqId, summary) }, "Turn backup encryption off"),
-              ),
-            ),
-          ),
-        turnedOffLater &&
-          h(
-            "div",
-            { class: "banner banner-ok", role: "status" },
-            icon("check-circle"),
-            h("p", null, "Backup encryption was turned off after this acquisition. That restore is recorded in its own file in the acquisition folder; acquisition.json still lists the warnings below."),
-          ),
         reasonList("Reasons", fin.reasons, "reasons"),
         reasonList("Warnings", fin.warnings, "warnings"),
         rows.length > 0 && h("dl", { class: "facts facts-compact" }, rows.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
@@ -969,6 +991,7 @@ export function acquireScreen(ctx) {
       api,
       casePath,
       acq: { acq_id: acqId, label: summary.label, device_name: summary.device_name, udid: summary.udid },
+      windows: store.get().appInfo?.os === "windows",
       // Whatever the outcome, re-read the case's row: its warnings say whether the action still applies.
       onSettled: () => {
         if (!disposed) void reloadSummary(acqId);

@@ -76,7 +76,7 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 | D12 | **Profiles are validated before every run.** Unknown names block the run until removed. The resolved module list is recorded. | LEAPP silently drops unknown names (Q4). |
 | D13 | **Cases and runs are plain JSON files; no database.** `run.json` becomes read-only once finalized. `case.json` is written atomically. | Transparent, portable, diffable, no migrations. |
 | D14 | **One active job, app-wide (see D25); one app instance** (lock file). | LEAPP runs are heavy. This removes concurrency hazards in case folders and temp sweeping. |
-| D15 | **Passwords are never persisted.** LEAPP gets `--itunes_password` in argv (its only non-interactive channel; visible in `ps`; redacted in `run.json`). `idevicebackup2` gets passwords via env (`BACKUP_PASSWORD_NEW` / `BACKUP_PASSWORD`), never argv. stdin is null and there is no controlling terminal, so no tool can block on a prompt. | Minimize exposure per tool; accepted and documented. |
+| D15 | **Passwords are never persisted.** LEAPP gets `--itunes_password` in argv (its only non-interactive channel; visible in `ps`; redacted in `run.json`). `idevicebackup2` gets passwords via env (`BACKUP_PASSWORD_NEW` / `BACKUP_PASSWORD`), never argv. stdin is null and there is no controlling terminal, so no tool can block on a prompt. | Minimize exposure per tool; accepted and documented. On Windows stdin null alone does not stop iLEAPP's `getpass` (it waits for console keystrokes, LEAPP-CLI.md Q5), so a prompt is prevented there by requiring the password for every iTunes backup read as `itunes` whose encryption is known (encrypted) or unknown (owner decision, K8; §6 step 1). |
 | D16 | **Partial output of cancelled/failed runs is kept and marked**, never auto-deleted. | Transparency; the examiner decides. |
 | D17 | **LEAPP HTML reports open in the system browser, never in the app webview.** | Reports contain evidence-derived HTML/JS; the app webview has IPC access. |
 | D18 | **SHA-256 only.** | One algorithm, one small crate. |
@@ -145,7 +145,10 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
     - Runs: on yes, it cancels, waits up to 30 s for finalize, then exits.
     - Acquisitions: on yes, it cancels, then waits for the cancel semantics in §6b (encryption restore may wait for the device passcode). It shows "finishing safely…" with a "Quit anyway" option. Quitting anyway leaves the record to be marked `interrupted` (with encryption warnings) on the next open.
   - The single-instance lock is `<app_data>/instance.lock` via `std::fs::File::try_lock`. A second instance shows a native message and exits before touching any state.
-  - Startup: acquire the lock → temp sweep → app log.
+  - Startup: acquire the lock → temp sweep → app log → settings → the main window. The window is declared with `create: false` in `tauri.conf.json` and opened by the shell once the lock is held, so a second instance never shows one.
+  - The job slot is freed just before a job's `finished` event is sent, so the UI can start the next job as soon as it sees `finished`. A later encryption restore occupies the slot too, but `job_active` does not report it (the Case screen waits for the command's answer).
+  - Starting a job first reserves the slot, then runs its slow checks (the tool's entry hash, device queries) without holding the slot's lock, so the quit guard and device polling never wait for it; a failed start frees the reservation. A job thread that panics is logged (the panic message); its processes are cancelled first and waited for (bounded: LEAPP's tree and the input hashing; an acquisition's backup), and only once they are confirmed gone is the record recovered as `interrupted` (an internal-error message; read-only; an acquisition keeps its encryption warnings), the slot freed and `finished` sent. If that cannot be confirmed (a backup that outlives the wait, or an `encryption on|off` command in flight, which cannot be stopped and has no timeout), the slot stays taken until the app restarts, so nothing else can start while a process may still write. `temp_cleanup` also reserves the slot, and installs and device commands wait for its sweep to end.
+  - The quit guard's "finishing safely…" dialog shows again on the next close after "Wait", so "Quit anyway" stays reachable.
 
 ### 5.3 `ui/` and `ui-dev/`
 
@@ -168,7 +171,7 @@ Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker co
      - the input must not lie inside any case's `runs/` folder or the app dirs;
      - inputs inside a case's `acquisitions/` are allowed (that is how acquired backups are parsed);
    - modules resolve with no unknowns;
-   - a password is present if the backup is encrypted;
+   - a password is present if the backup is encrypted, or if its encryption can't be determined, for iLEAPP itunes inputs (`password_required`; an unreadable encryption state counts as encrypted, so iLEAPP never reaches its password prompt, LEAPP-CLI.md Q5);
    - the timezone is in the installed iLEAPP zone list;
    - the run dir path is < 248 characters on Windows (`path_too_long`).
 2. **Prepare:**
@@ -178,11 +181,11 @@ Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker co
    - Create the per-run temp dir.
    - On failure after the run dir exists, finalize as `failed` with `prepare_failed`.
 3. **Hash input** (if requested and the input is a file): on its own thread, **concurrently** with LEAPP, with progress events. Finalize waits for it.
-4. **Spawn LEAPP** (argv per LEAPP-CLI.md §4; cwd = run dir; temp env vars; stdin null; stdout → `leapp.stdout.log`, stderr → `leapp.stderr.log`). Record `started_at`. A spawn error → `spawn_failed`.
+4. **Spawn LEAPP** (argv per LEAPP-CLI.md §4; cwd = run dir; temp env vars; stdin null; stdout → `leapp.stdout.log`, stderr → `leapp.stderr.log`). Record `started_at`. A spawn error → `spawn_failed`. So is a LEAPP that exits without creating its output because the dynamic loader refused it (a pinned Linux build on a too-old glibc, LEAPP-CLI.md §2); the reason names the glibc version it needs, as introspection does.
 5. **Stream:** tail `report/_HTML/_Script_Logs/Screen_Output.html` every 250 ms and emit `log` batches.
 6. **Exit or cancel:**
    - Exit: record the exit code or signal and `exited_at`.
-   - Cancel before exit: SIGTERM the group, then SIGKILL after 10 s (Unix), or terminate the job (Windows).
+   - Cancel before exit: SIGTERM the group, then SIGKILL after 10 s (Unix), or terminate the job (Windows). Input hashing stops too. A cancel while preparing keeps LEAPP from starting (`cancelled`, `process: null`).
    - A cancel arriving after exit only stops input hashing.
    - Then drain the tail, emit `stdio_tail`, and remove the per-run temp dir.
 7. **Wait for the input hash** (phase `hashing_input` only if still running).
@@ -190,9 +193,9 @@ Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker co
 9. **Seal:** if `report/` exists, hash every file into `report.sha256` (CONTRACTS.md §8), with progress events.
 10. **Finalize:**
     - Write the complete `run.json` atomically and mark it read-only.
-    - Emit `finished` (status, reasons, warnings, summary).
-    - Clear the active run.
+    - Clear the active job (§5.2), then emit `finished` (status, reasons, warnings, summary).
     - If the final write fails: emit `finished` with `failed` + `record_write_failed` and log it. The record stays `running` and becomes `interrupted` on the next open.
+    - If the record was written but cannot be marked read-only (e.g. a share that refuses permission changes): the final record is on disk with its real status, so `finished` reports that status; the problem is logged. Recovery never touches a final record.
 
 Phases emitted: `preparing` → `running` → (`hashing_input`) → `analyzing` → `sealing_report` → `finalizing`.
 
@@ -248,8 +251,8 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 10. **Seal:** if `backup/` exists, write `backup.sha256` via `hashing::seal_tree`. Cancelling stops the seal (`SealStatus.cancelled`).
 11. **Finalize:**
     - Write the complete `acquisition.json` atomically and mark it read-only.
-    - Emit `finished`.
-    - Clear the active job.
+    - Clear the active job (§5.2), then emit `finished`.
+    - A failed final write, or a record that cannot be marked read-only, is handled as in §6 step 10 (`record_write_failed` only for the former).
 
 **Cancel semantics by phase:**
 
@@ -364,10 +367,11 @@ A **known case folder** is a path in `settings.recent_cases` whose `case.json` p
 | `case_create.parent_dir`, `settings_update.cases_root` | Existing writable dir, not inside the tools dir or app dirs. |
 | `settings_update.tools_dir` | Existing writable dir, not inside any known case folder. |
 | `case_open.path` | Any dir containing a valid `case.json` (it becomes known). |
-| `case_update`, `case_forget`, `run_get`, `open_report`, `open_text_file` | `case_path` must be a known case folder; `run_id` must match the `run_id` format and exist. |
+| `case_update`, `run_get`, `open_report`, `open_text_file` | `case_path` must be a known case folder; `run_id` must match the `run_id` format and exist. |
+| `case_forget.path` | A path in the recent list, also when its folder is gone or its `case.json` is invalid (nothing is read or written there; it only leaves the list). |
 | `input_inspect.path`, `run_start.input_path`, `run_start.keychain_path` | Any readable path, subject to the overlap rule in §6 step 1. |
 | `tool_import.archive_path`, `profile_import.path` | Any readable regular file (read-only). |
-| `profile_export.dest_path` | A path returned by the save dialog; refuse if inside a known case folder's `runs/`. |
+| `profile_export.dest_path` | A path returned by the save dialog; refuse if inside a known case folder's `runs/` or `acquisitions/` (run output and acquired evidence stay untouched). |
 | `reveal_path.path` | Inside a known case folder or app dirs only. |
 | `acq_preflight`, `acq_start`, `acq_get`, `acq_cancel`, `open_acq_file`, `acq_restore_encryption` | `case_path` must be a known case folder; `acq_id` must match its format and exist. |
 | `devices_list`, `device_pair`, and any `udid` argument | No path. `udid` must match `^(?:[0-9a-fA-F]{40}\|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16})$`. |

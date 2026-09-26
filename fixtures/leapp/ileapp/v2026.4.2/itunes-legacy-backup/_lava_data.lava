@@ -1,0 +1,65 @@
+{
+    "lava_schema_version": 2,
+    "parser_info": {
+        "leapp_name": "iLEAPP",
+        "leapp_version": "2026.4.2",
+        "leapp_mode": "CLI",
+        "package": "Binary",
+        "OS": "macOS-15.1-arm64-arm-64bit-Mach-O",
+        "start_timestamp": 1790372684,
+        "end_timestamp": 1790372684
+    },
+    "param_input": "<INPUT>",
+    "param_output": "<RUN_DIR>/report",
+    "param_type": "itunes",
+    "param_profile": "<RUN_DIR>/profile.ilprofile",
+    "profile_used": true,
+    "processing_status": "Complete",
+    "lava_db_name": "_lava_artifacts.db",
+    "modules": [
+        {
+            "module_name": "deviceName",
+            "module_status": "No files found",
+            "artifact_name": "deviceName",
+            "file_count": 0
+        }
+    ],
+    "artifacts": {
+        "iTunes Backup": [
+            {
+                "artifact_key": "itunes_backup_info",
+                "name": "iTunes Backup Information",
+                "tablename": "itunes_backup_info",
+                "module": "iTunesBackupInfo",
+                "column_map": {
+                    "property": "Property",
+                    "property_value": "Property Value"
+                },
+                "artifact_icon": "refresh",
+                "record_count": 5,
+                "source_path": "<INPUT>/Info.plist"
+            }
+        ]
+    },
+    "meta": {
+        "modules": [
+            {
+                "module_name": "iTunesBackupInfo",
+                "module_filename": "iTunesBackupInfo.py",
+                "artifacts": [
+                    {
+                        "artifact_key": "itunes_backup_info",
+                        "tablename": "itunes_backup_info",
+                        "name": "iTunes Backup Information",
+                        "description": "Extract information from the Info.plist file of an iTunes backup",
+                        "author": "@AlexisBrignoni - @johannplw",
+                        "created_date": "2023-10-11",
+                        "last_updated_date": "2025-10-14",
+                        "notes": "",
+                        "category": "iTunes Backup"
+                    }
+                ]
+            }
+        ]
+    }
+}

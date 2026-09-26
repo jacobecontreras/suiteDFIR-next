@@ -475,7 +475,7 @@ All commands are `async`. Each takes at most one argument named `req` (an object
 | `open_report` | `{case_path, run_id}` | none | Opens `report/index.html` in the default browser (`report_missing` if absent). |
 | `reveal_path` | `{path}` | none | |
 | `open_text_file` | `{case_path, run_id, which: "stdout"\|"stderr"\|"run_json"\|"report_manifest"}` | none | Opens in the OS default app. |
-| `temp_cleanup` | none | `{freed_bytes}` | Refuses while a run is active. |
+| `temp_cleanup` | none | `{freed_bytes}` | Refuses while any job, install or device command is active. |
 
 ## 11. Events
 

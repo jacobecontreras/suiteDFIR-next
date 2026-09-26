@@ -17,6 +17,7 @@ import {
   needsEncryptionOff,
   pairOutcome,
   passwordProblem,
+  toolPasswordProblem,
   pickDevice,
   preflightInfo,
   resetAcqControls,
@@ -231,6 +232,7 @@ const form = (fields = {}) => ({
   password2: "",
   restoreEncryption: true,
   jobActive: false,
+  windows: false,
   ...fields,
 });
 
@@ -246,6 +248,23 @@ test("option validation: tools, device, preflight, passwords and the one-job rul
   assert.deepEqual(acqBlockers(form({ enableEncryption: true, password: "abcd", password2: "abcd" })), []);
   assert.deepEqual(acqBlockers(form({ jobActive: true })), ["Another job is running. Start the acquisition after it ends."]);
   assert.equal(passwordProblem({ password: "", password2: "" }), "Enter a backup password of at least 4 characters.");
+});
+
+test("on Windows a password must be printable ASCII, as the core requires (FU31)", () => {
+  const WINDOWS_ONLY_ASCII = "On Windows the iOS tools can only use a password of plain ASCII letters, digits, spaces and punctuation.";
+  for (const pw of ["Zoë-1234", "pass\u00a0word", "tab\there", "日本語パス"]) {
+    assert.equal(toolPasswordProblem(pw, true), WINDOWS_ONLY_ASCII, pw);
+    assert.equal(toolPasswordProblem(pw, false), null, pw);
+    // It blocks Start on Windows only, and before the mismatch check.
+    assert.deepEqual(acqBlockers(form({ enableEncryption: true, password: pw, password2: `${pw}x`, windows: true })), [WINDOWS_ONLY_ASCII]);
+    assert.deepEqual(acqBlockers(form({ enableEncryption: true, password: pw, password2: pw })), []);
+  }
+  for (const pw of ["abcd", "Pass word ~!@#$%^&*()_+-={}[]|\\:;\"'<>,.?/`", " spaces "]) {
+    assert.equal(toolPasswordProblem(pw, true), null, pw);
+    assert.deepEqual(acqBlockers(form({ enableEncryption: true, password: pw, password2: pw, windows: true })), []);
+  }
+  // Too short comes first.
+  assert.equal(passwordProblem({ password: "é", password2: "é", windows: true }), "Enter a backup password of at least 4 characters.");
 });
 
 test("encryption option variants: offered when off, a warning when already on, nothing when unknown", () => {

@@ -446,6 +446,7 @@ export function caseScreen(ctx) {
       api,
       casePath: detail?.path ?? path,
       acq: { acq_id: a.acq_id, label: a.label, device_name: a.device_name, udid: a.udid },
+      windows: store.get().appInfo?.os === "windows",
       // Whatever the outcome, re-read the rows: their warnings say whether the action still applies.
       onSettled: () => {
         if (!disposed) void reloadAcqs();
