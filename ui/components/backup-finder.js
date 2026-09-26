@@ -24,8 +24,11 @@ const PATH_CHARS = 64;
 /**
  * @typedef {object} BackupFinder
  * @property {HTMLElement} node
- * @property {() => Promise<void>} search Shows the panel and searches (again).
- * @property {() => void} close Hides the panel (without `onClose`, which is for the Close button).
+ * @property {() => Promise<void>} search Shows the panel and searches (again). Single-flight: a call
+ *   while a search is still running does nothing (the core's search cannot be cancelled).
+ * @property {() => void} close Hides the panel (without `onClose`, which is for the Close button);
+ *   the result of a search still running is then dropped.
+ * @property {() => void} focus Moves the focus to the panel's heading.
  * @property {() => boolean} isOpen
  * @property {() => void} dispose
  */
@@ -37,11 +40,13 @@ const PATH_CHARS = 64;
  * @param {(backup: IosBackup) => void} options.onChoose a backup was chosen (the panel is hidden
  *   first)
  * @param {() => void} options.onClose the examiner closed the panel
+ * @param {(busy: boolean) => void} options.onBusy a search started (true) or its call returned
+ *   (false); the button that starts searches is disabled meanwhile
  * @returns {BackupFinder}
  */
-export function backupFinder({ api, os, onChoose, onClose }) {
+export function backupFinder({ api, os, onChoose, onClose, onBusy }) {
   const headingId = uid("backup-finder");
-  // Takes the focus when "Search again" (which a new search removes) had it.
+  // Takes the focus when "Search again" or the disabled search button (see onBusy) had it.
   const heading = h("h3", { id: headingId, tabindex: "-1" }, "iOS backups on this computer");
   const status = h("p", { class: "muted small", role: "status" });
   const body = h("div", { class: "stack-sm" });
@@ -70,14 +75,18 @@ export function backupFinder({ api, os, onChoose, onClose }) {
   );
   let seq = 0;
   let disposed = false;
+  let searching = false;
 
   async function search() {
+    if (searching) return;
+    searching = true;
     const mine = ++seq;
     node.hidden = false;
     node.setAttribute("aria-busy", "true");
     status.textContent = "Searching the default backup folders…";
     if (body.contains(document.activeElement)) heading.focus();
     body.replaceChildren();
+    onBusy(true);
     /** @type {FinderResult} */
     let result;
     try {
@@ -85,6 +94,9 @@ export function backupFinder({ api, os, onChoose, onClose }) {
     } catch (err) {
       result = failedResult(err);
     }
+    searching = false;
+    if (!disposed) onBusy(false);
+    // A stale result (the panel was closed meanwhile) is dropped.
     if (disposed || mine !== seq) return;
     node.removeAttribute("aria-busy");
     status.textContent = summaryText(result);
@@ -215,6 +227,7 @@ export function backupFinder({ api, os, onChoose, onClose }) {
     node,
     search,
     close: hide,
+    focus: () => heading.focus(),
     isOpen: () => !node.hidden,
     dispose() {
       disposed = true;

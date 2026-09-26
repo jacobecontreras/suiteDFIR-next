@@ -72,8 +72,7 @@ export function backupsDenied(windows) {
       }
     : {
         code: "permission_denied",
-        message:
-          "suiteDFIR may not read the Finder backup folder. Give suiteDFIR Full Disk Access (System Settings > Privacy & Security > Full Disk Access), then quit and reopen suiteDFIR and search again.",
+        message: "suiteDFIR may not read the Finder backup folder: macOS protects it until suiteDFIR has Full Disk Access.",
         detail: `${BACKUP_DIR}: access denied: Operation not permitted (os error 1)`,
       };
 }

@@ -1301,7 +1301,16 @@ const CHECKS = [
       const find = page.getByRole("button", { name: "Find iOS backups" });
       await find.focus();
       await page.keyboard.press("Enter");
+      // One search at a time: Find is disabled while it runs, and its focus moves to the panel.
+      const during = await page.evaluate(() => ({
+        disabled: [...document.querySelectorAll("button")].find((b) => b.textContent === "Find iOS backups")?.disabled ?? null,
+        focused: document.activeElement?.tagName ?? "",
+        busy: document.querySelector(".backup-finder")?.getAttribute("aria-busy") ?? null,
+      }));
+      if (during.busy !== "true") throw new Error(`the search ended before the check, so it proves nothing: ${JSON.stringify(during)}`);
+      if (during.disabled !== true || during.focused !== "H3") throw new Error(`Find stayed usable during a search: ${JSON.stringify(during)}`);
       await page.locator(".backups-table").waitFor();
+      if (await find.isDisabled()) throw new Error("Find stayed disabled after the search");
       await page.getByRole("button", { name: /^Use the backup of Evidence iPad/ }).focus();
       await page.keyboard.press("Enter");
       await page.locator("select[name=input_type]").waitFor();

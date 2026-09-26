@@ -1,11 +1,11 @@
 // @ts-check
 /**
  * New run screen (ROADMAP D3). Sections in order: Tool (installed tools only), Input (choose a file
- * or folder, or find a local iOS backup (S1, iLEAPP); the inspection result, a type override limited
- * to `allowed_types`, inline overlap and permission errors), Options (timezone, backup password,
- * keychain, input hashing, label), Modules (all / profile / custom with the module picker; save,
- * import and export profiles), then Start, which stays disabled with inline reasons until the form
- * is complete.
+ * or folder, or find a local iOS backup (S1: iLEAPP, not on Linux); the inspection result, a type
+ * override limited to `allowed_types`, inline overlap and permission errors), Options (timezone,
+ * backup password, keychain, input hashing, label), Modules (all / profile / custom with the module
+ * picker; save, import and export profiles), then Start, which stays disabled with inline reasons
+ * until the form is complete.
  */
 import { appError, errorSlot } from "../components/app-error.js";
 import { backupFinder } from "../components/backup-finder.js";
@@ -157,7 +157,14 @@ export function newRunScreen(ctx) {
       void inspectInput();
     },
     onClose: () => findButton.focus(),
+    // One search at a time: Find is disabled while one runs (its focus goes to the panel).
+    onBusy: (busy) => {
+      if (busy && document.activeElement === findButton) finder.focus();
+      findButton.disabled = busy;
+    },
   });
+  /** @param {ToolId | null} tool */
+  const offerFinder = (tool) => canFindBackups(tool, store.get().appInfo?.os ?? null);
   const inputResultSlot = h("div", { class: "stack-sm" });
 
   // ---- Layout ----
@@ -374,7 +381,7 @@ export function newRunScreen(ctx) {
     if (f.tool === tool) return;
     f.tool = tool;
     // Only a tool that reads iTunes backups offers the finder.
-    if (!canFindBackups(tool)) finder.close();
+    if (!offerFinder(tool)) finder.close();
     renderInput();
     if (f.inputPath) void inspectInput();
     renderOptions();
@@ -386,7 +393,7 @@ export function newRunScreen(ctx) {
   function renderInput() {
     chooseFileButton.disabled = !f.tool;
     chooseFolderButton.disabled = !f.tool;
-    findButton.hidden = !canFindBackups(f.tool);
+    findButton.hidden = !offerFinder(f.tool);
     inputResultSlot.replaceChildren(inputResult());
   }
 

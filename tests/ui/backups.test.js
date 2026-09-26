@@ -109,6 +109,8 @@ test("the default folders and the access guidance follow the OS", () => {
   assert.match(mac.title, /Full Disk Access/);
   assert.ok(mac.steps.some((s) => s.includes("System Settings > Privacy & Security > Full Disk Access")));
   assert.ok(mac.steps.at(-1)?.includes("search again"));
+  // The steps are shown once: the intro does not repeat them.
+  assert.ok(!mac.intro.includes("System Settings"), mac.intro);
   // The macOS guidance is the default while the OS is not known yet.
   assert.deepEqual(accessGuidance(null), mac);
   for (const os of ["windows", "linux"]) {
@@ -117,16 +119,21 @@ test("the default folders and the access guidance follow the OS", () => {
   }
 });
 
-test("only a tool that reads iTunes backups offers the finder", () => {
-  assert.equal(canFindBackups("ileapp"), true);
-  assert.equal(canFindBackups("aleapp"), false);
-  assert.equal(canFindBackups(null), false);
+test("only a tool that reads iTunes backups offers the finder, and not on Linux", () => {
+  for (const os of ["macos", "windows"]) {
+    assert.equal(canFindBackups("ileapp", os), true, os);
+    assert.equal(canFindBackups("aleapp", os), false, os);
+    assert.equal(canFindBackups(null, os), false, os);
+  }
+  // Linux has no default backup folder; an unknown OS offers nothing either.
+  assert.equal(canFindBackups("ileapp", "linux"), false);
+  assert.equal(canFindBackups("ileapp", null), false);
 });
 
-test("a chosen backup is read as itunes when the tool allows it", () => {
+test("a chosen backup is read as itunes only when its inspection says so", () => {
   assert.equal(chosenBackupType(BACKUP_FOLDER), "itunes");
-  // Even when detection said otherwise (e.g. the backup's markers could not be read).
-  assert.equal(chosenBackupType({ ...BACKUP_FOLDER, detected_type: "fs", is_itunes_backup: false }), "itunes");
+  // The inspection decides: no iTunes backup detected → the usual preselection (fs), never itunes.
+  assert.equal(chosenBackupType({ ...BACKUP_FOLDER, detected_type: "fs", is_itunes_backup: false }), "fs");
   // A tool without iTunes input keeps the usual preselection.
   assert.equal(chosenBackupType({ ...BACKUP_FOLDER, detected_type: "fs", allowed_types: ["fs"] }), "fs");
 });

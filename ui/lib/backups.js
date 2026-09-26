@@ -40,12 +40,14 @@ export function failedResult(error) {
 }
 
 /**
- * True when the tool reads iTunes/Finder backups (iLEAPP), so the New run form offers the finder.
+ * True when the New run form offers the finder: the tool reads iTunes/Finder backups (iLEAPP) and
+ * the OS (`app_info.os`) has default backup folders (not Linux).
  * @param {ToolId | null} tool
+ * @param {string | null | undefined} os
  * @returns {boolean}
  */
-export function canFindBackups(tool) {
-  return tool !== null && TOOL_FEATURES[tool].itunes;
+export function canFindBackups(tool, os) {
+  return tool !== null && TOOL_FEATURES[tool].itunes && defaultBackupFolders(os).length > 0;
 }
 
 /**
@@ -143,7 +145,7 @@ export function accessGuidance(os) {
   }
   return {
     title: "Give suiteDFIR Full Disk Access",
-    intro: "macOS protects the Finder backup folder. suiteDFIR can list the backups once it has Full Disk Access:",
+    intro: "To list the Finder backups:",
     steps: [
       "Open System Settings > Privacy & Security > Full Disk Access.",
       "Turn on suiteDFIR. If it is not in the list, add it with the + button.",
@@ -153,12 +155,12 @@ export function accessGuidance(os) {
 }
 
 /**
- * The input type for a backup chosen from the list, after its inspection: `itunes` when the tool
- * allows it for this input (a found backup is an iTunes-format backup), else the usual
- * preselection.
+ * The input type for a backup chosen from the list, after its inspection: `itunes` only when the
+ * inspection found an iTunes backup and allows the type; otherwise the usual preselection, so the
+ * inspection result always decides.
  * @param {InputInspection} inspection
  * @returns {InputType | null}
  */
 export function chosenBackupType(inspection) {
-  return inspection.allowed_types.includes("itunes") ? "itunes" : initialInputType(inspection);
+  return inspection.is_itunes_backup && inspection.allowed_types.includes("itunes") ? "itunes" : initialInputType(inspection);
 }
