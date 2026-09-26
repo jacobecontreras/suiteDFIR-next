@@ -174,7 +174,7 @@ export function newRunScreen(ctx) {
   const inputBody = h(
     "div",
     { class: "stack" },
-    h("div", { class: "inline-row" }, chooseFileButton, chooseFolderButton, findButton, h("span", { class: "muted small" }, "Inputs are only read, never changed.")),
+    h("div", { class: "inline-row" }, chooseFileButton, chooseFolderButton, findButton, h("span", { class: "muted small" }, "suiteDFIR only opens inputs for reading; nothing stops the parser from writing to them.")),
     finder.node,
     inputResultSlot,
   );
