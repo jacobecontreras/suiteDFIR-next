@@ -8,11 +8,11 @@
 #   skipped);
 # - dispatch, for the legs chosen by `os`:  gh workflow run leapp-smoke.yml --ref <branch> -f os=linux
 #
-# Legs: Linux x64 and arm64 in an ubuntu:26.04 container; macos-15 (arm64), macos-15-intel and
-# windows-2025 natively. The container is NOT the app's ubuntu:22.04 build baseline (ci-rust.yml,
-# ARCHITECTURE.md §10): the pinned upstream Linux LEAPP builds need glibc >= 2.43 (iLEAPP) and
-# >= 2.42 (aLEAPP) and fail to start on 22.04 (glibc 2.35), see LEAPP-CLI.md §2. ubuntu:26.04
-# ships glibc 2.43.
+# Legs: Linux x64 and arm64 in an ubuntu:26.04 container; macos-15 (arm64), macos-15-intel,
+# windows-2025 and windows-11-arm (S3) natively. The container is NOT the app's ubuntu:22.04 build
+# baseline (ci-rust.yml, ARCHITECTURE.md §10): the pinned upstream Linux LEAPP builds need glibc
+# >= 2.43 (iLEAPP) and >= 2.42 (aLEAPP) and fail to start on 22.04 (glibc 2.35), see LEAPP-CLI.md
+# §2. ubuntu:26.04 ships glibc 2.43.
 name: leapp-smoke
 
 on:
@@ -215,12 +215,21 @@ jobs:
           retention-days: 1
 
   windows:
-    name: LEAPP smoke (windows-2025)
+    name: LEAPP smoke (${{ matrix.runner }})
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.os == 'windows' || inputs.os == 'all')) ||
       github.event_name == 'schedule' ||
       (github.event_name == 'pull_request' && !github.event.pull_request.draft)
-    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            host: x86_64-pc-windows-msvc
+          # Windows on Arm (S3): the pinned windows-aarch64 LEAPP builds, natively.
+          - runner: windows-11-arm
+            host: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - name: Check out
@@ -228,11 +237,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust (toolchain from rust-toolchain.toml)
+      # The runner's native host, so the tests install this machine's LEAPP builds: an emulated x64
+      # toolchain on windows-11-arm would test the windows-x86_64 ones.
+      - name: Install Rust (native toolchain from rust-toolchain.toml)
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           rustup set profile minimal
+          rustup set default-host "$HOST"
           rustup toolchain install
-          rustc --version
+          rustc -vV
+          rustc -vV | grep -qx "host: $HOST"
+
+      # ring (rustls) compiles its aarch64-pc-windows-msvc assembly with clang; the image's LLVM
+      # provides it.
+      - name: Put clang on PATH (arm64)
+        if: matrix.host == 'aarch64-pc-windows-msvc'
+        run: |
+          if ! command -v clang >/dev/null; then
+            echo 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
+            export PATH="/c/Program Files/LLVM/bin:$PATH"
+          fi
+          clang --version
 
       - name: Build the smoke tests
         run: cargo test -p suitedfir-core --test leapp_smoke --locked --no-run
@@ -246,7 +272,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: leapp-smoke-windows-2025
+          name: leapp-smoke-${{ matrix.runner }}
           path: leapp-smoke.log
           if-no-files-found: warn
           retention-days: 1
