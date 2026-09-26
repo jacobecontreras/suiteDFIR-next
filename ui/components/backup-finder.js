@@ -103,9 +103,9 @@ export function backupFinder({ api, os, onChoose, onClose }) {
       case "empty":
         return [emptyView(), again];
       case "denied":
-        return [appError(result.error, { title: "suiteDFIR may not read the iOS backup folder." }).node, guidance(), again];
+        return [appError(result.error, { title: "The iOS backups could not be listed." }).node, guidance(), again];
       default:
-        return [appError(result.error, { title: "The backup folders could not be searched." }).node, again];
+        return [appError(result.error, { title: "The iOS backups could not be listed." }).node, again];
     }
   }
 

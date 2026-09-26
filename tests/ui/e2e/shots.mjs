@@ -491,7 +491,7 @@ const SCREENS = [
     setup: async (page) => {
       await findBackups(page);
       await page.locator(".backup-finder .app-error").waitFor();
-      await page.getByText("Give suiteDFIR Full Disk Access").waitFor();
+      await page.getByText("Give suiteDFIR Full Disk Access", { exact: true }).waitFor();
       await page.locator(".backup-finder .app-error-detail summary").click();
     },
   },
