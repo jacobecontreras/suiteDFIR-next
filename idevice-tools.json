@@ -42,33 +42,33 @@
   ],
   "platforms": {
     "macos-aarch64": {
-      "bundle": "idevice-tools-1.4.0-macos-aarch64.zip",
-      "bundle_sha256": "f20d9772bfe40432990adce20b40d880a2b44d66cb7557eb8bfabec3bfc1c655",
+      "bundle": "idevice-tools-1.4.0-p1-macos-aarch64.zip",
+      "bundle_sha256": "d53d1716878ea00f09a6c57b732424c1b61b3fee05deefaa9b0ddd0a31e12de0",
       "files": {
-        "idevice_id": "821f5a5507ec2e99a965eec940225917e1e4130b8ffba6382c3382bb84c95b1e",
-        "ideviceinfo": "f11b039404eb3b4e150d3c28b269f0127056ff797192be9bbcfa0a867bb6c2e8",
-        "idevicepair": "5436f36f07f3316176fe364c48e722a04929500eae86bf20826a81d4f1a63288",
-        "idevicebackup2": "cbbcf035e5d36619cedf2fb0f650efecf62a540ddb4a531181f966650ac01b59"
+        "idevice_id": "6dd673fde718de03a541c638c415844ba51f3f794cdc9ee05f0ca346fce1b681",
+        "ideviceinfo": "647fc121c47001aeddceb43a1ecc76f5a9ecfbfeab23ae562ae5d6b63aaad578",
+        "idevicepair": "c8922eacc494bd6866ee5b6cb5e541e1d7f7490138941c1746da9fe1e1ebb2fa",
+        "idevicebackup2": "08a01f73a2e23513738d3c7b36d60d575334c2539646312e5a9fcd8082b08560"
       }
     },
     "macos-x86_64": {
-      "bundle": "idevice-tools-1.4.0-macos-x86_64.zip",
-      "bundle_sha256": "30620c16cc5af259c81679c1ce66226644183f6dfa9c5b6bcd03274a7b7c2ce8",
+      "bundle": "idevice-tools-1.4.0-p1-macos-x86_64.zip",
+      "bundle_sha256": "7c4486f5cdbd829f9ec5202f12374eb8b9bfa9f2b2bfc91bb0bcf003f55585f4",
       "files": {
-        "idevice_id": "aaba44b6576894cf95fce7742b675d4ce09eabb5a313b004507bcdc42a4b83d3",
-        "ideviceinfo": "e6fdb9da91f9843607332c8d43baf780499007632e650648e44047a6f6c223c7",
-        "idevicepair": "76ae89185269a632c55408362845f9bdb22825fe802fc3ce2a139c8e764138de",
-        "idevicebackup2": "6afc855bacf8865d9b7f5cc1d069d30d5f27b52cf7de79f8428de6c93e2de16f"
+        "idevice_id": "98e2e56f77a33aa769411029e1464c735979db67f2a67c621e0b58eff64bfa31",
+        "ideviceinfo": "f2b97b674e0bb7a4cbdf49dd0bc7c5b1932cd071fd609e77465ba4205810a518",
+        "idevicepair": "ca7819c124dd88ee489a0f8f59a33c9bc2601271ebfd4eda44ad2e1c32a738ea",
+        "idevicebackup2": "b7c83022851b2eb4a28eb4c187f51c6dfa4a63df9aec4bf5f7a3f1dd577018f6"
       }
     },
     "windows-x86_64": {
-      "bundle": "idevice-tools-1.4.0-windows-x86_64.zip",
-      "bundle_sha256": "1017062cb87ea6984511595d1dd1839b7753da7d09408641cc7ea8f603456259",
+      "bundle": "idevice-tools-1.4.0-p1-windows-x86_64.zip",
+      "bundle_sha256": "71c8f6fc00f98a075404bc5ff7eefd71cd0011feac6c28a79abb119c11bb2a9b",
       "files": {
-        "idevice_id.exe": "9268561b000144a3571cbfdf416bde3d8b41c21f8c450fcea917e63d8743157b",
-        "ideviceinfo.exe": "35b3200d12581b36e19ba84b1e306d435014dc23ed4bf9fb02fdc9f2cdfa7698",
-        "idevicepair.exe": "29946d1fbb6d88d8686e073dde645b788d3f8b28dbcbcb485bc0ac18b3ca3dc7",
-        "idevicebackup2.exe": "34debc3321f697275d4c6ee99b49a10939cb778f9aa96ea2863c59de3ee3a6e5"
+        "idevice_id.exe": "9d0b2bec0f317be1f5e05658509eccc40a6a8399fe4e5f8ffd58221bb162a5ce",
+        "ideviceinfo.exe": "51ee88953f0d713a9330b3f2f3d9172a76dd0e7d8801771072f736da5b70715f",
+        "idevicepair.exe": "9ac31e77863ef428ee4db25e2b7b3d073ec8c2c2daf076dbacf8f19342848941",
+        "idevicebackup2.exe": "a4d21181be449658c431428dfd28841bebc6c58ec39cc765f21079246339a4e3"
       }
     }
   },

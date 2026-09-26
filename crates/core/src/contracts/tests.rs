@@ -293,7 +293,10 @@ fn case_update_default_timezone_is_required_but_nullable() {
 fn idevice_tools_manifest_parses() {
     let manifest: IdeviceToolsManifest =
         parse_versioned(include_bytes!("../../../../idevice-tools.json")).unwrap();
+    assert_eq!(manifest.schema_version, 1);
     assert_eq!(manifest.version, "1.4.0");
+    // FX1: the patched rebuild of the 1.4.0 sources (docs/IDEVICE-CLI.md §1).
+    assert_eq!(manifest.release, "1.4.0-p1");
     let names: Vec<_> = manifest.sources.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,

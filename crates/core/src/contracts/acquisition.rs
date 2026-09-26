@@ -15,8 +15,13 @@ use super::{
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdeviceToolsManifest {
     pub schema_version: u32,
-    /// The libimobiledevice version.
+    /// The libimobiledevice version (what the tools' `--version` prints and
+    /// `acquisition.json` `tools.version` records).
     pub version: String,
+    /// The tool build: the bundles are assets of the prerelease `idevice-tools-<release>`, named
+    /// `idevice-tools-<release>-<platform>.zip`. `version`, or `version` plus a suffix for a
+    /// rebuild of the same sources (`1.4.0-p1`: with source patches, docs/IDEVICE-CLI.md §1).
+    pub release: String,
     /// Every source tarball the build consumes.
     pub sources: Vec<SourceTarball>,
     /// Pinned hashes of the unsigned build outputs per platform.

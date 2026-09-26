@@ -12,7 +12,7 @@ License texts are reproduced as published; whitespace at line ends is trimmed.
 
 ## libimobiledevice tools
 
-The macOS (arm64 and x64) and Windows x64 builds include `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2` from libimobiledevice 1.4.0, built by `scripts/build-idevice-tools.sh` from the source tarballs below and linked statically. Every release attaches these exact tarballs, the build script and each tool bundle's `BUILDINFO.json`. The Windows arm64 build includes none of this code (there is no pinned build for it, so it has no iOS acquisition), and the Linux builds use the distribution's tools and include none of it either.
+The macOS (arm64 and x64) and Windows x64 builds include `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2` from libimobiledevice 1.4.0, built by `scripts/build-idevice-tools.sh` from the source tarballs and patches below and linked statically. Every release attaches these exact tarballs and patches, the build script and each tool bundle's `BUILDINFO.json`. The Windows arm64 build includes none of this code (there is no pinned build for it, so it has no iOS acquisition), and the Linux builds use the distribution's tools and include none of it either.
 
 | Source tarball | Version | SHA-256 |
 |---|---|---|
@@ -23,6 +23,13 @@ The macOS (arm64 and x64) and Windows x64 builds include `idevice_id`, `idevicei
 | [mbedtls-3.6.7.tar.bz2](https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2) (mbedtls) | 3.6.7 | `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6` |
 | [libimobiledevice-1.4.0.tar.bz2](https://github.com/libimobiledevice/libimobiledevice/releases/download/1.4.0/libimobiledevice-1.4.0.tar.bz2) (libimobiledevice) | 1.4.0 | `23cc0077e221c7d991bd0eb02150a0d49199bcca1ddf059edccee9ffd914939d` |
 
+The build modifies two files, each marked with a "Modified for suiteDFIR" comment at the change, so that the tools can open lockdown SSL sessions: Mbed TLS (`library/x509_crt.c`) accepts a certificate with an empty issuer name, as libimobiledevice's pairing certificates have, and libimobiledevice (`src/idevice.c`) sets no TLS host name, which Mbed TLS 3.6.3 and later require before they verify the device's certificate. The patches are in `scripts/idevice-tools-patches/` and are applied with `patch -p1` to the extracted tarballs; each bundle's `BUILDINFO.json` lists them:
+
+| Patch | Applies to | SHA-256 |
+|---|---|---|
+| `mbedtls-3.6.7-x509-empty-issuer.patch` | `mbedtls-3.6.7.tar.bz2` | `7d30c01afd8b46e69bfd990e8e995aa8579c3b87e92c93a9f5eb89d5d108adfb` |
+| `libimobiledevice-1.4.0-mbedtls-hostname.patch` | `libimobiledevice-1.4.0.tar.bz2` | `52c3b0134d718a2ad453b10537edbaaa0bca6779cafa082d26863d5cf4905035` |
+
 Licenses:
 
 - libimobiledevice, libimobiledevice-glue, libusbmuxd, libplist and libtatsu: GNU Lesser General Public License 2.1 or later (`COPYING.LESSER`). libimobiledevice also ships the GNU General Public License 2.0 (`COPYING`). Both texts follow.
@@ -31,7 +38,7 @@ Licenses:
 - jsmn and time64, compiled into libplist: MIT (`libplist-embedded-notices.txt`).
 - Windows builds only: the MinGW-w64 runtime, linked statically (`mingw-w64/COPYING.MinGW-w64-runtime.txt`).
 
-The texts below are the notice files of the published tool bundles (`idevice-tools-1.4.0-<platform>.zip`, each checked against its `bundle_sha256` in `idevice-tools.json`).
+The texts below are the notice files of the published tool bundles (`idevice-tools-1.4.0-p1-<platform>.zip`, each checked against its `bundle_sha256` in `idevice-tools.json`).
 
 ### `COPYING.LESSER`
 

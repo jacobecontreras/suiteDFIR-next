@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "version": "1.4.0",
+  "release": "1.4.0-p1",
   "sources": [
     {
       "name": "libplist",
@@ -23,8 +24,8 @@
   ],
   "platforms": {
     "macos-aarch64": {
-      "bundle": "idevice-tools-1.4.0-macos-aarch64.zip",
-      "bundle_sha256": "a1458f77c5c69cefa9c592a4e5c1463451e6336b463e2358991901d53c8c7fa4",
+      "bundle": "idevice-tools-1.4.0-p1-macos-aarch64.zip",
+      "bundle_sha256": "60eb9378cfcd2fcf46f522482e2a737b23063defee9acf27bb58e5599d55dcab",
       "files": {
         "idevice_id": "b205f1505de0f041fae51cf1c19d7965c474c3dd0c506e5522036fa656438a43",
         "idevicebackup2": "8691395cc0ff98829db1b609b4081b63c1b1ae34949d10a221f43afb061749e4",
@@ -33,8 +34,8 @@
       }
     },
     "macos-x86_64": {
-      "bundle": "idevice-tools-1.4.0-macos-x86_64.zip",
-      "bundle_sha256": "9519c31c343ce5cd7c3c644b87fd9444c05c9c428e46b32d588c2c0984ae020b",
+      "bundle": "idevice-tools-1.4.0-p1-macos-x86_64.zip",
+      "bundle_sha256": "3abfd191847df1278409f9942ef4780f056151d763354f68362c1ae8fc325062",
       "files": {
         "idevice_id": "078e35a2f03b5291400090f4aaf4116edf5e01889d8cfda6aa2c8927946cc97a",
         "idevicebackup2": "c38b7a79fb8bf6e2a8a9dc753f11e3e17e235eb1f9892eb8207c92237e41a62e",
@@ -43,8 +44,8 @@
       }
     },
     "windows-x86_64": {
-      "bundle": "idevice-tools-1.4.0-windows-x86_64.zip",
-      "bundle_sha256": "847f6fe341b376d573a4251ffcd65e41cca233eff436aa59e5095a985a5d0b3d",
+      "bundle": "idevice-tools-1.4.0-p1-windows-x86_64.zip",
+      "bundle_sha256": "0d9370d07336f706cfb19f3534194bae1b5ba44bb1b9af2a582cd9941fcd7198",
       "files": {
         "idevice_id.exe": "7e8ef377c1b8afe561695c4ba2bfacc99cb5eba5dca35a8dba739b1e1af6711b",
         "idevicebackup2.exe": "ecac6389ceb6c04fc98c16ba91595423130bdf54f2ebc87cfd13727c6f9a3389",

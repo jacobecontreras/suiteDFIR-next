@@ -1,7 +1,8 @@
 //! `cargo xtask fetch-idevice-tools [--target <triple>]` (ROADMAP X1).
 //!
 //! Downloads the pinned libimobiledevice tool bundle for a Tauri target from the
-//! `idevice-tools-<version>` prerelease, verifies `bundle_sha256` and every file hash in
+//! `idevice-tools-<release>` prerelease (the asset `idevice-tools-<release>-<platform>.zip`, with
+//! `release` from `idevice-tools.json`), verifies `bundle_sha256` and every file hash in
 //! `idevice-tools.json`, and installs the files into `src-tauri/binaries/`: the four tools under
 //! their Tauri sidecar names (`<tool>-<target-triple>[.exe]`), any DLLs under their own names.
 //!
@@ -112,12 +113,12 @@ fn fetch(triple: &str, repo_root: &Path) -> Result<String, String> {
         .platforms
         .get(&platform)
         .ok_or_else(|| format!("idevice-tools.json has no bundle for {platform}"))?;
-    check_bundle_files(bundle, platform)?;
+    check_manifest_bundle(&manifest, platform, bundle)?;
 
     let dest_dir = repo_root.join("src-tauri").join("binaries");
     fs::create_dir_all(&dest_dir).map_err(|e| format!("creating {}: {e}", dest_dir.display()))?;
     let zip_path = dest_dir.join(format!("{}.partial", bundle.bundle));
-    let result = download_bundle(&manifest.version, bundle, &zip_path)
+    let result = download_bundle(&manifest.release, bundle, &zip_path)
         .and_then(|()| install(&zip_path, bundle, triple, &dest_dir));
     // The download is only an intermediate; a leftover would be harmless (gitignored, never bundled).
     let _ = fs::remove_file(&zip_path);
@@ -139,6 +140,58 @@ fn fetch(triple: &str, repo_root: &Path) -> Result<String, String> {
 pub(crate) fn read_manifest(path: &Path) -> Result<IdeviceToolsManifest, String> {
     let bytes = fs::read(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
     parse_versioned(&bytes).map_err(|e| e.to_string())
+}
+
+/// The prerelease that holds the tool bundles of the build `release` (the manifest's `release`).
+pub(crate) fn release_tag(release: &str) -> String {
+    format!("idevice-tools-{release}")
+}
+
+/// The asset name of the tool bundle of the build `release` for `platform`.
+pub(crate) fn bundle_asset_name(release: &str, platform: PlatformKey) -> String {
+    format!("idevice-tools-{release}-{platform}.zip")
+}
+
+/// `release` is `version` or `version-<suffix>` with a suffix of ASCII letters, digits and dots
+/// (it becomes part of a tag in a URL path).
+pub(crate) fn check_release(manifest: &IdeviceToolsManifest) -> Result<(), String> {
+    let release = &manifest.release;
+    let ok = match release.strip_prefix(manifest.version.as_str()) {
+        Some("") => !release.is_empty(),
+        Some(rest) => rest.strip_prefix('-').is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'.')
+        }),
+        None => false,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "idevice-tools.json: release {release:?} is not {v:?} or \"{v}-<suffix>\"",
+            v = manifest.version
+        ))
+    }
+}
+
+/// [`check_release`], then the bundle's name must be the release's asset name for `platform`, and
+/// its files must pass [`check_bundle_files`].
+pub(crate) fn check_manifest_bundle(
+    manifest: &IdeviceToolsManifest,
+    platform: PlatformKey,
+    bundle: &ToolBundle,
+) -> Result<(), String> {
+    check_release(manifest)?;
+    let want = bundle_asset_name(&manifest.release, platform);
+    if bundle.bundle != want {
+        return Err(format!(
+            "idevice-tools.json: the {platform} bundle is {:?}, release {} names it {want:?}",
+            bundle.bundle, manifest.release
+        ));
+    }
+    check_bundle_files(bundle, platform)
 }
 
 /// A name that is safe to join to a directory: not empty, not `.`/`..`, and without path
@@ -233,14 +286,14 @@ pub(crate) fn agent() -> ureq::Agent {
         .into()
 }
 
-/// Downloads the bundle's release asset to `dest` and checks its SHA-256 against
-/// `bundle_sha256`. A failed check removes `dest`.
+/// Downloads the bundle's asset from the prerelease of the build `release` to `dest` and checks
+/// its SHA-256 against `bundle_sha256`. A failed check removes `dest`.
 pub(crate) fn download_bundle(
-    version: &str,
+    release: &str,
     bundle: &ToolBundle,
     dest: &Path,
 ) -> Result<(), String> {
-    download_release_asset(&format!("idevice-tools-{version}"), &bundle.bundle, dest)?;
+    download_release_asset(&release_tag(release), &bundle.bundle, dest)?;
     let verified = verify_bundle(dest, bundle);
     if verified.is_err() {
         let _ = fs::remove_file(dest);
@@ -565,12 +618,64 @@ mod tests {
         for (platform, bundle) in &manifest.platforms {
             assert_eq!(
                 bundle.bundle,
-                format!("idevice-tools-{}-{platform}.zip", manifest.version)
+                format!("idevice-tools-{}-{platform}.zip", manifest.release)
             );
-            check_bundle_files(bundle, *platform).unwrap();
+            check_manifest_bundle(&manifest, *platform, bundle).unwrap();
         }
         for source in &manifest.sources {
             assert!(is_sha256_hex(&source.sha256), "{}", source.name);
+        }
+    }
+
+    /// FX1: the prerelease tag and the asset names come from `release`, not from `version` (the
+    /// libimobiledevice version the tools report).
+    #[test]
+    fn the_tag_and_asset_names_come_from_the_release() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let manifest = read_manifest(&root.join("idevice-tools.json")).unwrap();
+        assert_eq!(manifest.version, "1.4.0");
+        assert_eq!(manifest.release, "1.4.0-p1");
+        assert_eq!(release_tag(&manifest.release), "idevice-tools-1.4.0-p1");
+        assert_eq!(
+            bundle_asset_name(&manifest.release, PlatformKey::MacosAarch64),
+            "idevice-tools-1.4.0-p1-macos-aarch64.zip"
+        );
+        assert_eq!(
+            bundle_asset_name(&manifest.release, PlatformKey::WindowsX86_64),
+            "idevice-tools-1.4.0-p1-windows-x86_64.zip"
+        );
+        assert_eq!(
+            manifest.platforms[&PlatformKey::MacosX86_64].bundle,
+            "idevice-tools-1.4.0-p1-macos-x86_64.zip"
+        );
+
+        // A bundle still named after the version (the unpatched build) is refused.
+        let mut stale = manifest.clone();
+        let platform = PlatformKey::MacosAarch64;
+        stale.platforms.get_mut(&platform).unwrap().bundle =
+            "idevice-tools-1.4.0-macos-aarch64.zip".into();
+        let err = check_manifest_bundle(&stale, platform, &stale.platforms[&platform]).unwrap_err();
+        assert!(err.contains("1.4.0-p1-macos-aarch64.zip"), "{err}");
+    }
+
+    #[test]
+    fn the_release_is_the_version_or_a_suffixed_version() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut manifest = read_manifest(&root.join("idevice-tools.json")).unwrap();
+        for (release, ok) in [
+            ("1.4.0", true),
+            ("1.4.0-p1", true),
+            ("1.4.0-p1.2", true),
+            ("1.4.0-", false),
+            ("1.4.0p1", false),
+            ("1.4.1", false),
+            ("", false),
+            ("1.4.0-p1/../x", false),
+            ("1.4.0-p 1", false),
+            ("1.4.0-p1?x", false),
+        ] {
+            manifest.release = release.into();
+            assert_eq!(check_release(&manifest).is_ok(), ok, "{release:?}");
         }
     }
 
@@ -718,22 +823,22 @@ mod tests {
     }
 
     fn release(assets: serde_json::Value) -> serde_json::Value {
-        json!({ "tag_name": "idevice-tools-1.4.0", "assets": assets })
+        json!({ "tag_name": "idevice-tools-1.4.0-p1", "assets": assets })
     }
 
     #[test]
     fn the_asset_is_selected_by_exact_name() {
         let url = format!("{API_BASE}/repos/{RELEASE_REPO}/releases/assets/2");
         let release = release(json!([
-            { "name": "idevice-tools-1.4.0-macos-aarch64.zip.sig", "url": format!("{API_BASE}/x/1"), "size": 1 },
-            { "name": "idevice-tools-1.4.0-macos-aarch64.zip", "url": url, "size": 1_839_147 },
-            { "name": "idevice-tools-1.4.0-macos-x86_64.zip", "url": format!("{API_BASE}/x/3"), "size": 3 },
+            { "name": "idevice-tools-1.4.0-p1-macos-aarch64.zip.sig", "url": format!("{API_BASE}/x/1"), "size": 1 },
+            { "name": "idevice-tools-1.4.0-p1-macos-aarch64.zip", "url": url, "size": 1_839_147 },
+            { "name": "idevice-tools-1.4.0-p1-macos-x86_64.zip", "url": format!("{API_BASE}/x/3"), "size": 3 },
         ]));
         assert_eq!(
-            select_asset(&release, "idevice-tools-1.4.0-macos-aarch64.zip").unwrap(),
+            select_asset(&release, "idevice-tools-1.4.0-p1-macos-aarch64.zip").unwrap(),
             (url, 1_839_147)
         );
-        let err = select_asset(&release, "idevice-tools-1.4.0-windows-x86_64.zip").unwrap_err();
+        let err = select_asset(&release, "idevice-tools-1.4.0-p1-windows-x86_64.zip").unwrap_err();
         assert!(err.contains("no asset"), "{err}");
         assert!(select_asset(&json!({}), "x.zip").is_err());
     }
