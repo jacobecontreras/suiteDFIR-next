@@ -42,8 +42,8 @@
   ],
   "platforms": {
     "macos-aarch64": {
-      "bundle": "idevice-tools-1.4.0-p1-macos-aarch64.zip",
-      "bundle_sha256": "d53d1716878ea00f09a6c57b732424c1b61b3fee05deefaa9b0ddd0a31e12de0",
+      "bundle": "idevice-tools-1.4.0-p2-macos-aarch64.zip",
+      "bundle_sha256": "79e921f5e3a52a89b834012a09e992a257e858a986fe3139c4db5906a27a05d3",
       "files": {
         "idevice_id": "6dd673fde718de03a541c638c415844ba51f3f794cdc9ee05f0ca346fce1b681",
         "ideviceinfo": "647fc121c47001aeddceb43a1ecc76f5a9ecfbfeab23ae562ae5d6b63aaad578",
@@ -52,8 +52,8 @@
       }
     },
     "macos-x86_64": {
-      "bundle": "idevice-tools-1.4.0-p1-macos-x86_64.zip",
-      "bundle_sha256": "7c4486f5cdbd829f9ec5202f12374eb8b9bfa9f2b2bfc91bb0bcf003f55585f4",
+      "bundle": "idevice-tools-1.4.0-p2-macos-x86_64.zip",
+      "bundle_sha256": "3daec1ab0c062aa9a755ad2fbbc031f27452665189db17110d39f6669f3e2735",
       "files": {
         "idevice_id": "98e2e56f77a33aa769411029e1464c735979db67f2a67c621e0b58eff64bfa31",
         "ideviceinfo": "f2b97b674e0bb7a4cbdf49dd0bc7c5b1932cd071fd609e77465ba4205810a518",
@@ -62,13 +62,13 @@
       }
     },
     "windows-x86_64": {
-      "bundle": "idevice-tools-1.4.0-p1-windows-x86_64.zip",
-      "bundle_sha256": "71c8f6fc00f98a075404bc5ff7eefd71cd0011feac6c28a79abb119c11bb2a9b",
+      "bundle": "idevice-tools-1.4.0-p2-windows-x86_64.zip",
+      "bundle_sha256": "afe145f2e33608e8f9dbbe969b7ecb0ffc85659db055e382cbbfcde010068665",
       "files": {
-        "idevice_id.exe": "9d0b2bec0f317be1f5e05658509eccc40a6a8399fe4e5f8ffd58221bb162a5ce",
-        "ideviceinfo.exe": "51ee88953f0d713a9330b3f2f3d9172a76dd0e7d8801771072f736da5b70715f",
-        "idevicepair.exe": "9ac31e77863ef428ee4db25e2b7b3d073ec8c2c2daf076dbacf8f19342848941",
-        "idevicebackup2.exe": "a4d21181be449658c431428dfd28841bebc6c58ec39cc765f21079246339a4e3"
+        "idevice_id.exe": "186fb95a0a67b2fd1fa8aa7520d77dfbd7e470968f7e6f787da01c131646b215",
+        "ideviceinfo.exe": "e9d7132eb9ad44b651101acf17532a0778c02545fc54883471fd241b53acf352",
+        "idevicepair.exe": "48534e3e153649f86aa6acd33082ed54f0d64a7d0c8ae812e28f066ee9f981b0",
+        "idevicebackup2.exe": "592a302c543684ada68ad0d63b25c72cfb786caf12ee645fa230cc2486340f91"
       }
     }
   },

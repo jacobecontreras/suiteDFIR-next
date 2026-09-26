@@ -634,19 +634,19 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let manifest = read_manifest(&root.join("idevice-tools.json")).unwrap();
         assert_eq!(manifest.version, "1.4.0");
-        assert_eq!(manifest.release, "1.4.0-p1");
-        assert_eq!(release_tag(&manifest.release), "idevice-tools-1.4.0-p1");
+        assert_eq!(manifest.release, "1.4.0-p2");
+        assert_eq!(release_tag(&manifest.release), "idevice-tools-1.4.0-p2");
         assert_eq!(
             bundle_asset_name(&manifest.release, PlatformKey::MacosAarch64),
-            "idevice-tools-1.4.0-p1-macos-aarch64.zip"
+            "idevice-tools-1.4.0-p2-macos-aarch64.zip"
         );
         assert_eq!(
             bundle_asset_name(&manifest.release, PlatformKey::WindowsX86_64),
-            "idevice-tools-1.4.0-p1-windows-x86_64.zip"
+            "idevice-tools-1.4.0-p2-windows-x86_64.zip"
         );
         assert_eq!(
             manifest.platforms[&PlatformKey::MacosX86_64].bundle,
-            "idevice-tools-1.4.0-p1-macos-x86_64.zip"
+            "idevice-tools-1.4.0-p2-macos-x86_64.zip"
         );
 
         // A bundle still named after the version (the unpatched build) is refused.
@@ -655,7 +655,7 @@ mod tests {
         stale.platforms.get_mut(&platform).unwrap().bundle =
             "idevice-tools-1.4.0-macos-aarch64.zip".into();
         let err = check_manifest_bundle(&stale, platform, &stale.platforms[&platform]).unwrap_err();
-        assert!(err.contains("1.4.0-p1-macos-aarch64.zip"), "{err}");
+        assert!(err.contains("1.4.0-p2-macos-aarch64.zip"), "{err}");
     }
 
     #[test]
@@ -823,22 +823,22 @@ mod tests {
     }
 
     fn release(assets: serde_json::Value) -> serde_json::Value {
-        json!({ "tag_name": "idevice-tools-1.4.0-p1", "assets": assets })
+        json!({ "tag_name": "idevice-tools-1.4.0-p2", "assets": assets })
     }
 
     #[test]
     fn the_asset_is_selected_by_exact_name() {
         let url = format!("{API_BASE}/repos/{RELEASE_REPO}/releases/assets/2");
         let release = release(json!([
-            { "name": "idevice-tools-1.4.0-p1-macos-aarch64.zip.sig", "url": format!("{API_BASE}/x/1"), "size": 1 },
-            { "name": "idevice-tools-1.4.0-p1-macos-aarch64.zip", "url": url, "size": 1_839_147 },
-            { "name": "idevice-tools-1.4.0-p1-macos-x86_64.zip", "url": format!("{API_BASE}/x/3"), "size": 3 },
+            { "name": "idevice-tools-1.4.0-p2-macos-aarch64.zip.sig", "url": format!("{API_BASE}/x/1"), "size": 1 },
+            { "name": "idevice-tools-1.4.0-p2-macos-aarch64.zip", "url": url, "size": 1_839_147 },
+            { "name": "idevice-tools-1.4.0-p2-macos-x86_64.zip", "url": format!("{API_BASE}/x/3"), "size": 3 },
         ]));
         assert_eq!(
-            select_asset(&release, "idevice-tools-1.4.0-p1-macos-aarch64.zip").unwrap(),
+            select_asset(&release, "idevice-tools-1.4.0-p2-macos-aarch64.zip").unwrap(),
             (url, 1_839_147)
         );
-        let err = select_asset(&release, "idevice-tools-1.4.0-p1-windows-x86_64.zip").unwrap_err();
+        let err = select_asset(&release, "idevice-tools-1.4.0-p2-windows-x86_64.zip").unwrap_err();
         assert!(err.contains("no asset"), "{err}");
         assert!(select_asset(&json!({}), "x.zip").is_err());
     }

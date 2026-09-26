@@ -20,7 +20,7 @@ pub struct IdeviceToolsManifest {
     pub version: String,
     /// The tool build: the bundles are assets of the prerelease `idevice-tools-<release>`, named
     /// `idevice-tools-<release>-<platform>.zip`. `version`, or `version` plus a suffix for a
-    /// rebuild of the same sources (`1.4.0-p1`: with source patches, docs/IDEVICE-CLI.md §1).
+    /// rebuild of the same sources (`1.4.0-p2`: with source patches, docs/IDEVICE-CLI.md §1).
     pub release: String,
     /// Every source tarball the build consumes.
     pub sources: Vec<SourceTarball>,

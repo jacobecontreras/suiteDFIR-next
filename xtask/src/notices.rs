@@ -1034,14 +1034,10 @@ fn render(
     push("");
     if !idevice.patches.is_empty() {
         push(
-            "The build modifies two files, each marked with a \"Modified for suiteDFIR\" comment \
-             at the change, so that the tools can open lockdown SSL sessions: Mbed TLS \
-             (`library/x509_crt.c`) accepts a certificate with an empty issuer name, as \
-             libimobiledevice's pairing certificates have, and libimobiledevice (`src/idevice.c`) \
-             sets no TLS host name, which Mbed TLS 3.6.3 and later require before they verify \
-             the device's certificate. The patches are in `scripts/idevice-tools-patches/` and \
-             are applied with `patch -p1` to the extracted tarballs; each bundle's \
-             `BUILDINFO.json` lists them:",
+            "The build applies the source patches listed below to the extracted tarballs \
+             (`patch -p1`). Each patch marks its change in the modified file with a dated notice \
+             that gives the reason (\"Modified for suiteDFIR on <date>: …\"). The patches are in \
+             `scripts/idevice-tools-patches/`, and each bundle's `BUILDINFO.json` lists them:",
         );
         push("");
         push("| Patch | Applies to | SHA-256 |");

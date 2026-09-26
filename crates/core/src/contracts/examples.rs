@@ -647,8 +647,8 @@ fn tool_bundle(platform: &str, exe: &str, extra: &[&str]) -> ToolBundle {
         .map(|tool| format!("{tool}{exe}"))
         .chain(extra.iter().map(|file| s(file)));
     ToolBundle {
-        bundle: format!("idevice-tools-1.4.0-p1-{platform}.zip"),
-        bundle_sha256: example_sha256(&format!("idevice-tools-1.4.0-p1-{platform}.zip")),
+        bundle: format!("idevice-tools-1.4.0-p2-{platform}.zip"),
+        bundle_sha256: example_sha256(&format!("idevice-tools-1.4.0-p2-{platform}.zip")),
         files: names
             .map(|name| {
                 let hash = example_sha256(&format!("{platform}/{name}"));
@@ -668,7 +668,7 @@ pub fn idevice_tools_manifest() -> IdeviceToolsManifest {
     IdeviceToolsManifest {
         schema_version: IdeviceToolsManifest::SCHEMA_VERSION,
         version: s("1.4.0"),
-        release: s("1.4.0-p1"),
+        release: s("1.4.0-p2"),
         sources: vec![
             source(
                 "libplist",

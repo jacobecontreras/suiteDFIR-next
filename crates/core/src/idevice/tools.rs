@@ -542,7 +542,7 @@ mod tests {
         let manifest = embedded_manifest().unwrap();
         assert_eq!(manifest.version, "1.4.0");
         // The build release (FX1) names the bundles; the tools still report the version.
-        assert_eq!(manifest.release, "1.4.0-p1");
+        assert_eq!(manifest.release, "1.4.0-p2");
         for (platform, bundle) in &manifest.platforms {
             assert_eq!(
                 bundle.bundle,

@@ -296,7 +296,7 @@ fn idevice_tools_manifest_parses() {
     assert_eq!(manifest.schema_version, 1);
     assert_eq!(manifest.version, "1.4.0");
     // FX1: the patched rebuild of the 1.4.0 sources (docs/IDEVICE-CLI.md §1).
-    assert_eq!(manifest.release, "1.4.0-p1");
+    assert_eq!(manifest.release, "1.4.0-p2");
     let names: Vec<_> = manifest.sources.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,

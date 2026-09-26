@@ -527,14 +527,14 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 {
   "schema_version": 1,
   "version": "1.4.0",
-  "release": "1.4.0-p1",
+  "release": "1.4.0-p2",
   "sources": [
     { "name": "libplist", "version": "2.7.0", "url": "https://github.com/libimobiledevice/libplist/releases/download/2.7.0/libplist-2.7.0.tar.bz2", "sha256": "…" },
     { "name": "mbedtls", "version": "3.6.x", "url": "…", "sha256": "…" },
     { "name": "libimobiledevice", "version": "1.4.0", "url": "…/libimobiledevice-1.4.0.tar.bz2", "sha256": "…" }
   ],
   "platforms": {
-    "macos-aarch64":  { "bundle": "idevice-tools-1.4.0-p1-macos-aarch64.zip", "bundle_sha256": "…",
+    "macos-aarch64":  { "bundle": "idevice-tools-1.4.0-p2-macos-aarch64.zip", "bundle_sha256": "…",
                         "files": { "idevice_id": "…", "ideviceinfo": "…", "idevicepair": "…", "idevicebackup2": "…" } },
     "macos-x86_64":   { "…": "same shape" },
     "windows-x86_64": { "…": "same shape; files include .exe names and any required .dll" }
@@ -543,7 +543,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 }
 ```
 
-- **`version` and `release`:** `version` is the libimobiledevice version: the tools' `--version` output and `acquisition.json` `tools.version`. `release` names the tool build: the bundles are assets of the prerelease `idevice-tools-<release>` and are named `idevice-tools-<release>-<platform>.zip`. It is `version`, or `version` with a suffix for a rebuild of the same sources (`1.4.0-p1` adds the source patches, IDEVICE-CLI.md §1).
+- **`version` and `release`:** `version` is the libimobiledevice version: the tools' `--version` output and `acquisition.json` `tools.version`. `release` names the tool build: the bundles are assets of the prerelease `idevice-tools-<release>` and are named `idevice-tools-<release>-<platform>.zip`. It is `version`, or `version` with a suffix for a rebuild of the same sources (`1.4.0-p2` adds the source patches, IDEVICE-CLI.md §1).
 - **What gets pinned:** hashes are of the **unsigned** build outputs. `fetch-idevice-tools` enforces them.
 - **Runtime verification** (`ToolVerification`):
   - `manifest`: file hashes equal these values (unsigned/debug builds).
