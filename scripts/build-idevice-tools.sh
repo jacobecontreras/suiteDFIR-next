@@ -14,8 +14,8 @@
 # - Every source tarball comes from idevice-tools.json and is verified against its SHA-256 before
 #   use. The configure scripts shipped in the tarballs are used as they are (no autoreconf).
 # - The patches in scripts/idevice-tools-patches/ (PATCH_PINS) are verified against their SHA-256
-#   and applied to the extracted tarballs with patch -p1 --forward --fuzz=0; a rejected hunk, fuzz
-#   or an offset fails the build.
+#   and applied to the extracted tarballs with patch -p1 --forward --fuzz=0 --verbose; a rejected
+#   hunk, fuzz or an offset fails the build.
 # - Every library is built with --enable-static --disable-shared, and pkg-config runs with --static,
 #   so the tools link only system libraries. The script checks that (otool -L / objdump -p).
 # - Build tools: autoconf, automake, libtool and pkg-config. If autoconf, automake or pkg-config is
@@ -60,8 +60,8 @@ NOTICE_PINS="
 # manifest source it applies to (-p1, in the extracted tarball's top directory). Every *.patch file
 # in that directory must be pinned here.
 PATCH_PINS="
-mbedtls-3.6.7-x509-empty-issuer.patch 7d30c01afd8b46e69bfd990e8e995aa8579c3b87e92c93a9f5eb89d5d108adfb mbedtls
-libimobiledevice-1.4.0-mbedtls-hostname.patch 52c3b0134d718a2ad453b10537edbaaa0bca6779cafa082d26863d5cf4905035 libimobiledevice
+mbedtls-3.6.7-x509-empty-issuer.patch 5d1825f26b39bbff91cf3201fffe542c44c26118829f16f1b6b67976f58cd6a9 mbedtls
+libimobiledevice-1.4.0-mbedtls-hostname.patch 1a83e3ef2710b3aa4ee7a7424cef1e0dcebffdf09e005be0e007f4d820579f31 libimobiledevice
 "
 
 die() {
@@ -177,7 +177,7 @@ version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$head_part" |
 [[ -n $version ]] || die "no version in $manifest"
 release=$(grep -oE '"release"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$head_part" | sed -nE '1s/.*"([^"]*)"$/\1/p')
 [[ -n $release ]] || die "no release in $manifest"
-# The release is the version, optionally with a suffix (1.4.0-p1); it names the tag and the zip.
+# The release is the version, optionally with a suffix (1.4.0-p2); it names the tag and the zip.
 [[ $release == "$version" || $release =~ ^"$version"-[A-Za-z0-9.]+$ ]] ||
   die "release $release in $manifest is not $version or $version-<suffix>"
 sources_part=${manifest_flat#*\"sources\"}
@@ -354,16 +354,19 @@ for ((i = 0; i < ${#SRC_NAMES[@]}; i++)); do
   tar -xf "$downloads/${url##*/}" -C "$src"
   [[ -d $(src_dir "${SRC_NAMES[$i]}") ]] || die "unexpected layout in ${url##*/}"
 done
-# The patches (hashes checked above). --fuzz=0 and the offset check make any drift fail.
+# The patches (hashes checked above). --fuzz=0 and the offset check make any drift fail; the BSD
+# patch of macOS reports an offset only with --verbose (GNU patch reports it either way).
 for ((i = 0; i < ${#PATCH_FILES[@]}; i++)); do
   file=${PATCH_FILES[$i]}
   d=$(src_dir "${PATCH_SOURCES[$i]}")
   log "applying $file to ${d##*/}"
-  out=$(patch -d "$d" -p1 --forward --fuzz=0 --batch -i "$patch_dir/$file" </dev/null 2>&1) ||
+  out=$(patch -d "$d" -p1 --forward --fuzz=0 --batch --verbose -i "$patch_dir/$file" </dev/null 2>&1) ||
     die "$file does not apply to ${d##*/}: $out"
   if grep -qiE 'offset|fuzz' <<<"$out"; then
     die "$file applied to ${d##*/} with an offset or fuzz: $out"
   fi
+  hunks=$(grep -iE '^hunk' <<<"$out" || true)
+  [[ -z $hunks ]] || log "$hunks"
 done
 notice_paths=()
 while read -r path url sha; do

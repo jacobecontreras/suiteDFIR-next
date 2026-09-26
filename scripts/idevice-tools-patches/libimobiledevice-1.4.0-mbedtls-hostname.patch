@@ -4,7 +4,7 @@
  
  	mbedtls_ssl_setup(&ssl_data_loc->ctx, &ssl_data_loc->config);
  
-+	/* Modified for suiteDFIR: mbedtls 3.6.3 and later refuse to verify a server certificate
++	/* Modified for suiteDFIR on 2026-09-26: mbedtls 3.6.3+ refuses to verify a server certificate
 +	 * unless the host name was set (MBEDTLS_ERR_SSL_CERTIFICATE_VERIFICATION_WITHOUT_HOSTNAME).
 +	 * The device certificate has no host name, and cert_verify_cb accepts it, so set none. */
 +	mbedtls_ssl_set_hostname(&ssl_data_loc->ctx, NULL);

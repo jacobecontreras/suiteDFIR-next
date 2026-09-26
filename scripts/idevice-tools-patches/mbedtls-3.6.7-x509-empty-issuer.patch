@@ -5,10 +5,10 @@
      }
  
 -    if ((ret = mbedtls_x509_get_name(&p, p + len, &crt->issuer)) != 0) {
-+    /* Modified for suiteDFIR: parse the issuer only when it is not empty, as the subject below.
-+     * The pairing certificates that libimobiledevice creates have empty issuer and subject
-+     * names; without this the root certificate of a pair record does not parse, and every
-+     * lockdown SSL session fails. */
++    /* Modified for suiteDFIR on 2026-09-26: parse the issuer only when it is not empty, as the
++     * subject below. The pairing certificates that libimobiledevice creates have empty issuer
++     * and subject names; without this the root certificate of a pair record does not parse, and
++     * every lockdown SSL session fails. */
 +    if (len && (ret = mbedtls_x509_get_name(&p, p + len, &crt->issuer)) != 0) {
          mbedtls_x509_crt_free(crt);
          return ret;
