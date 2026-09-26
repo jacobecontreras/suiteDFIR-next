@@ -11,11 +11,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use common::{FAKE, Lab, UDID};
+use suitedfir_core::acquire;
 use suitedfir_core::contracts::{
-    DevicePromptKind, ErrorCode, IdeviceToolSource, IdeviceToolsState, PairState, ToolVerification,
+    AppError, DevicePromptKind, ErrorCode, IdeviceToolSource, IdeviceToolsState, PairState,
+    PlatformKey, ToolVerification,
 };
 use suitedfir_core::idevice::{
-    Idevice, IdeviceConfig, IdeviceError, OutputLine, Password, ToolLookup, embedded_manifest,
+    Idevice, IdeviceConfig, IdeviceError, OutputLine, Password, ToolLookup, ToolName,
+    embedded_manifest,
 };
 
 /// Calls of `tool` with `arg` among the fake's recorded invocations.
@@ -253,6 +256,71 @@ fn missing_tools_are_reported() {
     assert!(result.devices.is_empty());
     let err = lab.idevice.pair(UDID, None).unwrap_err();
     assert_eq!(err.code(), ErrorCode::IdeviceToolsMissing);
+}
+
+/// S3: Windows arm64 has no pinned tool bundle and no system tools (docs/IDEVICE-CLI.md §7), so
+/// with the embedded manifest acquisition reports `unsupported_platform` with guidance, even when
+/// files with the tools' names lie next to the app and on `PATH`, and the device commands refuse
+/// with `unsupported_platform` without running anything.
+#[test]
+fn windows_arm64_reports_acquisition_as_unsupported() {
+    let manifest = embedded_manifest().unwrap();
+    assert!(
+        !manifest
+            .platforms
+            .contains_key(&PlatformKey::WindowsAarch64)
+    );
+    assert!(
+        !manifest
+            .system_platforms
+            .contains(&PlatformKey::WindowsAarch64)
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let tools = dir.path().join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    for name in ToolName::ALL {
+        // Not runnable: had the lookup used them, the state would not be `unsupported_platform`.
+        fs::write(tools.join(format!("{}.exe", name.as_str())), "not a tool").unwrap();
+    }
+    let cache = dir.path().join("cache");
+    let idevice = Idevice::new(IdeviceConfig {
+        lookup: ToolLookup {
+            platform: Some(PlatformKey::WindowsAarch64),
+            manifest,
+            bundled_dir: Some(tools.clone()),
+            dev_override: None,
+            path_var: Some(tools.clone().into_os_string()),
+            signed_build: false,
+            signing_team_id: None,
+        },
+        app_cache: cache.clone(),
+        env: Vec::new(),
+    });
+
+    let result = idevice.list_devices(None);
+    assert_eq!(result.tools.state, IdeviceToolsState::UnsupportedPlatform);
+    assert_eq!(result.tools.source, None);
+    assert_eq!(result.tools.version, None);
+    let guidance = result.tools.guidance.unwrap();
+    assert!(
+        guidance.contains("not available on this platform"),
+        "{guidance}"
+    );
+    assert!(result.devices.is_empty());
+
+    let err = AppError::from(idevice.pair(UDID, None).unwrap_err());
+    assert_eq!(err.code, ErrorCode::UnsupportedPlatform);
+    assert_eq!(err.message, guidance);
+    let detail = err.detail.unwrap();
+    assert!(detail.contains("windows-aarch64"), "{detail}");
+    assert_eq!(
+        acquire::preflight(&idevice, dir.path(), UDID)
+            .unwrap_err()
+            .code(),
+        ErrorCode::UnsupportedPlatform
+    );
+    // No session was opened (a session makes a scratch dir in the cache).
+    assert!(!cache.exists());
 }
 
 #[test]

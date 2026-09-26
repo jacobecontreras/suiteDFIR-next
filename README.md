@@ -1,6 +1,6 @@
 # suiteDFIR
 
-A small, local desktop app for iOS backup acquisition and for running the iLEAPP and aLEAPP mobile-forensics parsers, with case organization and a defensible audit trail. For macOS (Apple silicon and Intel), Windows x64 and Linux x64.
+A small, local desktop app for iOS backup acquisition and for running the iLEAPP and aLEAPP mobile-forensics parsers, with case organization and a defensible audit trail. For macOS (Apple silicon and Intel), Windows (x64 and arm64) and Linux (x64 and arm64); iOS acquisition is not available on Windows arm64.
 
 > **Status:** phase 1 rewrite, version 0.2.0 in release preparation. The builds are not code-signed yet. The earlier version is [jacobecontreras/suiteDFIR](https://github.com/jacobecontreras/suiteDFIR).
 
@@ -23,7 +23,7 @@ Phase 1 deliberately does **not** include Android acquisition, maps, timelines o
 
 ## Install
 
-Download the dmg (macOS), the online or offline installer (Windows) or the AppImage/deb (Linux) from the releases page and check it against `SHA256SUMS`. The [user guide](docs/USER-GUIDE.md) covers installation per system, including the steps for unsigned builds, the iOS acquisition prerequisites, and the Linux parser requirement (glibc 2.43 or later).
+Download the dmg (macOS), the online or offline installer (Windows x64), the online installer (Windows arm64) or the AppImage/deb (Linux x64 and arm64) from the releases page and check it against `SHA256SUMS`. The Windows arm64 build has no iOS tools, so it parses but cannot acquire iOS backups. The [user guide](docs/USER-GUIDE.md) covers installation per system, including the steps for unsigned builds, the iOS acquisition prerequisites, and the Linux parser requirement (glibc 2.43 or later).
 
 ## Privacy
 

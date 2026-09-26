@@ -98,7 +98,8 @@ fn platform_for_triple(triple: &str) -> Result<PlatformKey, String> {
             let known: Vec<_> = TARGETS.iter().map(|(t, _)| *t).collect();
             format!(
                 "no pinned iOS tool bundle for target {triple} (bundles exist for {}; \
-                 Linux uses the distro's tools)",
+                 Linux uses the distro's tools, and Windows arm64 has none: no iOS acquisition \
+                 there)",
                 known.join(", ")
             )
         })
@@ -589,6 +590,9 @@ mod tests {
         );
         let err = platform_for_triple("x86_64-unknown-linux-gnu").unwrap_err();
         assert!(err.contains("distro"), "{err}");
+        // S3: the Windows arm64 release leg bundles no tools (no pinned build).
+        let err = platform_for_triple("aarch64-pc-windows-msvc").unwrap_err();
+        assert!(err.contains("Windows arm64 has none"), "{err}");
     }
 
     /// The default target agrees with the core's platform, which is derived independently from the
