@@ -41,7 +41,7 @@ aLEAPP **v2026.4.1**:
 
 **Licensing:**
 - LEAPP is MIT-licensed. The zips contain no LICENSE file, so ship the notice ourselves.
-- The binaries bundle libheif/libde265 (LGPL-3). If we ever redistribute the binaries (mirror or offline bundle), include those notices too.
+- The iLEAPP binaries bundle the pillow-heif package with libheif and libde265 (LGPL-3.0) and libx265 (GPL-2.0-or-later). Seen in the macOS arm64 iLEAPP v2026.4.2 build (`pillow_heif/.dylibs/libheif.1.23.1.dylib`, `libde265.0.2.1.dylib`, `libx265.216.dylib`, K9 inspection); the macOS arm64 aLEAPP v2026.4.1 build contains none of them. THIRD-PARTY-NOTICES.md carries the libheif and libde265 license files. suiteDFIR does not redistribute the binaries; mirroring them (H2) would also carry x265's GPL source obligation.
 
 ## 2. Packaging per platform
 
@@ -227,7 +227,7 @@ E3 resolved every earlier UNVERIFIED item with real runs (`crates/core/tests/lea
 - **The password prompt** after `setsid` / in a job with stdin null: EOF and exit 0 on macOS and Linux; blocks on Windows until cancelled (Q5). suiteDFIR requires the password first, also when the backup's encryption cannot be read (owner decision, K8), so it never gets there. (The fake-leapp `prompt` scenario keeps its CONTRACTS.md §7.4 outcome as a stand-in for a prompt that fails.)
 - **AppImage `entry_sha256`:** pinned for linux-x86_64 and linux-aarch64 (§2).
 
-Left for the human QA pass (G2), because CI has neither a desktop session nor encrypted evidence:
+Left for the human QA pass (G2, [QA-CHECKLIST.md](QA-CHECKLIST.md) §2-§3, with the unverified linux-aarch64 minimum glibc), because CI has neither a desktop session nor encrypted evidence:
 
 1. **Windows:** the LEAPP console window stays hidden (`CREATE_NO_WINDOW`) while a run is watched in the app on a desktop session.
 2. **The iTunes password never appears** in `Screen_Output.html`, `_lava_data.lava` or other report files of a run on a real encrypted backup (only the redacted argv is recorded; LEAPP gets it in argv, D15).

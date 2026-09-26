@@ -155,6 +155,8 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 
 ## 8. UNVERIFIED items (X3a/X3b tests + human QA must resolve)
 
+Each item is in the human checklist, [QA-CHECKLIST.md](QA-CHECKLIST.md) §4.
+
 1. `SnapshotState == "finished"` and `Manifest.db` presence on iOS 17/18/26.
 2. Exact on-device prompts (passcode for backup / encryption) per iOS version, and their console lines.
 3. Real-device progress output cadence (bursts, `Finished` lines).
