@@ -31,9 +31,11 @@ Download the files for your system from the release page, together with `SHA256S
 | macOS 11 or later, Intel | `suiteDFIR_0.2.0_x64.dmg` | iOS tools included |
 | Windows 10/11 x64 | `suiteDFIR_0.2.0_x64-online-setup.exe` | Downloads the WebView2 runtime during setup if it is missing |
 | Windows 10/11 x64, offline | `suiteDFIR_0.2.0_x64-offline-setup.exe` | Includes the WebView2 runtime installer (for machines without internet access) |
+| Windows 10/11 on Arm (arm64) | `suiteDFIR_0.2.0_arm64-online-setup.exe` | Online installer only: downloads the WebView2 runtime during setup if it is missing. **No iOS acquisition** (below) |
 | Linux x64 (glibc 2.35 or later) | `suiteDFIR_0.2.0_amd64.AppImage` or `suiteDFIR_0.2.0_amd64.deb` | Uses the distribution's iOS tools; the parsers need glibc 2.43 (below) |
+| Linux arm64 (glibc 2.35 or later) | `suiteDFIR_0.2.0_aarch64.AppImage` or `suiteDFIR_0.2.0_arm64.deb` | As Linux x64 |
 
-The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project from pinned source releases and are part of the macOS and Windows apps. Their source code and build script are attached to every release (see `THIRD-PARTY-NOTICES.md`).
+The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project from pinned source releases and are part of the macOS and Windows x64 apps. Their source code and build script are attached to every release (see `THIRD-PARTY-NOTICES.md`). There is no build of them for Windows on Arm, so the arm64 Windows app parses evidence but cannot acquire iOS backups: its Acquire screen says "iOS acquisition is not available on this platform." Acquire on a Mac, a Windows x64 PC or Linux, and parse the case there or copy it over.
 
 ### macOS
 
@@ -52,6 +54,7 @@ The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project 
 1. Choose the installer:
    - **Online** (`…-online-setup.exe`): small. suiteDFIR needs the Microsoft Edge WebView2 Runtime; Windows 11 and current Windows 10 have it. If it is missing, the installer downloads it, which needs internet access.
    - **Offline** (`…-offline-setup.exe`): includes the WebView2 Runtime installer. Use it on machines without internet access (for example an air-gapped lab machine).
+   - **Windows on Arm** (`…_arm64-online-setup.exe`): the online installer for arm64 PCs. There is no arm64 offline installer (the packaging tool would embed the x86 WebView2 installer), so a machine without the WebView2 Runtime needs internet access during setup; Windows 11 on Arm includes the runtime.
 2. Run the installer. Because it is unsigned, SmartScreen shows "Windows protected your PC": click **More info**, check that the publisher is shown as unknown and the file name is the one you verified, then **Run anyway**. The installer installs for the current user and needs no administrator rights.
 3. Uninstall from **Settings → Apps → Installed apps**. Uninstalling never touches your case folders.
 
@@ -59,7 +62,7 @@ The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project 
 
 ### Linux
 
-The app itself runs on Ubuntu 22.04 (glibc 2.35) and newer distributions with WebKitGTK 4.1.
+The app itself runs on Ubuntu 22.04 (glibc 2.35) and newer distributions with WebKitGTK 4.1, on x64 and arm64. The commands below use the x64 file names; on arm64 use `suiteDFIR_0.2.0_aarch64.AppImage` and `suiteDFIR_0.2.0_arm64.deb`.
 
 - **AppImage** (bundles WebKitGTK): `chmod +x suiteDFIR_0.2.0_amd64.AppImage`, then run it. If it does not start because FUSE is missing, install your distribution's FUSE 2 package (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04 and later), or run it as `./suiteDFIR_0.2.0_amd64.AppImage --appimage-extract-and-run`.
 - **deb** (Debian, Ubuntu): `sudo apt install ./suiteDFIR_0.2.0_amd64.deb`. It installs the WebKitGTK and GTK packages it needs. It does not depend on the iOS tools; install those only if you acquire iOS backups (section 6).
@@ -105,7 +108,9 @@ suiteDFIR runs the official iLEAPP and aLEAPP command-line builds at pinned vers
 | macOS Apple silicon | `ileapp-v2026.4.2-macOS_Apple_Silicon.zip` | `aleapp-v2026.4.1-macOS_Apple_Silicon.zip` |
 | macOS Intel | `ileapp-v2026.4.2-macOS_Mac_Intel.zip` | `aleapp-v2026.4.1-macOS_Mac_Intel.zip` |
 | Windows x64 | `ileapp-v2026.4.2-Windows_x86_64.zip` | `aleapp-v2026.4.1-Windows_x86_64.zip` |
+| Windows on Arm | `ileapp-v2026.4.2-Windows_arm64.zip` | `aleapp-v2026.4.1-Windows_arm64.zip` |
 | Linux x64 | `ileapp-v2026.4.2-Linux_x86_64.AppImage` | `aleapp-v2026.4.1-Linux_x86_64.AppImage` |
+| Linux arm64 | `ileapp-v2026.4.2-Linux_arm64.AppImage` | `aleapp-v2026.4.1-Linux_arm64.AppImage` |
 
 Their SHA-256 values are in `docs/LEAPP-CLI.md` §1 and in the app's `leapp-manifest.json`.
 
@@ -182,7 +187,7 @@ suiteDFIR takes a full iTunes-style backup of an iPhone or iPad over USB into th
 ### Prerequisites
 
 - **macOS:** nothing to install.
-- **Windows (x64):** install the **Apple Devices** app (Microsoft Store) or iTunes, so that the **Apple Mobile Device Service** runs. Windows on Arm is not supported for acquisition.
+- **Windows (x64):** install the **Apple Devices** app (Microsoft Store) or iTunes, so that the **Apple Mobile Device Service** runs. Windows on Arm is not supported for acquisition: there is no build of the iOS tools for it, and the Acquire screen says "iOS acquisition is not available on this platform."
   - The acquisition folder must be an ASCII-only path of at most 150 characters (the tools use the old ANSI file functions), so keep the cases folder short and plain, for example `C:\Cases`. Otherwise the app refuses to start (`path_not_supported_by_tool`).
   - Backup-encryption passwords must be printable ASCII on Windows (letters, digits, spaces and the usual punctuation, no accents or other scripts). The tools read the password in the Windows ANSI code page, so other characters would reach the device as different bytes and the backup could not be decrypted with the password you typed. The app refuses such a password (`invalid_input`) before it changes anything on the device.
 - **Linux:** install the distribution's packages and start the service:
@@ -194,7 +199,7 @@ suiteDFIR takes a full iTunes-style backup of an iPhone or iPad over USB into th
   sudo systemctl start usbmuxd
   ```
 
-  suiteDFIR uses these tools from `PATH` and records their hashes; it cannot verify them against pinned builds as it does on macOS and Windows. Older packages may not support the newest iOS versions.
+  suiteDFIR uses these tools from `PATH` and records their hashes; it cannot verify them against pinned builds as it does on macOS and Windows x64. Older packages may not support the newest iOS versions.
 
 **"The Apple device service is not available."** The tools report every failure to reach the USB device service (usbmuxd) with the same message ("Unable to retrieve device list"), so suiteDFIR cannot tell a missing service from one that is installed but not reachable. Check, in order:
 
@@ -303,7 +308,7 @@ The app's own folders (**Settings → About** shows the exact paths): settings, 
 | macOS: the app "is damaged" or cannot be checked | Section 1, macOS (unsigned build). |
 | macOS: a Finder backup cannot be read | Grant Full Disk Access (section 1). |
 | Windows: SmartScreen blocks the installer | **More info → Run anyway** after checking the hash. |
-| Windows: the window stays empty on a machine without internet | Install with the offline installer (WebView2). |
+| Windows: the window stays empty on a machine without internet | Install with the offline installer (WebView2). On Windows on Arm, which has no offline installer, install the Microsoft Edge WebView2 Runtime first (its arm64 standalone installer), or run setup with internet access. |
 | Windows: parsers blocked by AppLocker/WDAC | Move the tools folder to an approved location (section 1). |
 | Linux: blank or flickering window | `WEBKIT_DISABLE_DMABUF_RENDERER=1` (section 1). |
 | Linux: parser install fails with a glibc message | The parsers need glibc 2.43 (section 1). |

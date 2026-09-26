@@ -12,13 +12,14 @@ Keep real evidence, passwords and device data out of the repository and out of i
 
 ## 1. Installers and first start
 
-- [ ] **[all]** Each installer on each OS installs and starts: the macOS arm64 and x64 dmg, the Windows online and offline installers, the Linux AppImage and deb.
+- [ ] **[all]** Each installer on each OS installs and starts: the macOS arm64 and x64 dmg, the Windows x64 online and offline installers, the Linux x64 AppImage and deb, and, where an arm64 machine is available, the Windows arm64 online installer and the Linux arm64 AppImage and deb (S3; CI only builds them).
+  - [ ] **[Windows]** On Windows on Arm: the parsers install (the windows-aarch64 builds) and a parse runs; the Acquire screen shows "iOS acquisition is not available on this platform." and offers no device or backup action.
   - [ ] **[macOS]** The unsigned app: the Gatekeeper refusal and the way past it described in the user guide (Open Anyway, or `xattr -dr com.apple.quarantine`), on macOS 11 (the minimum) and the current release; the x64 dmg on an Intel Mac or under Rosetta.
   - [ ] **[Windows]** SmartScreen on the unsigned installers; the installation needs no administrator rights; uninstalling leaves the case folders untouched.
   - [ ] **[Windows]** The offline installer on a machine without internet access and without the WebView2 runtime (for example a fresh Windows 10 VM): WebView2 is installed from the installer and the app starts.
   - [ ] **[Windows]** The online installer on a machine without WebView2 but with internet access downloads it.
   - [ ] **[Linux]** The AppImage starts (with and without FUSE); the deb installs with `apt` on Ubuntu 22.04 and 24.04; the `WEBKIT_DISABLE_DMABUF_RENDERER=1` fallback on a machine or VM with a blank window.
-- [ ] **[all]** The bundled iOS tools are verified: the Acquire screen shows the tools as ready (no verification banner); in `acquisition.json`, `tools.binaries.*.verified_against` is `manifest` (macOS, Windows) or `recorded_only` (Linux).
+- [ ] **[all]** The bundled iOS tools are verified: the Acquire screen shows the tools as ready (no verification banner); in `acquisition.json`, `tools.binaries.*.verified_against` is `manifest` (macOS, Windows x64) or `recorded_only` (Linux).
 - [ ] **[macOS] [Windows]** Once signing is set up (H1): signed builds verify their bundled tools (`code_signature` on macOS). `release.yml` does not check this yet: its signed macOS legs skip the bundled-tool check, and its Windows leg checks `target\release` rather than the installed payload. Check an installed signed build by hand until the workflow does.
 - [ ] **[all]** Settings → About: versions, paths, the privacy statement, and **Third-party licenses** shows `THIRD-PARTY-NOTICES.md`.
 - [ ] **[all]** A second instance shows a message and exits, without a window and without touching the first instance's state.
