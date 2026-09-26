@@ -308,6 +308,15 @@ impl QuitFlow {
         *self.0.lock().unwrap_or_else(PoisonError::into_inner) = state;
     }
 
+    /// The answer to "finishing safely…": true to quit at once ("Quit anyway"). "Wait" keeps the
+    /// app finishing, and the next close shows the dialog again.
+    pub fn answered_finishing(&self, quit_anyway: bool) -> bool {
+        if !quit_anyway {
+            self.set(QuitState::Finishing);
+        }
+        quit_anyway
+    }
+
     /// A close or quit request with `plan`: what to do, and the next state.
     pub fn on_close(&self, plan: QuitPlan) -> CloseAction {
         let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -492,12 +501,10 @@ fn ask_finishing(app: &AppHandle, id: String) {
          with its encryption warnings, when the case is next opened.",
         "Quit anyway",
         "Wait",
-        move |yes| {
-            if yes {
+        move |quit_anyway| {
+            if QUIT.answered_finishing(quit_anyway) {
                 log::warn!("quit anyway while {id} was finishing");
                 quit.exit(0);
-            } else {
-                QUIT.set(QuitState::Finishing);
             }
         },
     );
@@ -597,8 +604,11 @@ mod tests {
             CloseAction::Start(acquisition())
         );
         assert_eq!(flow.on_close(acquisition()), CloseAction::Hold);
-        // "Cancel and quit", then "finishing safely…" is open (Asking); "Wait":
-        flow.set(QuitState::Finishing);
+        // "Cancel and quit", then "finishing safely…" is open (Asking); "Wait" does not quit and
+        // leaves the app finishing.
+        assert_eq!(flow.state(), QuitState::Asking);
+        assert!(!flow.answered_finishing(false));
+        assert_eq!(flow.state(), QuitState::Finishing);
         // The next close shows it again, so "Quit anyway" stays reachable, once per close.
         assert_eq!(
             flow.on_close(acquisition()),
@@ -606,6 +616,8 @@ mod tests {
         );
         assert_eq!(flow.state(), QuitState::Asking);
         assert_eq!(flow.on_close(acquisition()), CloseAction::Hold);
+        // "Quit anyway" quits.
+        assert!(flow.answered_finishing(true));
         flow.set(QuitState::Finishing);
         assert_eq!(
             flow.on_close(acquisition()),

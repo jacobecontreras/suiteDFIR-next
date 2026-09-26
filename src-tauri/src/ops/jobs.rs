@@ -15,11 +15,13 @@ use suitedfir_core::contracts::{
 use suitedfir_core::process;
 use suitedfir_core::run::record::{self, REPORT_DIR, REPORT_MANIFEST, STDERR_LOG, STDOUT_LOG};
 use suitedfir_core::run::status::INDEX_HTML;
-use suitedfir_core::runner::{self, RunContext};
+use suitedfir_core::runner::{self, RunContext, RunControl};
 
 use super::app_error;
 use crate::policy;
-use crate::state::{AppState, Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber, lock};
+use crate::state::{
+    AppState, Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber, lock, panic_message,
+};
 
 /// The event subscriber of `job_attach`, for either kind of job.
 pub enum AttachSubscriber {
@@ -74,6 +76,7 @@ impl AppState {
         });
         log::info!("run {id} started ({tool}) in {}", case_dir.display());
         let guard = JobGuard::new(Arc::clone(self), id.clone());
+        let control = job.control();
         let thread_id = id.clone();
         let spawned = thread::Builder::new()
             .name(format!("run-{id}"))
@@ -104,21 +107,19 @@ impl AppState {
                             log::error!("run {thread_id}: the final run.json was not written: {e}");
                         }
                     }
-                    Err(_) => {
-                        log::error!("run {thread_id}: its thread panicked");
-                        // Recovered while the slot is still held, so no new job's record is
-                        // touched; then the slot is freed and the UI hears `finished`.
-                        let finished = (!guard.is_freed())
-                            .then(|| panicked_run_finished(&case_dir, &thread_id))
-                            .flatten();
-                        guard.free();
-                        if let Some(event) = finished {
-                            stream.emit(&event);
+                    Err(payload) => {
+                        log::error!(
+                            "run {thread_id}: its thread panicked: {}",
+                            panic_message(payload.as_ref())
+                        );
+                        // Already finished (the record is final): nothing is left to stop.
+                        if !guard.is_freed() {
+                            end_panicked_run(&control, &guard, &stream, &case_dir, &thread_id);
                         }
                     }
                 }
-                // Dropping the guard frees the slot if nothing did (once only: by now another
-                // job may hold it).
+                // Dropping the guard frees the slot if nothing did or kept it (once only: by
+                // now another job may hold it).
                 drop(guard);
             });
         if let Err(e) = spawned {
@@ -317,20 +318,52 @@ impl AppState {
     }
 }
 
-/// After a run thread panicked: the run's record is recovered as `interrupted` (as the next case
-/// open would; CONTRACTS.md §7.2), and `finished` reports it. `None` (logged) if the record
-/// cannot be read or recovered.
-pub(super) fn panicked_run_finished(case_dir: &Path, run_id: &str) -> Option<RunEvent> {
-    if let Err(e) = record::recover_case(case_dir, None, Timestamp::now()) {
-        log::error!("run {run_id}: recovering its record failed: {e}");
+/// After a run thread panicked (before `finished`): cancel, and wait (bounded) until LEAPP's
+/// process tree is gone and the input hashing has stopped. Only then is the record recovered as
+/// `interrupted`, the slot freed and `finished` sent, so nothing of the run writes into its
+/// folder or temp dir after its record is final and another job may start. If that cannot be
+/// confirmed, the slot stays taken (logged) until the app restarts.
+fn end_panicked_run(
+    control: &RunControl,
+    guard: &JobGuard,
+    stream: &Stream<RunEvent>,
+    case_dir: &Path,
+    run_id: &str,
+) {
+    let stopped = control.stop_after_panic(runner::RUN_STOP_WAIT);
+    if !stopped {
+        log::error!("run {run_id}: LEAPP's process tree or the input hashing is still running");
     }
+    guard.end_after_panic(stopped, stream, || panicked_run_finished(case_dir, run_id));
+}
+
+/// The run's record recovered as `interrupted`, with the internal-error message (not "when the
+/// case was next opened"), and its `finished` event. `None` (logged) if the record cannot be read
+/// or recovered.
+pub(super) fn panicked_run_finished(case_dir: &Path, run_id: &str) -> Option<RunEvent> {
     let runs = case::discover_runs(case_dir)
         .map_err(|e| log::error!("run {run_id}: its record cannot be read: {e}"))
         .ok()?;
-    let Some(run) = runs.into_iter().find(|run| run.record.run_id == run_id) else {
+    let Some(mut run) = runs.into_iter().find(|run| run.record.run_id == run_id) else {
         log::error!("run {run_id}: its record was not found");
         return None;
     };
+    match record::recover_with(
+        &run.dir,
+        &mut run.record,
+        Timestamp::now(),
+        record::INTERNAL_ERROR_MESSAGE,
+    ) {
+        Ok(()) => {}
+        // Written as interrupted, only not read-only.
+        Err(e @ record::RecordError::NotReadOnly { .. }) => {
+            log::warn!("run {run_id}: recovered, but {e}");
+        }
+        Err(e) => {
+            log::error!("run {run_id}: recovering its record failed: {e}");
+            return None;
+        }
+    }
     Some(RunEvent::Finished {
         status: run.record.status,
         reasons: run.record.status_reasons.clone(),

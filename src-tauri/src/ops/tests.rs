@@ -18,6 +18,7 @@ use suitedfir_core::contracts::{
     RunRef, RunRequest, RunStatus, SettingsDefaults, SettingsUpdateRequest, Timestamp, ToolId,
     ToolState, ToolsDirUpdate, examples,
 };
+use suitedfir_core::process::ProcessWatch;
 use suitedfir_core::runner::RunControl;
 
 use super::AttachSubscriber;
@@ -336,77 +337,270 @@ fn a_job_being_started_takes_the_slot_without_locking_it() {
     );
 }
 
-/// N4: a job thread that panics does not leave a phantom active job: its guard frees the slot,
-/// and its record is recovered as `interrupted` for the `finished` event.
+/// A subscriber that panics on the first event `trigger` accepts, after noting the process `pid`
+/// returns (the job's tool, then running), and records every other event.
+struct PanickyRecorder<E> {
+    events: Arc<Mutex<Vec<E>>>,
+    watch: Arc<Mutex<Option<ProcessWatch>>>,
+}
+
+fn panicky_subscriber<E: Clone + Send + 'static>(
+    trigger: impl Fn(&E) -> bool + Send + 'static,
+    pid: impl Fn() -> Option<u32> + Send + 'static,
+) -> (Subscriber<E>, PanickyRecorder<E>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let watch = Arc::new(Mutex::new(None));
+    let panicked = AtomicBool::new(false);
+    let (sink, seen) = (Arc::clone(&events), Arc::clone(&watch));
+    let subscriber: Subscriber<E> = Box::new(move |event: &E| {
+        if !panicked.load(Ordering::SeqCst) && trigger(event) {
+            *seen.lock().unwrap() = pid().map(ProcessWatch::open);
+            panicked.store(true, Ordering::SeqCst);
+            panic!("test: the subscriber panics once");
+        }
+        sink.lock().unwrap().push(event.clone());
+    });
+    (subscriber, PanickyRecorder { events, watch })
+}
+
+/// M14 (N4): a run thread that panics (here: its subscriber, on the first log batch) stops
+/// LEAPP's process tree before it frees the slot; the record is recovered as `interrupted` with
+/// the internal-error message and is read-only; `finished` is sent once.
 #[test]
-fn a_job_that_panics_frees_the_slot_and_ends_interrupted() {
+fn a_run_thread_that_panics_stops_leapp_before_freeing_the_slot() {
     let lab = lab_state();
     let state = &lab.state;
     let case = new_case(&lab);
-    let run_id = "20260924-183005Z-ileapp-3f9a1c";
-    let dir = case.join("runs").join(run_id);
-    fs::create_dir_all(&dir).unwrap();
-    let mut record = examples::run_record_initial();
-    record.run_id = run_id.to_owned();
-    fs::write(dir.join("run.json"), serde_json::to_vec(&record).unwrap()).unwrap();
-    let (subscriber, _) = collector::<RunEvent>();
+    let input = evidence(&lab);
+    set_leapp_scenario(&lab, "slow");
+    let pid_state = Arc::clone(state);
+    let (subscriber, recorder) = panicky_subscriber(
+        |event: &RunEvent| matches!(event, RunEvent::Log { .. }),
+        move || match pid_state.jobs.lock().job.as_ref().map(|job| &job.handle) {
+            Some(JobHandle::Run { control, .. }) => control.process_id(),
+            _ => None,
+        },
+    );
+    let run = state
+        .run_start(run_request(&case, &input), subscriber)
+        .unwrap();
+    assert!(state.jobs.wait_idle(Some(WAIT)));
+    // The slot is free: by then LEAPP's tree was gone.
+    let watch = recorder.watch.lock().unwrap().take().expect("LEAPP ran");
+    assert!(!watch.is_alive(), "LEAPP outlived the freed slot");
+    wait_finished(&recorder.events, run_finished);
+    let events = recorder.events.lock().unwrap();
+    let finished: Vec<&RunEvent> = events.iter().filter(|e| run_finished(e)).collect();
+    assert_eq!(finished.len(), 1, "{finished:?}");
+    let RunEvent::Finished {
+        status, reasons, ..
+    } = finished[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(*status, RunStatus::Interrupted);
+    assert_eq!(reasons[0].code, "app_interrupted");
+    assert_eq!(
+        reasons[0].message,
+        suitedfir_core::run::record::INTERNAL_ERROR_MESSAGE
+    );
+    drop(events);
+    let file = PathBuf::from(&run.run_dir).join("run.json");
+    let record: suitedfir_core::contracts::RunRecord =
+        suitedfir_core::contracts::parse_versioned(&fs::read(&file).unwrap()).unwrap();
+    assert_eq!(record.status, RunStatus::Interrupted);
+    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    // Another job can start.
+    set_leapp_scenario(&lab, "success");
+    let (subscriber, events) = collector::<RunEvent>();
+    state
+        .run_start(run_request(&case, &input), subscriber)
+        .unwrap();
+    assert!(state.jobs.wait_idle(Some(WAIT)));
+    wait_finished(&events, run_finished);
+}
+
+/// M14 (N4) for acquisitions: a panic during the backup stops the backup's tree before the slot
+/// is freed; the record is `interrupted`, read-only, and carries the encryption warning (the
+/// examiner's encryption was not restored).
+#[test]
+fn an_acquisition_thread_that_panics_stops_the_backup_before_freeing_the_slot() {
+    let lab = lab_state();
+    let state = &lab.state;
+    let case = new_case(&lab);
+    lab.state.replace_idevice(lab.idevice_config("slow"));
+    let pid_file = lab.device_state.join("backup.pid");
+    let (subscriber, recorder) = panicky_subscriber(
+        // The backup is running once it printed this.
+        |event: &AcqEvent| matches!(event, AcqEvent::Log { lines } if lines.iter().any(|l| l == "Full backup mode.")),
+        move || {
+            // fake-idevice writes the slow backup's pid once it runs.
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                if let Ok(pid) = fs::read_to_string(&pid_file)
+                    && let Ok(pid) = pid.trim().parse()
+                {
+                    return Some(pid);
+                }
+                if std::time::Instant::now() > deadline {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        },
+    );
+    let mut request = acq_request(&case);
+    request.enable_encryption = true;
+    request.encryption_password = Some("k8-Panic-Pw!".to_owned());
+    let acq = state.acq_start(request, subscriber).unwrap();
+    assert!(state.jobs.wait_idle(Some(WAIT)));
+    let watch = recorder
+        .watch
+        .lock()
+        .unwrap()
+        .take()
+        .expect("the backup ran");
+    assert!(!watch.is_alive(), "the backup outlived the freed slot");
+    wait_finished(&recorder.events, acq_finished);
+    let events = recorder.events.lock().unwrap();
+    assert_eq!(events.iter().filter(|e| acq_finished(e)).count(), 1);
+    drop(events);
+    let record = suitedfir_core::acquire::load(&case, &acq.acq_id).unwrap();
+    assert_eq!(record.status, AcqStatus::Interrupted);
+    assert_eq!(
+        record.status_reasons[0].message,
+        suitedfir_core::acquire::record::INTERNAL_ERROR_MESSAGE
+    );
+    assert!(
+        record
+            .warnings
+            .iter()
+            .any(|w| w.code == "encryption_left_enabled"),
+        "{:?}",
+        record.warnings
+    );
+    let file = PathBuf::from(&acq.acq_dir).join("acquisition.json");
+    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+}
+
+/// M1b: a later encryption restore holds the job slot only while it runs; a run starts right after
+/// it returns.
+#[test]
+fn a_later_restore_frees_the_slot_when_it_returns() {
+    const PASSWORD: &str = "k8-Restore-Pw!";
+    let lab = lab_state();
+    let state = &lab.state;
+    let case = new_case(&lab);
+    let input = evidence(&lab);
+    // An acquisition whose restore failed: encryption was left on.
+    lab.state
+        .replace_idevice(lab.idevice_config("restore_fail"));
+    let mut request = acq_request(&case);
+    request.enable_encryption = true;
+    request.encryption_password = Some(PASSWORD.to_owned());
+    let (subscriber, events) = collector::<AcqEvent>();
+    let acq = state.acq_start(request, subscriber).unwrap();
+    assert!(state.jobs.wait_idle(Some(WAIT)));
+    wait_finished(&events, acq_finished);
+    lab.state.replace_idevice(lab.idevice_config("success"));
+    let result = state
+        .acq_restore_encryption(AcqRestoreEncryptionRequest {
+            case_path: case.to_string_lossy().into_owned(),
+            acq_id: acq.acq_id.clone(),
+            password: PASSWORD.to_owned(),
+        })
+        .unwrap();
+    assert!(result.restored, "{result:?}");
+    // The slot is free at once.
+    let (subscriber, events) = collector::<RunEvent>();
+    state
+        .run_start(run_request(&case, &input), subscriber)
+        .unwrap();
+    assert!(state.jobs.wait_idle(Some(WAIT)));
+    wait_finished(&events, run_finished);
+}
+
+/// M6: `tool_install` registers with `TmpUsers` for its whole run: no sweep runs meanwhile, and
+/// an install that starts during a sweep waits for it.
+#[test]
+fn tool_install_registers_with_the_temp_sweep() {
+    let placeholder = tempfile::Builder::new().prefix("sdr").tempdir().unwrap();
+    let stand_in = crate::testing::aleapp_stand_in(placeholder.path());
+    let lab = crate::testing::lab(crate::testing::LabOptions {
+        leapp_override: vec![ToolId::Ileapp],
+        manifest: stand_in.manifest,
+        download_from: Some(stand_in.zip.clone()),
+        ..Default::default()
+    });
+    let state = &lab.state;
+    // During the install (its events), a sweep is refused.
+    let mut sweep_refused = Vec::new();
+    state
+        .tool_install(ToolId::Aleapp, super::InstallFrom::Download, &mut |_| {
+            sweep_refused.push(state.tmp.clean(|| ()).is_none());
+        })
+        .unwrap();
+    assert!(!sweep_refused.is_empty());
+    assert!(
+        sweep_refused.iter().all(|refused| *refused),
+        "{sweep_refused:?}"
+    );
+    // An install started during a sweep sends nothing until the sweep has ended.
+    let events_seen = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        state
+            .tmp
+            .clean(|| {
+                scope.spawn(|| {
+                    state
+                        .tool_install(ToolId::Aleapp, super::InstallFrom::Download, &mut |_| {
+                            events_seen.store(true, Ordering::SeqCst);
+                        })
+                        .unwrap();
+                });
+                std::thread::sleep(Duration::from_millis(300));
+                assert!(
+                    !events_seen.load(Ordering::SeqCst),
+                    "the install waits for the sweep"
+                );
+            })
+            .unwrap();
+    });
+    assert!(events_seen.load(Ordering::SeqCst));
+}
+
+/// N4: when a panicked job's processes cannot be confirmed stopped (e.g. an encryption command in
+/// flight, which cannot be stopped; see `AcqControl::stop_after_panic`), the slot stays taken, even
+/// after the guard is dropped, and no `finished` is sent.
+#[test]
+fn a_panicked_job_whose_processes_cannot_be_confirmed_stopped_keeps_the_slot() {
+    let lab = lab_state();
+    let state = &lab.state;
+    let id = "20260924-171200Z-ios-9c01de";
+    let (subscriber, events) = collector::<AcqEvent>();
+    let stream = Stream::new(subscriber);
     state.jobs.reserve(None).unwrap().activate(Job {
-        id: run_id.to_owned(),
-        case_path: case.to_string_lossy().into_owned(),
+        id: id.to_owned(),
+        case_path: "/case".to_owned(),
         created_at: Timestamp::now(),
-        handle: JobHandle::Run {
-            tool: ToolId::Ileapp,
-            control: Arc::new(RunControl::default()),
-            stream: Arc::new(Stream::new(subscriber)),
+        handle: JobHandle::Restore {
+            udid: UDID.to_owned(),
         },
     });
-    let guard = JobGuard::new(Arc::clone(state), run_id.to_owned());
-    let panicked = std::thread::spawn(move || {
-        let _guard = guard;
-        panic!("a bug in the job thread");
-    })
-    .join();
-    assert!(panicked.is_err());
-    assert!(state.jobs.wait_idle(Some(Duration::from_millis(10))));
-    assert_eq!(state.job_active(), None);
-    // The `finished` event a panicked run thread sends.
-    match super::jobs::panicked_run_finished(&case, run_id) {
-        Some(RunEvent::Finished {
-            status,
-            reasons,
-            summary,
-            ..
-        }) => {
-            assert_eq!(status, RunStatus::Interrupted);
-            assert_eq!(reasons[0].code, "app_interrupted");
-            assert_eq!(summary.run_id, run_id);
-            assert_eq!(summary.status, RunStatus::Interrupted);
-        }
-        other => panic!("{other:?}"),
-    }
-    // And for an acquisition.
-    let acq_id = "20260924-171200Z-ios-9c01de";
-    let acq = case.join("acquisitions").join(acq_id);
-    fs::create_dir_all(&acq).unwrap();
-    let mut record = examples::acquisition_record();
-    record.status = AcqStatus::Running;
-    record.ended_at = None;
-    record.duration_ms = None;
-    record.output.seal.status = suitedfir_core::contracts::SealStatus::Pending;
-    fs::write(
-        acq.join("acquisition.json"),
-        serde_json::to_vec(&record).unwrap(),
-    )
-    .unwrap();
-    match super::devices::panicked_acq_finished(&case, acq_id) {
-        Some(AcqEvent::Finished {
-            status, summary, ..
-        }) => {
-            assert_eq!(status, AcqStatus::Interrupted);
-            assert_eq!(summary.acq_id, acq_id);
-        }
-        other => panic!("{other:?}"),
-    }
+    let guard = JobGuard::new(Arc::clone(state), id.to_owned());
+    let mut built = false;
+    guard.end_after_panic(false, &stream, || {
+        built = true;
+        None
+    });
+    drop(guard);
+    assert!(
+        !built,
+        "the record is not recovered while its processes may run"
+    );
+    assert!(!state.jobs.wait_idle(Some(Duration::from_millis(20))));
+    assert!(events.lock().unwrap().is_empty(), "no finished event");
+    state.jobs.finish(id);
 }
 
 #[test]

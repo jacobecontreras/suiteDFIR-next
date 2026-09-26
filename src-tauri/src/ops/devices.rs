@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
-use suitedfir_core::acquire::{self, AcqContext, DiscoveredAcq};
+use suitedfir_core::acquire::{self, AcqContext, AcqControl, DiscoveredAcq};
 use suitedfir_core::contracts::{
     AcqCancelRequest, AcqEvent, AcqFile, AcqPreflight, AcqPreflightRequest, AcqRef, AcqRequest,
     AcqRestoreEncryptionRequest, AcqRestoreEncryptionResult, AcqStarted, AcquisitionRecord,
@@ -15,7 +15,9 @@ use suitedfir_core::contracts::{
 
 use super::app_error;
 use crate::policy;
-use crate::state::{AppState, Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber};
+use crate::state::{
+    AppState, Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber, panic_message,
+};
 
 impl AppState {
     /// The device of the active job, or of an acquisition being started, which polling must not
@@ -89,6 +91,7 @@ impl AppState {
         });
         log::info!("acquisition {id} started (device {})", job.udid());
         let guard = JobGuard::new(Arc::clone(self), id.clone());
+        let control = job.control();
         let thread_id = id.clone();
         let spawned = thread::Builder::new()
             .name(format!("acq-{id}"))
@@ -121,16 +124,14 @@ impl AppState {
                             );
                         }
                     }
-                    Err(_) => {
-                        log::error!("acquisition {thread_id}: its thread panicked");
-                        // Recovered while the slot is still held, then the slot is freed and
-                        // the UI hears `finished`.
-                        let finished = (!guard.is_freed())
-                            .then(|| panicked_acq_finished(&case_dir, &thread_id))
-                            .flatten();
-                        guard.free();
-                        if let Some(event) = finished {
-                            stream.emit(&event);
+                    Err(payload) => {
+                        log::error!(
+                            "acquisition {thread_id}: its thread panicked: {}",
+                            panic_message(payload.as_ref())
+                        );
+                        // Already finished (the record is final): nothing is left to stop.
+                        if !guard.is_freed() {
+                            end_panicked_acq(&control, &guard, &stream, &case_dir, &thread_id);
                         }
                     }
                 }
@@ -239,18 +240,53 @@ impl AppState {
     }
 }
 
-/// After an acquisition thread panicked: its record is recovered as `interrupted` (with the
-/// encryption warnings, as the next case open would; ARCHITECTURE.md §6b), and `finished`
-/// reports it. `None` (logged) if the record cannot be read or recovered.
-pub(super) fn panicked_acq_finished(case_dir: &Path, acq_id: &str) -> Option<AcqEvent> {
-    if let Err(e) = acquire::recover_case(case_dir, None, Timestamp::now()) {
-        log::error!("acquisition {acq_id}: recovering its record failed: {e}");
+/// After an acquisition thread panicked (before `finished`): stop the backup, and wait (bounded)
+/// until no device process of it can still run. Only then is the record recovered as
+/// `interrupted` (with its encryption warnings), the slot freed and `finished` sent. An
+/// `encryption on|off` command in flight cannot be stopped and has no timeout, and a backup may
+/// outlive the wait: then the slot stays taken (logged) until the app restarts.
+fn end_panicked_acq(
+    control: &AcqControl,
+    guard: &JobGuard,
+    stream: &Stream<AcqEvent>,
+    case_dir: &Path,
+    acq_id: &str,
+) {
+    let stopped = control.stop_after_panic(acquire::ACQ_STOP_WAIT);
+    if !stopped {
+        log::error!(
+            "acquisition {acq_id}: an encryption command or the backup may still be running"
+        );
     }
-    let record = acquire::load(case_dir, acq_id)
+    guard.end_after_panic(stopped, stream, || panicked_acq_finished(case_dir, acq_id));
+}
+
+/// The acquisition's record recovered as `interrupted` (with the encryption warnings, as the
+/// next case open would; ARCHITECTURE.md §6b) with the internal-error message, and its `finished`
+/// event. `None` (logged) if the record cannot be read or recovered.
+pub(super) fn panicked_acq_finished(case_dir: &Path, acq_id: &str) -> Option<AcqEvent> {
+    let mut record = acquire::load(case_dir, acq_id)
         .map_err(|e| log::error!("acquisition {acq_id}: its record cannot be read: {e}"))
         .ok()?;
+    let dir = case_dir.join(acquire::ACQUISITIONS_DIR).join(acq_id);
+    match acquire::record::recover_with(
+        &dir,
+        &mut record,
+        Timestamp::now(),
+        acquire::record::INTERNAL_ERROR_MESSAGE,
+    ) {
+        Ok(()) => {}
+        // Written as interrupted, only not read-only.
+        Err(e @ acquire::AcqError::NotReadOnly { .. }) => {
+            log::warn!("acquisition {acq_id}: recovered, but {e}");
+        }
+        Err(e) => {
+            log::error!("acquisition {acq_id}: recovering its record failed: {e}");
+            return None;
+        }
+    }
     let summary = acquire::summary(&DiscoveredAcq {
-        dir: case_dir.join(acquire::ACQUISITIONS_DIR).join(acq_id),
+        dir,
         record: record.clone(),
     });
     Some(AcqEvent::Finished {

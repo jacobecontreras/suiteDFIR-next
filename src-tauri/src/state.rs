@@ -488,9 +488,52 @@ impl JobGuard {
         }
     }
 
+    /// Keeps the slot taken for good (until the app restarts): the job's processes could not be
+    /// confirmed stopped, so no other job may start.
+    pub fn keep(&self) {
+        self.freed.store(true, Ordering::SeqCst);
+    }
+
+    /// Freed, or kept for good.
     pub fn is_freed(&self) -> bool {
         self.freed.load(Ordering::SeqCst)
     }
+
+    /// Ends a job whose thread panicked before `finished`. `stopped`: its processes were confirmed
+    /// gone. Then `finished` (the recovered record's event, built while the slot is still held)
+    /// is computed, the slot freed and the event sent. Otherwise the slot stays taken for good.
+    pub fn end_after_panic<E: JobEventLog + Clone>(
+        &self,
+        stopped: bool,
+        stream: &Stream<E>,
+        finished: impl FnOnce() -> Option<E>,
+    ) {
+        if !stopped {
+            log::error!(
+                "job {}: its processes could not be confirmed stopped; it stays active until the \
+                 app restarts",
+                self.id
+            );
+            self.keep();
+            return;
+        }
+        let event = finished();
+        self.free();
+        if let Some(event) = event {
+            stream.emit(&event);
+        }
+    }
+}
+
+/// The message of a panic payload, for the app log (a `&str` or `String` payload; at most 300
+/// characters). Panic messages never carry passwords, and the log redacts them anyway.
+pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    let text = payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "(no message)".to_owned());
+    text.chars().take(300).collect()
 }
 
 impl Drop for JobGuard {

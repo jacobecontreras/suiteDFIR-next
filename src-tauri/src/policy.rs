@@ -50,6 +50,29 @@ fn within(a: &Path, b: &Path) -> bool {
     fsutil::path_within(a, b).unwrap_or(true)
 }
 
+/// Whether `a` is `b` or inside it, comparing the absolute paths component by component (no file
+/// system access; `.` and `..` are resolved lexically).
+fn lexically_within(a: &Path, b: &Path) -> bool {
+    fn normal(path: &Path) -> Option<PathBuf> {
+        let mut out = PathBuf::new();
+        for part in std::path::absolute(path).ok()?.components() {
+            match part {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    out.pop();
+                }
+                other => out.push(other),
+            }
+        }
+        Some(out)
+    }
+    match (normal(a), normal(b)) {
+        (Some(a), Some(b)) => a.starts_with(b),
+        // Not even absolute: refuse, as when unsure.
+        _ => true,
+    }
+}
+
 /// An existing folder this user can create files in: a probe file is created and removed.
 pub fn existing_writable_dir(dir: &Path) -> Result<PathBuf, AppError> {
     let dir =
@@ -188,7 +211,12 @@ pub fn export_dest(dest: &Path, settings: &Settings) -> Result<PathBuf, AppError
             (RUNS_DIR, "runs"),
             (acquire::ACQUISITIONS_DIR, "acquisitions"),
         ] {
-            if within(dest, &Path::new(case).join(dir)) {
+            let protected = Path::new(case).join(dir);
+            // A case that cannot be resolved (e.g. unreadable) is compared lexically, so it
+            // never blocks exports elsewhere.
+            let inside = fsutil::path_within(dest, &protected)
+                .unwrap_or_else(|_| lexically_within(dest, &protected));
+            if inside {
                 return Err(error(
                     ErrorCode::PathNotAllowed,
                     &format!("Profiles cannot be exported into a case's {what} folder"),
@@ -479,6 +507,46 @@ mod tests {
             code(export_dest(&in_acquisitions, &lab.settings)),
             ErrorCode::PathNotAllowed
         );
+    }
+
+    #[test]
+    fn lexical_containment() {
+        let base = std::path::absolute("case").unwrap();
+        assert!(lexically_within(&base.join("runs/x"), &base.join("runs")));
+        assert!(lexically_within(&base.join("runs"), &base.join("runs")));
+        assert!(lexically_within(
+            &base.join("other/../runs/x"),
+            &base.join("runs")
+        ));
+        assert!(!lexically_within(&base.join("runsx"), &base.join("runs")));
+        assert!(!lexically_within(
+            &base.join("x.alprofile"),
+            &base.join("runs")
+        ));
+    }
+
+    /// One unreadable known case does not block every export: it is compared lexically.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_known_case_does_not_block_profile_exports() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut lab = Lab::new();
+        let locked = lab.root.path().join("Locked case");
+        fs::create_dir_all(locked.join("runs")).unwrap();
+        settings::touch_recent(&mut lab.settings, &locked.to_string_lossy());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let in_locked_runs = locked.join("runs").join("x.alprofile");
+        let resolved = fsutil::path_within(&in_locked_runs, &locked.join("runs"));
+        let fine = export_dest(&lab.root.path().join("Triage.alprofile"), &lab.settings);
+        let refused = export_dest(&in_locked_runs, &lab.settings);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            resolved.is_err(),
+            "the case cannot be resolved: {resolved:?}"
+        );
+        assert!(fine.is_ok(), "{fine:?}");
+        assert_eq!(code(refused), ErrorCode::PathNotAllowed);
     }
 
     #[test]
