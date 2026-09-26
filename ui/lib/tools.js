@@ -18,11 +18,11 @@ export function installedTools(tools) {
 }
 
 /**
- * Per-tool options from the pinned manifest (CONTRACTS.md §3 `supports_*`): only iLEAPP takes a
- * timezone, a keychain file and an iTunes backup password.
- * @type {Record<ToolId, { timezone: boolean, keychain: boolean, password: boolean, profileExt: string }>}
+ * Per-tool options from the pinned manifest (CONTRACTS.md §3 `supports_*` and `input_types`): only
+ * iLEAPP takes a timezone, a keychain file, an iTunes backup password and iTunes backups (`itunes`).
+ * @type {Record<ToolId, { timezone: boolean, keychain: boolean, password: boolean, itunes: boolean, profileExt: string }>}
  */
 export const TOOL_FEATURES = {
-  ileapp: { timezone: true, keychain: true, password: true, profileExt: "ilprofile" },
-  aleapp: { timezone: false, keychain: false, password: false, profileExt: "alprofile" },
+  ileapp: { timezone: true, keychain: true, password: true, itunes: true, profileExt: "ilprofile" },
+  aleapp: { timezone: false, keychain: false, password: false, itunes: false, profileExt: "alprofile" },
 };

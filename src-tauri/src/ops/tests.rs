@@ -12,11 +12,11 @@ use std::time::Duration;
 
 use suitedfir_core::contracts::{
     AcqCancelRequest, AcqEvent, AcqFile, AcqRequest, AcqRestoreEncryptionRequest, AcqStatus,
-    AppError, CaseCreateRequest, ErrorCode, InputType, JobAttachRequest, JobKind, ModuleSelection,
-    OpenAcqFileRequest, OpenTextFileRequest, PathRequest, ProfileExportRequest,
-    ProfileImportRequest, ProfileRef, ProfileSaveRequest, RunCancelRequest, RunEvent, RunFile,
-    RunRef, RunRequest, RunStatus, SettingsDefaults, SettingsUpdateRequest, Timestamp, ToolId,
-    ToolState, ToolsDirUpdate, examples,
+    AppError, CaseCreateRequest, ErrorCode, InputInspectRequest, InputType, JobAttachRequest,
+    JobKind, ModuleSelection, OpenAcqFileRequest, OpenTextFileRequest, PathRequest,
+    ProfileExportRequest, ProfileImportRequest, ProfileRef, ProfileSaveRequest, RunCancelRequest,
+    RunEvent, RunFile, RunRef, RunRequest, RunStatus, SettingsDefaults, SettingsUpdateRequest,
+    Timestamp, ToolId, ToolState, ToolsDirUpdate, examples,
 };
 use suitedfir_core::process::ProcessWatch;
 use suitedfir_core::runner::RunControl;
@@ -24,7 +24,7 @@ use suitedfir_core::runner::RunControl;
 use super::AttachSubscriber;
 use crate::opener::testing::Opened;
 use crate::state::{Job, JobGuard, JobHandle, Stream, Subscriber, TmpUsers};
-use crate::testing::{Lab, UDID, lab_state};
+use crate::testing::{Lab, UDID, lab_state, write_backup};
 
 const WAIT: Duration = Duration::from_secs(90);
 
@@ -1188,6 +1188,62 @@ fn profiles_and_the_recent_list() {
         code(state.case_forget(&PathRequest { path })),
         ErrorCode::CaseNotFound
     );
+}
+
+#[test]
+fn ios_backups_find_lists_the_default_folders_backups_for_input_inspect() {
+    let lab = lab_state();
+    let state = &lab.state;
+    // No backup folder yet (and none on Linux): no backups.
+    assert_eq!(state.ios_backups_find().unwrap(), []);
+    fs::create_dir_all(&lab.backups).unwrap();
+    assert_eq!(state.ios_backups_find().unwrap(), []);
+
+    let dir = lab.backups.join(UDID);
+    write_backup(&dir, "Test iPhone", true);
+    let found = state.ios_backups_find().unwrap();
+    assert_eq!(found.len(), 1, "{found:?}");
+    let backup = &found[0];
+    assert_eq!(backup.path, dir.to_string_lossy());
+    assert_eq!(backup.device_name.as_deref(), Some("Test iPhone"));
+    assert_eq!(backup.product_type.as_deref(), Some("iPhone13,2"));
+    assert_eq!(backup.ios_version.as_deref(), Some("18.6"));
+    assert_eq!(
+        backup.last_backup,
+        Some(Timestamp::parse("2026-09-20T21:04:33Z").unwrap())
+    );
+    assert_eq!(backup.encrypted, Some(true));
+    assert!(backup.size_bytes.is_some_and(|size| size > 0));
+
+    // Choosing it goes through input_inspect as any folder does: an encrypted iTunes backup.
+    let case = new_case(&lab);
+    let inspection = state
+        .input_inspect(&InputInspectRequest {
+            tool: ToolId::Ileapp,
+            path: backup.path.clone(),
+            case_path: case.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+    assert_eq!(inspection.detected_type, Some(InputType::Itunes));
+    assert_eq!(inspection.itunes_encrypted, backup.encrypted);
+
+    // A backup folder the app may not read: permission_denied, with guidance.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&lab.backups, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_dir(&lab.backups).is_ok() {
+            eprintln!("SKIPPED: running with privileges that bypass file permissions");
+        } else {
+            let err = state.ios_backups_find().unwrap_err();
+            assert_eq!(err.code, ErrorCode::PermissionDenied, "{err:?}");
+            assert!(err.detail.unwrap().contains("bk"));
+            if cfg!(target_os = "macos") {
+                assert!(err.message.contains("Full Disk Access"), "{}", err.message);
+            }
+        }
+        fs::set_permissions(&lab.backups, fs::Permissions::from_mode(0o755)).unwrap();
+    }
 }
 
 /// `licenses_get` returns the generated notices (F2): every section, and the app's own direct

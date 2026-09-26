@@ -462,7 +462,7 @@ All commands are `async`. Each takes at most one argument named `req` (an object
 | `case_forget` | `{path}` | none | Removes from `recent_cases` only. |
 | `run_get` | `{case_path, run_id}` | `RunRecord` | |
 | `input_inspect` | `{tool, path, case_path}` | `InputInspection` | Read-only. Overlap violations are returned as `input_overlaps_case`. |
-| `ios_backups_find` | none | `IosBackup[]` | S1. |
+| `ios_backups_find` | none | `IosBackup[]` | S1. Read-only. The backups (folders with `Manifest.db` or `Manifest.plist`) in the OS's default backup folders (ROADMAP S1; none on Linux), newest first, with details from `Info.plist`/`Manifest.plist`. A default folder that cannot be listed → `permission_denied` (on macOS, Full Disk Access guidance); a backup inside that cannot be read is listed with `null` details. |
 | `profiles_list` | `{tool}` | `ProfileInfo[]` | `unknown_modules` is computed against the installed module list. |
 | `profile_save` | `{tool, name, modules}` | `ProfileInfo` | Overwrites the same name. |
 | `profile_delete` | `{tool, name}` | none | |

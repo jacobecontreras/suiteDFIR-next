@@ -1,5 +1,8 @@
 //! Input inspection and type detection; iTunes backups and `IsEncrypted`; the overlap rule
-//! (ARCHITECTURE.md §6 step 1). Inputs are only ever opened read-only.
+//! (ARCHITECTURE.md §6 step 1); the discovery of local Finder/iTunes backups ([`backups`], S1).
+//! Inputs are only ever opened read-only.
+
+pub mod backups;
 
 use std::fs::{self, File};
 use std::io::{self, BufReader};
@@ -210,7 +213,8 @@ pub fn is_itunes_backup(dir: &Path) -> io::Result<bool> {
 }
 
 /// `IsEncrypted` from a backup's `Manifest.plist` (XML or binary). `Ok(None)` with a warning when it
-/// cannot be told; a permission error is an error.
+/// cannot be told; a permission error is an error. Only a regular file is opened (a FIFO would
+/// block the open).
 fn itunes_encrypted(dir: &Path) -> Result<(Option<bool>, Option<String>), InspectError> {
     let path = dir.join("Manifest.plist");
     let unknown = |why: &str| Ok((None, Some(format!("Backup encryption is unknown: {why}"))));
@@ -221,6 +225,9 @@ fn itunes_encrypted(dir: &Path) -> Result<(Option<bool>, Option<String>), Inspec
         }
         Err(e) => return Err(InspectError::from_io(&path, e)),
     };
+    if !meta.is_file() {
+        return unknown("Manifest.plist is not a regular file");
+    }
     if meta.len() > MAX_MANIFEST_PLIST_BYTES {
         return unknown("Manifest.plist is too large");
     }
@@ -930,6 +937,53 @@ mod tests {
         mode(&locked_file, 0o644);
         mode(hidden.parent().unwrap(), 0o755);
         mode(&backup.join("Manifest.plist"), 0o644);
+    }
+
+    /// A FIFO named `Manifest.plist` is never opened (opening it would block until a writer comes):
+    /// the encryption is unknown, with a warning.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_manifest_plist_does_not_block_inspection() {
+        let lab = Lab::new();
+        let dir = p(&lab.root, "evidence/fifo-backup");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Manifest.db"), b"SQLite format 3\0").unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(dir.join("Manifest.plist"))
+            .status();
+        if !made.as_ref().is_ok_and(|status| status.success()) {
+            eprintln!("SKIPPED: mkfifo is not available here ({made:?})");
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = (
+            lab.case.clone(),
+            lab.known.clone(),
+            lab.app_dirs.clone(),
+            lab.temp_root.clone(),
+        );
+        let input = dir.clone();
+        std::thread::spawn(move || {
+            let (case_dir, known_cases, app_dirs, temp_root) = ctx;
+            let overlap = OverlapContext {
+                case_dir: &case_dir,
+                known_cases: &known_cases,
+                app_dirs: &app_dirs,
+                temp_root: &temp_root,
+            };
+            let _ = tx.send(inspect(&input, &input_types(ToolId::Ileapp), &overlap));
+        });
+        let inspection = rx
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("input inspection blocked on the FIFO")
+            .unwrap();
+        assert!(inspection.is_itunes_backup);
+        assert_eq!(inspection.itunes_encrypted, None);
+        assert!(
+            inspection.warnings[0].contains("not a regular file"),
+            "{:?}",
+            inspection.warnings
+        );
     }
 
     #[cfg(unix)]

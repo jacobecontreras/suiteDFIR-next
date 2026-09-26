@@ -30,7 +30,7 @@ use tauri::test::{INVOKE_KEY, get_ipc_response, mock_builder, mock_context, noop
 use tauri::webview::InvokeRequest;
 
 use crate::opener::testing::Opened;
-use crate::testing::{LabOptions, UDID, aleapp_stand_in, lab};
+use crate::testing::{LabOptions, UDID, aleapp_stand_in, lab, write_backup};
 
 const RECORDED: &str = include_str!("../../tests/ui/recorded-invokes.json");
 const CONTRACTS: &str = include_str!("../../docs/CONTRACTS.md");
@@ -165,6 +165,8 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
         r#"{"leapp": "aleapp", "format_version": 1, "plugins": ["smsMms", "noLongerThere"]}"#,
     )
     .unwrap();
+    // A Finder backup in the lab's default backup folder, for ios_backups_find.
+    write_backup(&lab.backups.join(UDID), "Replay iPhone", false);
 
     // The mock app with the real handlers; channel messages are captured by id.
     let sent: Sent = Arc::default();
@@ -335,7 +337,10 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
                 contract::<InputInspection>(&what, &response);
             }
             "ios_backups_find" => {
-                contract::<Vec<IosBackup>>(&what, &response);
+                let found: Vec<IosBackup> = contract(&what, &response);
+                assert_eq!(found.len(), 1, "{found:?}");
+                assert_eq!(found[0].device_name.as_deref(), Some("Replay iPhone"));
+                assert_eq!(found[0].encrypted, Some(false));
             }
             "profiles_list" => {
                 contract::<Vec<ProfileInfo>>(&what, &response);
