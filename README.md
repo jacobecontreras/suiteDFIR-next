@@ -1,6 +1,6 @@
 # suiteDFIR
 
-> **Not ready for use.** suiteDFIR is in development and there's no release of the app yet. Hands-on testing with real devices and real evidence has only just started, so please don't rely on it for casework.
+> **Not ready for use.** suiteDFIR is in development and there's no release of the app yet. Hands-on testing has only just started, so please don't rely on it for casework.
 
 suiteDFIR is a desktop app for mobile forensics. It runs [iLEAPP](https://github.com/abrignoni/iLEAPP) and [aLEAPP](https://github.com/abrignoni/ALEAPP), the open-source iOS and Android parsers by Alexis Brignoni, and it can take an iOS backup from a phone connected over USB. Each case is a plain folder on disk, and every parser run and every backup gets its own record in that folder.
 
@@ -77,11 +77,11 @@ Apache License 2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE) and [THIRD-PARTY-NO
 
 ## How this was built
 
-This version of suiteDFIR was written entirely by AI. I used Claude Code, Anthropic's coding tool, to run a group of Claude agents. One agent planned the work and split it into tasks, others wrote the code, tests, documentation, CI and build scripts, and separate agents reviewed the pull requests that changed code. I set the goals, made the decisions the agents brought to me, and did the hands-on testing. Getting from the first commit to commit b5ac473 on September 25, 2026 took about 29 hours and produced roughly 65,000 lines of code and tests.
+This version of suiteDFIR was written entirely by AI. I used Claude Code, Anthropic's coding tool, to run a group of Claude agents. One agent planned the work and split it into tasks, others wrote the code, tests, documentation, CI and build scripts, and separate agents reviewed the pull requests that changed code. I set the goals, made the decisions the agents brought to me, and did the hands-on testing. It took about 29 hours in September 2026, from the first commit to commit b5ac473, and produced roughly 65,000 lines of code and tests.
 
-The agents worked through my GitHub account. The commits and merges, the pull requests and their descriptions, the review comments on them (headed "Independent review", "Review of …" and similar), the idevice-tools pre-releases, and the `gate/*` and `smoke/*` commit statuses were all posted by agents, even though they show my name. The statuses record test runs the agents did on my machines. Commits don't carry AI co-author tags, so this section is the disclosure for the whole history.
+The agents worked through my GitHub account. The commits and merges, the pull requests and their descriptions, the review comments on them (headed "Independent review", "Review of S3", "Scoped re-review" and similar), the idevice-tools pre-releases, and the `gate/*` and `smoke/*` commit statuses were all posted by agents, even though they show my name. The statuses record test runs the agents did on my machines. Commits don't carry AI co-author tags, so this section is the disclosure for the whole history.
 
-CI runs more than 500 Rust tests on each platform and 204 JavaScript tests. Where they involve iLEAPP, aLEAPP or the iOS tools, they mostly use stand-ins, which keeps them fast and repeatable. The real parsers run in CI on small sample inputs. Checks against real evidence and real devices come next, and that's where the work is now:
+CI runs more than 500 Rust tests on each of Linux, macOS and Windows, plus 204 JavaScript tests on Linux. Where they involve iLEAPP, aLEAPP or the iOS tools, they mostly use stand-ins, which keeps them fast and repeatable. The real parsers run in CI on small sample inputs. Checks against real evidence and real devices come next, and that's where the work is now:
 
 - Reviewing by hand the code that matters most for evidence: how a run's result is decided, how the command line is built and the password masked, hashing, and the iOS backup flow.
 - Comparing reports from suiteDFIR with reports from running iLEAPP and aLEAPP directly with the same options, to confirm the app doesn't change their output.

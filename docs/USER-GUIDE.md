@@ -233,7 +233,7 @@ An encrypted backup contains more data than an unencrypted one (for example save
 - **Backup encryption is already on:** the backup is encrypted with the owner's password, which suiteDFIR does not know and cannot change. The backup is taken as it is (`backup_encryption_preexisting`), but you need the owner's password to parse it. An unknown backup password can only be removed on the device with **Reset All Settings**, which suiteDFIR never does.
 - **The state cannot be read:** encryption cannot be turned on from suiteDFIR for this device.
 
-The password is never stored. It reaches the tools through an environment variable, never the command line. suiteDFIR's core overwrites its copy in memory after the last encryption step. Other copies are not cleared: those made while starting the tools, and the one the app window keeps when you tick **Parse with iLEAPP now** (see Parse with iLEAPP below).
+The password is never stored. It reaches the tools through an environment variable, never the command line. suiteDFIR's core overwrites its copy in memory after the last encryption step. Other copies are not cleared, including those made while starting the tools and the one the app window keeps when you tick **Parse with iLEAPP now** (see Parse with iLEAPP below).
 
 ### Taking the backup
 
