@@ -1,5 +1,8 @@
 //! Input inspection and type detection; iTunes backups and `IsEncrypted`; the overlap rule
-//! (ARCHITECTURE.md §6 step 1). Inputs are only ever opened read-only.
+//! (ARCHITECTURE.md §6 step 1); the discovery of local Finder/iTunes backups ([`backups`], S1).
+//! Inputs are only ever opened read-only.
+
+pub mod backups;
 
 use std::fs::{self, File};
 use std::io::{self, BufReader};
