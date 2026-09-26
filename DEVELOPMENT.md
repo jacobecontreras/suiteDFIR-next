@@ -99,7 +99,7 @@ The bundled libimobiledevice tools are **not** needed for `cargo tauri dev` or `
 ```
 Cargo.toml / Cargo.lock       workspace ([profile.dev.package.sha2] opt-level = 3)
 rust-toolchain.toml  deny.toml  leapp-manifest.json  idevice-tools.json  .cargo/config.toml
-.gitattributes (* text=auto eol=lf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
+.gitattributes (* text=auto eol=lf; *.cmd eol=crlf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
 crates/core/                  suitedfir-core: all logic, no Tauri dependency
   src/{lib.rs, contracts/, fsutil/, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
        settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice/, acquire/}
