@@ -1620,10 +1620,12 @@ const CHECKS = [
   {
     // Log search (S2) by keyboard, on a live run whose log is complete (held in Analyzing: 90
     // lines, 42 of them "<module> artifact completed", at the even line numbers 6 to 88):
-    // case-insensitive matches in <mark>; Enter / Shift+Enter and the buttons go round the matches;
-    // "Only matching lines"; regular-expression characters are literal; Escape clears. No key in
-    // the box does anything else (the run stays live, no dialog opens), and the live region
-    // changes at most once per second, ending with the last match reached.
+    // case-insensitive matches in <mark>; a 256-character cap; an input-method Enter does nothing;
+    // Enter / Shift+Enter and the buttons go round the matches; "Only matching lines";
+    // regular-expression characters are literal; Escape clears the query and the filter; a match
+    // beyond the right edge is scrolled into view. No key in the box does anything else (the run
+    // stays live, no dialog opens), and the live region changes at most once per second, with the
+    // last match reached among its updates.
     name: "check-log-search",
     query: "?mock&scenario=hold_analyzing",
     hash: newRunHash,
@@ -1663,6 +1665,17 @@ const CHECKS = [
       await searchStatus(page, "42 matching lines");
       const marked = (await rows("typed")).flatMap((row) => row.marks);
       if (marked.length === 0 || marked.some((m) => m !== "artifact completed")) throw new Error(`marks: ${JSON.stringify(marked)}`);
+      if ((await page.evaluate(() => /** @type {HTMLInputElement} */ (document.querySelector(".log-search-input")).maxLength)) !== 256) {
+        throw new Error("the search box does not cap the query at 256 characters");
+      }
+      // The Enter that commits an input-method composition (WebKit: keyCode 229) does nothing.
+      await page.evaluate(() => {
+        const input = /** @type {HTMLInputElement} */ (document.querySelector(".log-search-input"));
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(150);
+      await searchStatus(page, "42 matching lines", 1);
+      if (!(await page.getByLabel("Auto-scroll").isChecked())) throw new Error("an input-method Enter went to a match");
       // Nothing is current yet, so Enter goes to the first match in view: the view is at the end
       // (lines 72 to 90), and line 72 is match 34.
       await search.press("Enter");
@@ -1714,13 +1727,42 @@ const CHECKS = [
       if (empty !== "No lines match the search.") throw new Error(`the filtered log with no matches says ${JSON.stringify(empty)}`);
       await search.fill("Pixel-7-extraction");
       await searchStatus(page, "1 matching line");
+      // Escape clears the query and unticks "Only matching lines".
       await search.press("Escape");
       await searchStatus(page, "");
       if ((await search.inputValue()) !== "") throw new Error("Escape did not clear the search");
+      if (await page.getByLabel("Only matching lines").isChecked()) throw new Error("Escape left \"Only matching lines\" ticked");
       const all = await rows("cleared");
       if (all.some((row) => row.marks.length > 0 || row.current) || all.some((row, i) => i > 0 && row.no !== all[i - 1].no + 1)) {
         throw new Error("after Escape, the log still shows a search");
       }
+
+      // Sideways: in a narrow view the match lies beyond the right edge; going to it scrolls there.
+      await page.evaluate(() => {
+        const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+        vp.style.width = "240px";
+        vp.scrollLeft = 0;
+      });
+      await search.fill("artifact COMPLETED");
+      await searchStatus(page, "42 matching lines");
+      await search.press("Enter");
+      await page.locator(".log-row-current:not([hidden]) mark").waitFor();
+      await page.waitForTimeout(100);
+      const side = await page.evaluate(() => {
+        const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+        const mark = /** @type {HTMLElement} */ (vp.querySelector(".log-row-current:not([hidden]) mark"));
+        const v = vp.getBoundingClientRect();
+        const m = mark.getBoundingClientRect();
+        const left = v.left + vp.clientLeft;
+        return { scrollLeft: vp.scrollLeft, visible: m.left >= left && m.right <= left + vp.clientWidth };
+      });
+      if (side.scrollLeft <= 0 || !side.visible) throw new Error(`the match beyond the right edge was not scrolled into view: ${JSON.stringify(side)}`);
+      await page.evaluate(() => {
+        const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
+        vp.style.width = "";
+      });
+      await search.press("Escape");
+      await searchStatus(page, "");
 
       const state = await page.evaluate(() => ({
         hash: location.hash,
@@ -1738,6 +1780,34 @@ const CHECKS = [
       // The throttle waits 1,000 ms by Date.now(); the observer stamps performance.now().
       if (live.length < 2 || gaps.some((g) => g < 990)) throw new Error(`live region updates ${JSON.stringify(live.map((x) => Math.round(x.t)))}`);
       if (!live.some((x) => x.text.startsWith("Match 10 of 42, line 24: "))) throw new Error(`the rapid presses did not end with match 10: ${JSON.stringify(live.map((x) => x.text))}`);
+    },
+  },
+  {
+    // With a query left in the box on a streaming run, the live region still gets the latest line
+    // (DEVELOPMENT.md §4.6): the search report goes out first, then the latest line resumes, and
+    // updates stay at least a second apart.
+    name: "check-log-search-live",
+    hash: newRunHash,
+    run: async (page) => {
+      await startRun(page, "Choose folder…", "Evidence/slow");
+      await waitForLines(page, 10);
+      await page.evaluate(() => {
+        const w = /** @type {any} */ (window);
+        w.__live = [];
+        const region = /** @type {HTMLElement} */ (document.querySelector(".log-view [aria-live]"));
+        new MutationObserver(() => w.__live.push({ t: performance.now(), text: region.textContent ?? "" })).observe(region, { childList: true, characterData: true, subtree: true });
+      });
+      await page.getByRole("searchbox", { name: "Search the log" }).fill("artifact completed");
+      await page.waitForTimeout(3500);
+      const live = await page.evaluate(() => /** @type {{ t: number, text: string }[]} */ (/** @type {any} */ (window).__live));
+      const texts = live.map((x) => x.text);
+      const report = texts.findIndex((t) => /^[\d,]+ matching lines?$/.test(t));
+      if (report < 0) throw new Error(`no search report: ${JSON.stringify(texts)}`);
+      if (texts.slice(report + 1).filter((t) => / artifact (started|completed)$/.test(t)).length < 2) {
+        throw new Error(`the latest line did not resume after the search report: ${JSON.stringify(texts)}`);
+      }
+      const gaps = live.slice(1).map((x, i) => x.t - live[i].t);
+      if (gaps.some((g) => g < 990)) throw new Error(`live region updates ${JSON.stringify(live.map((x) => Math.round(x.t)))}`);
     },
   },
 ];
