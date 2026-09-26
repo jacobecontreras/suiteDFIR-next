@@ -95,6 +95,7 @@ fn idevice_config(
             dev_override: Some(core_binary("fake-idevice")),
             path_var: None,
             signed_build: false,
+            signing_team_id: None,
         },
         app_cache: paths.app_cache.clone(),
         env: vec![

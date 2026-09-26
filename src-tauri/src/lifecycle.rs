@@ -200,6 +200,13 @@ fn idevice_config(
     let dev_override = std::env::var_os("SUITEDFIR_DEV_IDEVICE_OVERRIDE").map(PathBuf::from);
     #[cfg(not(debug_assertions))]
     let dev_override = None;
+    // A signed macOS release build names its Developer ID team at compile time (release.yml sets
+    // SUITEDFIR_APPLE_TEAM_ID only when the signing secrets exist, H1); signing changes the bundled
+    // tools' bytes, so they are then checked against that team's signature. Unsigned builds, and
+    // Windows until its signing is set up (H1), check the bundled tools against the pinned hashes.
+    let signing_team_id = option_env!("SUITEDFIR_APPLE_TEAM_ID")
+        .filter(|team| !team.is_empty())
+        .map(str::to_owned);
     Ok(IdeviceConfig {
         lookup: ToolLookup {
             platform,
@@ -207,9 +214,8 @@ fn idevice_config(
             bundled_dir,
             dev_override,
             path_var: std::env::var_os("PATH"),
-            // Code-signed release builds are a later task (F1); until then the bundled tools must
-            // match the pinned unsigned hashes.
-            signed_build: false,
+            signed_build: cfg!(target_os = "macos") && signing_team_id.is_some(),
+            signing_team_id,
         },
         app_cache: paths.app_cache.clone(),
         env: Vec::new(),

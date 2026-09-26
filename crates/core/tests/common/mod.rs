@@ -113,6 +113,7 @@ pub fn idevice(
             dev_override: None,
             path_var: None,
             signed_build: false,
+            signing_team_id: None,
         },
         app_cache: cache.to_path_buf(),
         env,
