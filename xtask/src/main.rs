@@ -1,8 +1,7 @@
 //! Repository maintenance tasks, run as `cargo xtask <command>` (alias in `.cargo/config.toml`).
-//!
-//! The other commands listed in DEVELOPMENT.md §2 are added by their roadmap tasks.
 
 mod idevice_tools;
+mod notices;
 mod pin_leapp;
 
 use std::fs;
@@ -17,6 +16,8 @@ commands:
   contracts   regenerate ui-dev/fixtures/contracts/ from the Rust contract examples
   fetch-idevice-tools [--target <triple>]
               fetch and verify the pinned libimobiledevice tools into src-tauri/binaries/
+  notices     regenerate THIRD-PARTY-NOTICES.md (needs the network; downloads are cached in
+              target/xtask-notices/)
   pin-leapp --tool <ileapp|aleapp> --tag <tag> [--download-verify] [--download-dir <dir>]
               pin a LEAPP release in leapp-manifest.json";
 
@@ -39,6 +40,7 @@ fn main() -> ExitCode {
             }
         },
         Some("fetch-idevice-tools") => idevice_tools::run(&repo_root()),
+        Some("notices") => notices::run(&repo_root()),
         Some("pin-leapp") => pin_leapp::run(&repo_root()),
         Some(other) => {
             eprintln!("unknown command: {other}\n\n{USAGE}");
