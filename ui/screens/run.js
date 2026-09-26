@@ -184,7 +184,7 @@ export function runScreen(ctx) {
       const steps = stepStates(RUN_PHASES, { phases: s.phases, phase: s.phase, finished: finished !== null, partial: s.partial }, OPTIONAL_PHASES);
       phaseSlot.update(JSON.stringify(steps), () => stepList("Run phases", steps));
       renderProgress(s);
-      log.update(s.log);
+      log.update(s.log, s.partial);
     }
     if (status !== "running" && resultBuiltFor !== (s?.version ?? 0)) {
       resultBuiltFor = s?.version ?? 0;

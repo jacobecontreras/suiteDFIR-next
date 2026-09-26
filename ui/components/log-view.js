@@ -19,15 +19,30 @@
  *   and new lines are searched once, as they arrive.
  * - "Only matching lines" shows just those lines, with their own line numbers.
  * - Previous/Next (and Shift+Enter/Enter in the box) go to the matching lines in turn, wrapping
- *   around; the first one starts from the view. Going to a match stops auto-scroll. Escape clears
- *   the box. The box is not in a form, and its keys do nothing else.
- * - The one live region then reports the search (the number of matching lines when the query
- *   changes, the line reached by Previous/Next) instead of the latest line, through the same
- *   once-per-second throttle. Clearing the query brings the latest line back.
+ *   around; the first one starts from the view. Going to a match stops auto-scroll and scrolls
+ *   sideways too when the match is beyond the edge of a long line. Escape clears the box and
+ *   unticks "Only matching lines". The box is not in a form, its keys do nothing else, and the
+ *   Enter that commits an input-method composition is ignored.
+ * - The query is at most `MAX_QUERY_LENGTH` (256) characters, which bounds the cost of a search.
+ * - The status counts the lines the view holds; when that is not the whole log (lines dropped past
+ *   the buffer, or only the backlog after a reload), it says so.
+ * - The one live region reports the search too (the number of matching lines when the query
+ *   changes, the line reached by Previous/Next), through the same once-per-second throttle: a
+ *   search report goes out first, and the latest line resumes at the next interval.
  */
 import { h, setText } from "../lib/dom.js";
 import { formatCount } from "../lib/format.js";
-import { compileQuery, lineOfRow, logMatcher, matchPosition, rowOfLine, splitMatches, stepMatch } from "../lib/logsearch.js";
+import {
+  MAX_QUERY_LENGTH,
+  compileQuery,
+  lineOfRow,
+  logMatcher,
+  matchPosition,
+  rowOfLine,
+  searchStatus,
+  splitMatches,
+  stepMatch,
+} from "../lib/logsearch.js";
 import { throttleLatest } from "../lib/throttle.js";
 import { bottomScrollTop, isAtBottom, visibleRange } from "../lib/virtual.js";
 import { icon, uid } from "../lib/view.js";
@@ -44,7 +59,8 @@ const ANNOUNCE_INTERVAL_MS = 1000;
 const MAX_MARKS_PER_ROW = 200;
 
 /**
- * @typedef {View & { update: (log: LogBuffer) => void }} LogView
+ * @typedef {View & { update: (log: LogBuffer, partial?: boolean) => void }} LogView
+ * `partial`: the log starts mid-way (attached after a reload, `JobStream.partial`).
  */
 
 /**
@@ -54,6 +70,8 @@ const MAX_MARKS_PER_ROW = 200;
 export function logView(spec) {
   /** @type {LogBuffer} */
   let log = { lines: [], dropped: 0 };
+  /** The log starts mid-way (only the backlog after a reload). */
+  let partial = false;
   let follow = true;
   let frame = 0;
   /** The scrollTop the view set itself; any other position comes from the examiner. */
@@ -71,7 +89,7 @@ export function logView(spec) {
   let onlyMatching = false;
   /** The current match (absolute line index), or -1. */
   let current = -1;
-  /** Scroll the current match into view on the next render. */
+  /** Scroll the current match into view (both ways) on the next render. */
   let reveal = false;
   /** A line to show at the top on the next render (the rows changed under the examiner), or -1. */
   let anchor = -1;
@@ -188,7 +206,8 @@ export function logView(spec) {
     const count = matches?.length ?? lines.length;
     const height = viewport.clientHeight;
     spacer.style.height = `${count * LOG_ROW_HEIGHT}px`;
-    if (reveal && current >= 0) {
+    const revealing = reveal && current >= 0;
+    if (revealing) {
       // Going to a match: into view (centred) unless it is fully in view already.
       const top = rowOfLine(current, log.dropped, lines.length, matches) * LOG_ROW_HEIGHT;
       if (top < viewport.scrollTop || top + LOG_ROW_HEIGHT > viewport.scrollTop + height) {
@@ -230,6 +249,7 @@ export function logView(spec) {
       if (spec.search) row.classList.toggle("log-row-current", line === current);
       if (row.hidden) row.hidden = false;
     }
+    if (revealing) revealSideways();
     empty.hidden = count > 0;
     setText(empty, matches && lines.length > 0 ? "No lines match the search." : spec.emptyText);
     const total = log.dropped + lines.length;
@@ -239,6 +259,23 @@ export function logView(spec) {
         ? `${formatCount(total)} lines (the first ${formatCount(log.dropped)} are not kept here; the full log is in the job folder)`
         : `${formatCount(total)} ${total === 1 ? "line" : "lines"}`;
     if (searchBar) searchBar.render();
+  }
+
+  /**
+   * After going to a match: scrolls sideways when the current row's first highlighted match lies
+   * beyond either edge of the view (a long line), leaving a margin around it.
+   */
+  function revealSideways() {
+    const mark = rowsEl.querySelector(".log-row-current:not([hidden]) mark");
+    if (!(mark instanceof HTMLElement)) return;
+    // Offsets are relative to `.log-rows`, which starts at the left of the scrolled content.
+    const left = mark.offsetLeft;
+    const right = left + mark.offsetWidth;
+    const width = viewport.clientWidth;
+    const margin = Math.min(48, Math.floor(width / 4));
+    if (left < viewport.scrollLeft || right > viewport.scrollLeft + width) {
+      viewport.scrollLeft = right - left + 2 * margin > width ? Math.max(0, left - margin) : Math.max(0, right + margin - width);
+    }
   }
 
   /**
@@ -269,6 +306,7 @@ export function logView(spec) {
         placeholder: "Search the log",
         autocomplete: "off",
         spellcheck: "false",
+        maxlength: MAX_QUERY_LENGTH,
         "aria-describedby": statusId,
       })
     );
@@ -283,14 +321,23 @@ export function logView(spec) {
 
     input.addEventListener("input", () => setQuery(input.value));
     input.addEventListener("keydown", (e) => {
-      if (e.isComposing) return;
+      // An input method's keys, including the Enter that commits a composition (WebKit reports it
+      // with isComposing false but keyCode 229), belong to the input method.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter") {
         e.preventDefault();
         go(e.shiftKey ? -1 : 1);
-      } else if (e.key === "Escape" && input.value !== "") {
+      } else if (e.key === "Escape" && (input.value !== "" || only.checked)) {
+        // Clears the search: the query and "Only matching lines", which would otherwise stay
+        // ticked while every line is shown.
         e.preventDefault();
         input.value = "";
         setQuery("");
+        if (only.checked) {
+          only.checked = false;
+          onlyMatching = false;
+          schedule();
+        }
       }
     });
     only.addEventListener("change", () => {
@@ -351,15 +398,15 @@ export function logView(spec) {
         const matches = matcher.matches();
         const n = matches.length;
         const position = current >= 0 ? matchPosition(matches, current) : 0;
-        const noun = n === 1 ? "matching line" : "matching lines";
-        const text = query === "" ? "" : n === 0 ? "No matching lines" : position > 0 ? `${formatCount(position)} of ${formatCount(n)} ${noun}` : `${formatCount(n)} ${noun}`;
-        setText(status, text);
+        const scope = { query, matches: n, kept: log.lines.length, partial: partial || log.dropped > 0 };
+        setText(status, searchStatus({ ...scope, position }));
         prev.disabled = n === 0;
         next.disabled = n === 0;
+        // Search reports go out ahead of the latest line (which resumes at the next interval).
         if (report === "match" && position > 0) {
-          announce.push(`Match ${formatCount(position)} of ${formatCount(n)}, line ${formatCount(current + 1)}: ${log.lines[current - log.dropped] ?? ""}`);
+          announce.pushUrgent(`Match ${formatCount(position)} of ${formatCount(n)}, line ${formatCount(current + 1)}: ${log.lines[current - log.dropped] ?? ""}`);
         } else if (report !== null && query !== "") {
-          announce.push(n === 0 ? "No matching lines" : `${formatCount(n)} ${noun}`);
+          announce.pushUrgent(searchStatus({ ...scope, position: 0 }));
         }
         report = null;
       },
@@ -380,18 +427,18 @@ export function logView(spec) {
 
   return {
     node,
-    update(next) {
+    update(next, startsMidway = false) {
       if (next !== log) {
         log = next;
         announced = 0;
         current = -1;
         shown.fill(-1);
       }
+      partial = startsMidway;
       const total = log.dropped + log.lines.length;
       if (total > announced && log.lines.length > 0) {
         announced = total;
-        // While a search is on, the live region reports the search instead.
-        if (matcher.query() === "") announce.push(log.lines[log.lines.length - 1]);
+        announce.push(log.lines[log.lines.length - 1]);
       }
       schedule();
     },

@@ -15,10 +15,24 @@
  * - Matching works on code points: a query never matches half of a surrogate pair.
  * - The empty query matches nothing (there is no search).
  *
+ * Unicode limits (only the query is normalized; lines are searched as they are, so match offsets
+ * are always offsets in the original line):
+ * - A span that mixes the two forms is not found: "résumé" with one accent composed and the other
+ *   decomposed matches neither form of the query.
+ * - An unaccented query finds the base letter of a decomposed accent but not a composed one:
+ *   "cafe" finds the "cafe" of "cafe" + U+0301 (the mark stops before the accent), not "café"
+ *   written with U+00E9.
+ *
+ * Cost: one pass over the lines per query, O(line length) per line for ordinary text. On long
+ * repetitive runs the literal matcher can approach O(line length × query length), so the search
+ * box caps the query at `MAX_QUERY_LENGTH` characters.
+ *
  * Line indexes are absolute and 0-based: line `n` of the log view (1-based, as shown) is index
  * `n - 1`, counting the lines the log buffer dropped from its start, so an index stays valid while
  * the buffer grows and drops (lib/jobstream.js `appendLog`).
  */
+
+import { formatCount } from "./format.js";
 
 /**
  * @typedef {object} LogLines The part of `LogBuffer` (lib/jobstream.js) the search reads.
@@ -31,6 +45,9 @@
  * @property {string} text
  * @property {boolean} match
  */
+
+/** The longest query the search box accepts (its `maxlength`), which bounds a search's cost. */
+export const MAX_QUERY_LENGTH = 256;
 
 /** RegExp syntax characters: the only ones that may (and must) be escaped with the `u` flag. */
 const SYNTAX_CHARS = /[\\^$.*+?()[\]{}|/]/g;
@@ -226,4 +243,25 @@ export function rowOfLine(line, dropped, kept, matches) {
  */
 export function lineOfRow(row, dropped, matches) {
   return matches ? matches[row] : dropped + row;
+}
+
+/**
+ * The search status: "" without a query, "No matching lines", "1,031 matching lines" or, at a
+ * current match, "3 of 1,031 matching lines". When the view holds only part of the log (lines
+ * dropped past the buffer, or only the backlog after a reload: `partial`), it says what was
+ * searched: "No matching lines in the 2,000 lines kept here".
+ * @param {object} s
+ * @param {string} s.query
+ * @param {number} s.matches Number of matching lines.
+ * @param {number} s.position 1-based position of the current match, 0 for none.
+ * @param {number} s.kept Number of lines the view holds.
+ * @param {boolean} s.partial The view does not hold the whole log.
+ * @returns {string}
+ */
+export function searchStatus({ query, matches, position, kept, partial }) {
+  if (query === "") return "";
+  const scope = partial ? ` in the ${formatCount(kept)} ${kept === 1 ? "line" : "lines"} kept here` : "";
+  if (matches === 0) return `No matching lines${scope}`;
+  const noun = matches === 1 ? "matching line" : "matching lines";
+  return position > 0 ? `${formatCount(position)} of ${formatCount(matches)} ${noun}${scope}` : `${formatCount(matches)} ${noun}${scope}`;
 }

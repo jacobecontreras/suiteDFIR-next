@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 
 import { appendLog } from "../../ui/lib/jobstream.js";
 import {
+  MAX_QUERY_LENGTH,
   compileQuery,
   escapeRegExp,
   lineOfRow,
@@ -12,6 +13,7 @@ import {
   lowerBound,
   matchPosition,
   rowOfLine,
+  searchStatus,
   splitMatches,
   stepMatch,
 } from "../../ui/lib/logsearch.js";
@@ -371,4 +373,33 @@ test("rows and lines, with and without the filter", () => {
   assert.equal(rowOfLine(141, 100, 50, matches), 2);
   assert.equal(lineOfRow(2, 100, matches), 140);
   assert.equal(rowOfLine(3, 0, 0, []), 0);
+});
+
+// ---- Status ----
+
+test("the status: no query, no match, a count, a current match", () => {
+  const whole = { kept: 100_090, partial: false };
+  assert.equal(searchStatus({ query: "", matches: 0, position: 0, ...whole }), "");
+  assert.equal(searchStatus({ query: "Traceback", matches: 0, position: 0, ...whole }), "No matching lines");
+  assert.equal(searchStatus({ query: "sms", matches: 1, position: 0, ...whole }), "1 matching line");
+  assert.equal(searchStatus({ query: "sms", matches: 1, position: 1, ...whole }), "1 of 1 matching line");
+  assert.equal(searchStatus({ query: "safari", matches: 3003, position: 0, ...whole }), "3,003 matching lines");
+  assert.equal(searchStatus({ query: "safari", matches: 3003, position: 3, ...whole }), "3 of 3,003 matching lines");
+});
+
+test("the status says which lines were searched when the view holds only part of the log", () => {
+  // Past the buffer (lines dropped), or only the backlog after a reload.
+  assert.equal(searchStatus({ query: "Traceback", matches: 0, position: 0, kept: 180_000, partial: true }), "No matching lines in the 180,000 lines kept here");
+  assert.equal(searchStatus({ query: "sms", matches: 12, position: 0, kept: 2000, partial: true }), "12 matching lines in the 2,000 lines kept here");
+  assert.equal(searchStatus({ query: "sms", matches: 12, position: 4, kept: 2000, partial: true }), "4 of 12 matching lines in the 2,000 lines kept here");
+  assert.equal(searchStatus({ query: "x", matches: 1, position: 1, kept: 1, partial: true }), "1 of 1 matching line in the 1 line kept here");
+  assert.equal(searchStatus({ query: "", matches: 0, position: 0, kept: 2000, partial: true }), "");
+});
+
+test("the query length the search box accepts", () => {
+  assert.equal(MAX_QUERY_LENGTH, 256);
+  // Even a query of that length over long repetitive lines stays a literal, linear-ish search.
+  const re = compileQuery("a".repeat(MAX_QUERY_LENGTH - 1) + "b");
+  assert.ok(re);
+  assert.ok(!re.test("a".repeat(2000)));
 });
