@@ -27,7 +27,7 @@
     "active": true,
     "targets": ["app", "dmg", "nsis", "deb", "appimage"],
     "publisher": "suiteDFIR",
-    "copyright": "Copyright 2026 suiteDFIR",
+    "copyright": "Copyright 2026 Jacob Contreras",
     "license": "Apache-2.0",
     "category": "Utility",
     "shortDescription": "Run iLEAPP and aLEAPP and take iOS backups, with cases and audit records",

@@ -1,6 +1,6 @@
-# Rust CI (DEVELOPMENT.md §6). While the repository is private only the Linux job runs on
-# pull requests and pushes to main; the macOS and Windows jobs run only when dispatched with a
-# matching `os` input, or automatically once the repository is public.
+# Rust CI (DEVELOPMENT.md §6). On pull requests (not drafts) and pushes to main, the Linux,
+# macOS and Windows jobs all run; on a private repository only the Linux job would. A dispatch
+# runs the jobs its `os` input selects.
 name: ci-rust
 
 on:
@@ -241,7 +241,7 @@ jobs:
 
   macos:
     name: Rust (macOS)
-    # Dispatch with os = macos or all; otherwise only once the repository is public (drafts skipped).
+    # Dispatch with os = macos or all; otherwise only on a public repository (drafts skipped).
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.os == 'macos' || inputs.os == 'all')) ||
       (github.event_name != 'workflow_dispatch' && !github.event.repository.private &&
@@ -280,7 +280,7 @@ jobs:
 
   windows:
     name: Rust (Windows)
-    # Dispatch with os = windows or all; otherwise only once the repository is public (drafts skipped).
+    # Dispatch with os = windows or all; otherwise only on a public repository (drafts skipped).
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.os == 'windows' || inputs.os == 'all')) ||
       (github.event_name != 'workflow_dispatch' && !github.event.repository.private &&
