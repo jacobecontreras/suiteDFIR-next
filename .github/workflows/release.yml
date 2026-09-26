@@ -403,7 +403,9 @@ jobs:
             echo "**Installation, prerequisites and privacy:** docs/USER-GUIDE.md. The Linux parser builds need glibc 2.43 or later."
             echo
             echo "**Source code for the bundled iOS tools.** The macOS and Windows builds include libimobiledevice $tools tools (LGPL-2.1-or-later), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`). THIRD-PARTY-NOTICES.md lists every license."
-          } > dist/RELEASE-NOTES.md
+          } > "$RUNNER_TEMP/RELEASE-NOTES.md"
+          # Only now, so the file table above does not list the notes themselves.
+          mv "$RUNNER_TEMP/RELEASE-NOTES.md" dist/RELEASE-NOTES.md
           cat dist/RELEASE-NOTES.md
 
       - name: Upload
