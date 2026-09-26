@@ -7,6 +7,18 @@
 //!
 //! Everything here is read-only: folders are listed, files are opened for reading only, and
 //! nothing is ever created, written or changed in the backup folders.
+//!
+//! **Links are never followed below a default folder**, so the finder reads nothing outside those
+//! folders:
+//! - an entry that is a symlink or a junction is skipped (not listed), whatever it points to, so
+//!   two links to one backup never make duplicate rows; such a backup can still be chosen with
+//!   Choose folder…;
+//! - an `Info.plist`, `Manifest.plist` or marker file that is a link is not opened or followed
+//!   (the details it would give stay `null`);
+//! - the size counts regular files only and descends into real folders only.
+//!
+//! A default folder itself may be a link (a backup folder moved to another disk and linked back);
+//! it is followed, and a folder reached twice that way is searched once.
 
 use std::fs::{self, File};
 use std::io::{self, BufReader};
@@ -18,7 +30,7 @@ use time::OffsetDateTime;
 use crate::contracts::{AppError, ErrorCode, IosBackup, Timestamp};
 use crate::fsutil;
 
-use super::is_itunes_backup;
+use super::ITUNES_MARKERS;
 
 /// A backup's `Info.plist` (with the installed apps' metadata) and `Manifest.plist` are a few MiB
 /// at most; anything larger is not read.
@@ -104,11 +116,11 @@ impl FindError {
     }
 }
 
-/// The message of a `permission_denied` search: on macOS, how to grant Full Disk Access.
+/// The message of a `permission_denied` search: on macOS, that Full Disk Access is needed (the UI
+/// shows the steps).
 const DENIED_MESSAGE: &str = if cfg!(target_os = "macos") {
-    "suiteDFIR may not read the Finder backup folder. Give suiteDFIR Full Disk Access (System \
-     Settings > Privacy & Security > Full Disk Access), then quit and reopen suiteDFIR and search \
-     again."
+    "suiteDFIR may not read the Finder backup folder: macOS protects it until suiteDFIR has Full \
+     Disk Access."
 } else {
     "suiteDFIR may not read the backup folder. Check that your user account can read it, then \
      search again."
@@ -136,9 +148,10 @@ impl From<FindError> for AppError {
 /// - A folder that cannot be listed fails the search: `permission_denied` when access is refused
 ///   (on macOS the protected Finder backup folder, EPERM, until the app has Full Disk Access),
 ///   otherwise an I/O error.
-/// - In it, every folder with `Manifest.db` or `Manifest.plist` is a backup (as input inspection
-///   detects one), with details from its `Info.plist` and `Manifest.plist` (see `read_backup`).
-///   Files and other folders are skipped.
+/// - In it, every real folder (not a link, see the module docs) with `Manifest.db` or
+///   `Manifest.plist` is a backup (as input inspection detects one), with details from its
+///   `Info.plist` and `Manifest.plist` (see `read_backup`). Files, links and other folders are
+///   skipped.
 /// - One bad entry never fails the search: a folder whose contents cannot be checked is listed
 ///   with unknown details (every folder there is a device's backup, and choosing it as the input
 ///   then shows why it cannot be read), and unreadable details are unknown (`null`).
@@ -175,16 +188,22 @@ pub fn find(dirs: &[PathBuf]) -> Result<Vec<IosBackup>, FindError> {
                 }
             };
             let path = entry.path();
-            // Follows a link, so a backup moved elsewhere and linked back is found.
-            match fs::metadata(&path) {
+            // Never through a link: a symlink or junction is not a directory here, so it is
+            // skipped.
+            match fs::symlink_metadata(&path) {
                 Ok(meta) if meta.is_dir() => {}
-                Ok(_) => continue,
+                Ok(meta) => {
+                    if meta.file_type().is_symlink() {
+                        log::info!("backup finder: skipped the link {}", path.display());
+                    }
+                    continue;
+                }
                 Err(e) => {
                     log::warn!("backup finder: {}: {e}", path.display());
                     continue;
                 }
             }
-            match is_itunes_backup(&path) {
+            match has_marker(&path) {
                 Ok(true) => backups.push(read_backup(&path)),
                 Ok(false) => {}
                 Err(e) => {
@@ -200,6 +219,20 @@ pub fn find(dirs: &[PathBuf]) -> Result<Vec<IosBackup>, FindError> {
             .then_with(|| a.path.cmp(&b.path))
     });
     Ok(backups)
+}
+
+/// Whether `dir` has `Manifest.db` or `Manifest.plist` (the markers of input inspection),
+/// checked without following a link: a marker that is a link still marks the folder, but its target
+/// is never looked at.
+fn has_marker(dir: &Path) -> io::Result<bool> {
+    for marker in ITUNES_MARKERS {
+        match fs::symlink_metadata(dir.join(marker)) {
+            Ok(_) => return Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(false)
 }
 
 /// A backup whose details are all unknown.
@@ -279,14 +312,15 @@ fn timestamp(date: plist::Date) -> Option<Timestamp> {
 
 /// A plist file's top-level dictionary (XML or binary), or `None` (logged) when the file is
 /// missing, not a regular file, too large, unreadable, unparsable or not a dictionary. Only a
-/// regular file is opened (a FIFO would block the open), read-only.
+/// regular file is opened, read-only: never a link (the finder reads nothing outside the default
+/// folders) and never a FIFO (it would block the open).
 fn read_dict(path: &Path) -> Option<plist::Dictionary> {
     let skip = |why: &dyn std::fmt::Display| {
         log::warn!("backup finder: {}: {why}", path.display());
         None
     };
-    match fs::metadata(path) {
-        Ok(meta) if !meta.is_file() => return skip(&"not a file"),
+    match fs::symlink_metadata(path) {
+        Ok(meta) if !meta.is_file() => return skip(&"not a regular file (links are not followed)"),
         Ok(meta) if meta.len() > MAX_PLIST_BYTES => return skip(&"too large to be a backup plist"),
         Ok(_) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
@@ -765,6 +799,216 @@ mod tests {
             Err(e) => panic!("symlink: {e}"),
         }
         assert_eq!(find(&[root]).unwrap()[0].size_bytes, Some(size));
+    }
+
+    /// Creates a link to a folder, or returns false (with a message) where the OS does not allow it:
+    /// Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
+    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
+        match fsutil::test_support::symlink_dir(target, link) {
+            Ok(()) => true,
+            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
+                eprintln!(
+                    "SKIPPED link checks: creating symlinks needs Developer Mode or admin \
+                     (ERROR_PRIVILEGE_NOT_HELD)"
+                );
+                false
+            }
+            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
+        }
+    }
+
+    /// Creates a link to a file, or returns false (with a message) where the OS does not allow it.
+    fn try_symlink_file(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(target, link);
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(target, link);
+        match made {
+            Ok(()) => true,
+            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
+                eprintln!(
+                    "SKIPPED link checks: creating symlinks needs Developer Mode or admin \
+                     (ERROR_PRIVILEGE_NOT_HELD)"
+                );
+                false
+            }
+            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
+        }
+    }
+
+    /// A backup outside the default folder, linked into it (twice), is not listed: the finder
+    /// reads nothing through a link, and one backup never makes two rows.
+    #[test]
+    fn linked_backups_below_a_default_folder_are_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Backup");
+        let real = root.join(UDID_A);
+        Synthetic {
+            info: Some(info(
+                "Alex's iPhone",
+                "iPhone13,2",
+                "18.6",
+                "2026-09-20T21:04:33Z",
+            )),
+            manifest: Some(manifest(Some(false))),
+            binary: false,
+        }
+        .write(&real);
+        let outside = tmp.path().join("outside").join(UDID_B);
+        Synthetic {
+            info: Some(info(
+                "Read from outside",
+                "iPad8,1",
+                "17.5.1",
+                "2026-09-24T00:00:00Z",
+            )),
+            manifest: Some(manifest(Some(true))),
+            binary: false,
+        }
+        .write(&outside);
+        if !try_symlink_dir(&outside, &root.join(UDID_B)) {
+            return;
+        }
+        assert!(try_symlink_dir(&outside, &root.join("another-link")));
+        assert!(try_symlink_file(
+            &outside.join("Info.plist"),
+            &root.join("file-link")
+        ));
+        let found = find(std::slice::from_ref(&root)).unwrap();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].path, real.to_string_lossy());
+        assert_eq!(found[0].device_name.as_deref(), Some("Alex's iPhone"));
+    }
+
+    /// Plists and markers that are links are never opened or followed: their details stay unknown,
+    /// and the size counts no link.
+    #[test]
+    fn linked_plists_are_not_opened() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Backup");
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        write_plist(
+            &outside.join("Info.plist"),
+            info(
+                "Read from outside",
+                "iPad8,1",
+                "17.5.1",
+                "2026-09-24T00:00:00Z",
+            ),
+            false,
+        );
+        write_plist(&outside.join("Manifest.plist"), manifest(Some(true)), false);
+        // A real backup folder whose plists link outside.
+        let linked_plists = root.join(UDID_A);
+        let size = Synthetic {
+            info: None,
+            manifest: None,
+            binary: false,
+        }
+        .write(&linked_plists);
+        if !try_symlink_file(
+            &outside.join("Info.plist"),
+            &linked_plists.join("Info.plist"),
+        ) {
+            return;
+        }
+        assert!(try_symlink_file(
+            &outside.join("Manifest.plist"),
+            &linked_plists.join("Manifest.plist")
+        ));
+        // A folder whose only marker is a link: a backup, with nothing read through the link.
+        let linked_marker = root.join(UDID_B);
+        fs::create_dir_all(&linked_marker).unwrap();
+        assert!(try_symlink_file(
+            &outside.join("Manifest.plist"),
+            &linked_marker.join("Manifest.plist")
+        ));
+
+        let found = find(std::slice::from_ref(&root)).unwrap();
+        assert_eq!(found.len(), 2, "{found:?}");
+        let row = |dir: &Path| {
+            found
+                .iter()
+                .find(|b| b.path == dir.to_string_lossy())
+                .unwrap_or_else(|| panic!("{} not listed: {found:?}", dir.display()))
+                .clone()
+        };
+        assert_eq!(
+            row(&linked_plists),
+            IosBackup {
+                size_bytes: Some(size),
+                ..unknown_backup(&linked_plists)
+            }
+        );
+        assert_eq!(
+            row(&linked_marker),
+            IosBackup {
+                size_bytes: Some(0),
+                ..unknown_backup(&linked_marker)
+            }
+        );
+    }
+
+    /// The Windows form of a link: a directory junction (no privilege needed to create one).
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_below_a_default_folder_is_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Backup");
+        let real = root.join(UDID_A);
+        Synthetic {
+            info: Some(info(
+                "Alex's iPhone",
+                "iPhone13,2",
+                "18.6",
+                "2026-09-20T21:04:33Z",
+            )),
+            manifest: Some(manifest(Some(false))),
+            binary: false,
+        }
+        .write(&real);
+        let outside = tmp.path().join("outside").join(UDID_B);
+        Synthetic {
+            info: Some(info(
+                "Read from outside",
+                "iPad8,1",
+                "17.5.1",
+                "2026-09-24T00:00:00Z",
+            )),
+            manifest: Some(manifest(Some(true))),
+            binary: false,
+        }
+        .write(&outside);
+        let junction = root.join(UDID_B);
+        let output = std::process::Command::new("cmd")
+            .arg("/c")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        if !output.status.success() {
+            eprintln!(
+                "SKIPPED junction check: mklink /J failed: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        assert!(
+            fs::symlink_metadata(&junction)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "a junction is a name-surrogate reparse point"
+        );
+        // Nothing is read through the junction, so Redirection Guard (ERROR_UNTRUSTED_MOUNT_POINT,
+        // 448) never comes into play.
+        let found = find(std::slice::from_ref(&root)).unwrap();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].path, real.to_string_lossy());
     }
 
     #[test]
