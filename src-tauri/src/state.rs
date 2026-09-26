@@ -1,12 +1,10 @@
 //! `AppState` (ARCHITECTURE.md §5.2): the settings cache, the one active job (a run, an
 //! acquisition or a later encryption restore; D25) with its event stream and log backlog, the
 //! running tool installs, and what the shell passes to the core (app dirs, host, manifest,
-//! platform, the iOS tools' location, the dev overrides).
+//! platform, the iOS tools' location, the default iOS backup folders, the dev overrides).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ffi::OsString;
-// Only the debug-build dev override and the tests use it.
-#[cfg(any(debug_assertions, test))]
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
@@ -40,6 +38,9 @@ pub struct AppConfig {
     pub manifest: LeappManifest,
     pub platform: Option<PlatformKey>,
     pub idevice: IdeviceConfig,
+    /// The default Finder/iTunes backup folders that `ios_backups_find` searches (S1; empty on
+    /// Linux).
+    pub ios_backup_dirs: Vec<PathBuf>,
     /// `SUITEDFIR_DEV_LEAPP_OVERRIDE` (debug builds only): fake-leapp for these tools.
     #[cfg(debug_assertions)]
     pub leapp_override: BTreeMap<ToolId, PathBuf>,
@@ -57,6 +58,7 @@ pub struct AppState {
     pub host: RecordHost,
     pub manifest: LeappManifest,
     pub platform: Option<PlatformKey>,
+    pub ios_backup_dirs: Vec<PathBuf>,
     #[cfg(debug_assertions)]
     pub leapp_override: BTreeMap<ToolId, PathBuf>,
     /// `SUITEDFIR_DEV_IDEVICE_OVERRIDE` is in effect (debug builds only).
@@ -85,6 +87,7 @@ impl AppState {
             host: config.host,
             manifest: config.manifest,
             platform: config.platform,
+            ios_backup_dirs: config.ios_backup_dirs,
             #[cfg(debug_assertions)]
             leapp_override: config.leapp_override,
             #[cfg(debug_assertions)]

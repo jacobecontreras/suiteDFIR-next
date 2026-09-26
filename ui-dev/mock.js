@@ -23,6 +23,9 @@
 //   `awaiting_trust`; this rendering fixture shows every state at once). `active_acq`: a slow
 //   acquisition of the first device is already active at load. `idevice_session_error`: the tools
 //   are ok but listing the devices failed (state `ok` with `guidance`, as the core reports it).
+//   `backups_empty` / `backups_denied`: `ios_backups_find` finds no backups / fails with
+//   permission_denied (the macOS Full Disk Access case; with `windows`, an unreadable folder);
+//   otherwise it finds the backups of ./mock/backups.js.
 // - Pairing: Pair on a device that was never asked answers `awaiting_trust` (the Trust dialog) and
 //   creates no host record, so `devices_list` still reports `not_paired`; the next Pair pairs.
 // - Later restores (`acq_restore_encryption`): each attempt is numbered (encryption-restore.json,
@@ -38,6 +41,8 @@
 //   case (ARCHITECTURE.md §6 step 1) → input_overlaps_case. A folder named like a backup
 //   (`…backup…`, a UDID) is an iTunes backup: encrypted when its name has `encrypted`, of unknown
 //   encryption (null, which needs a password as if encrypted) when it ends in `encryption-unknown`.
+//   A backup that `ios_backups_find` lists inspects with the encryption the list shows; the one
+//   listed with unknown details cannot be read (permission_denied).
 // - Acquisitions: chosen by a label suffix `/<scenario>` (fake-idevice names, CONTRACTS.md §13.4):
 //   `/backup_fail`, `/enable_fail`, `/restore_fail`, `/incomplete`, `/cancel_on_device`,
 //   `/disconnect`, `/sync_lock`, `/slow`, `/interrupt`; anything else succeeds. `acq_cancel`
@@ -45,6 +50,7 @@
 // Simulated steps are `globalThis.__SUITEDFIR_MOCK_TICK_MS` apart (default 300; tests set 1).
 import * as fx from "./fixtures/contracts/index.js";
 import { makeModules } from "./fixtures/modules.js";
+import { FOUND_BACKUPS, UNREADABLE_BACKUP, backupsDenied, foundBackup } from "./mock/backups.js";
 import { pickOpen, pickSave, SAMPLES } from "./mock/picker.js";
 import {
   REASONS,
@@ -608,7 +614,7 @@ const SIZES = /** @type {Record<string, number>} */ ({
 function inspect(tool, path, casePath) {
   if (!/^(\/|[A-Za-z]:[\\/])/.test(path)) throw appError("invalid_input", "The input path must be absolute.", path);
   const stem = stemOf(path);
-  if (stem === "denied") {
+  if (stem === "denied" || path === UNREADABLE_BACKUP) {
     throw appError("permission_denied", "The input cannot be read: permission denied.", `open ${path}: Operation not permitted (os error 1)`);
   }
   if (stem.startsWith("missing")) throw appError("invalid_input", "The input does not exist.", path);
@@ -624,14 +630,16 @@ function inspect(tool, path, casePath) {
   const isFile = sample ? sample.kind === "file" : extOf(path) !== "";
   const toolTypes = TOOLS[tool].input_types;
   if (!isFile) {
-    const itunes = /backup/i.test(stem) || /^[0-9a-f]{8}-[0-9a-f]{12,16}$/i.test(stem) || /^[0-9a-f]{40}$/i.test(stem);
+    // A backup the finder lists (S1) inspects with the encryption the list shows.
+    const found = foundBackup(path);
+    const itunes = found !== null || /backup/i.test(stem) || /^[0-9a-f]{8}-[0-9a-f]{12,16}$/i.test(stem) || /^[0-9a-f]{40}$/i.test(stem);
     // An acquired backup is encrypted when the acquisition turned encryption on, or it was on before.
     const acqId = acquisitionIdOf(casePath, path);
     const acq = acqId ? cases.get(casePath)?.acqs.find((a) => a.acq_id === acqId) : undefined;
     const acqEncrypted = acq ? acq.encryption.enabled_by_examiner || acq.encryption.will_encrypt_before === true : false;
-    const encrypted = itunes && (path === fx.InputInspection.path || /encrypted/i.test(stem) || acqEncrypted);
+    const encrypted = itunes && (found?.encrypted === true || path === fx.InputInspection.path || /encrypted/i.test(stem) || acqEncrypted);
     // `…encryption-unknown`: Manifest.plist has no IsEncrypted (the core reports null and a warning).
-    const unknown = itunes && /encryption-unknown$/i.test(stem);
+    const unknown = itunes && (found ? found.encrypted === null : /encryption-unknown$/i.test(stem));
     const canItunes = itunes && toolTypes.includes("itunes");
     /** @type {string[]} */
     const warnings = [];
@@ -947,7 +955,11 @@ export const input_inspect = async (req) => {
 };
 
 /** @type {Api["ios_backups_find"]} */
-export const ios_backups_find = async () => [clone(fx.IosBackup)];
+export const ios_backups_find = async () => {
+  await sleep(Math.min(tick(), 150));
+  if (has("backups_denied")) throw backupsDenied(has("windows"));
+  return has("backups_empty") ? [] : clone(FOUND_BACKUPS);
+};
 
 // ---- §10: profiles ----
 

@@ -28,6 +28,7 @@ use std::time::Duration;
 
 use suitedfir_core::contracts::Settings;
 use suitedfir_core::idevice::{IdeviceConfig, ToolLookup, embedded_manifest};
+use suitedfir_core::inspect::backups;
 use suitedfir_core::paths::AppPaths;
 use suitedfir_core::{manifest, process, settings};
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
@@ -103,6 +104,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let platform = manifest::host_platform();
     let config = AppConfig {
         idevice: idevice_config(&paths, platform)?,
+        ios_backup_dirs: ios_backup_dirs(&handle),
         paths,
         host: host::detect(),
         manifest,
@@ -153,6 +155,20 @@ fn app_paths(handle: &AppHandle) -> tauri::Result<AppPaths> {
         app_cache: path.app_cache_dir()?,
         app_log: path.app_log_dir()?,
     })
+}
+
+/// The default Finder/iTunes backup folders for `ios_backups_find` (S1), below the user's folders
+/// from the Tauri path APIs: the home folder (`%USERPROFILE%` on Windows) and, on Windows, the
+/// roaming app data folder (`%APPDATA%`). None on Linux.
+fn ios_backup_dirs(handle: &AppHandle) -> Vec<PathBuf> {
+    let path = handle.path();
+    let home = path.home_dir().ok();
+    let roaming = if cfg!(windows) {
+        path.data_dir().ok()
+    } else {
+        None
+    };
+    backups::default_backup_dirs(std::env::consts::OS, home.as_deref(), roaming.as_deref())
 }
 
 /// `<Documents>/suiteDFIR Cases` (created when the first case is).
