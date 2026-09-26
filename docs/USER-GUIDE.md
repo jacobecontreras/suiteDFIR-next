@@ -35,7 +35,7 @@ Download the files for your system from the release page, together with `SHA256S
 | Linux x64 (glibc 2.35 or later) | `suiteDFIR_0.2.0_amd64.AppImage` or `suiteDFIR_0.2.0_amd64.deb` | Uses the distribution's iOS tools; the parsers need glibc 2.43 (below) |
 | Linux arm64 (glibc 2.35 or later) | `suiteDFIR_0.2.0_aarch64.AppImage` or `suiteDFIR_0.2.0_arm64.deb` | As Linux x64 |
 
-The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project from pinned source releases and are part of the macOS and Windows x64 apps. Their source code and build script are attached to every release (see `THIRD-PARTY-NOTICES.md`). There is no build of them for Windows on Arm, so the arm64 Windows app parses evidence but cannot acquire iOS backups: its Acquire screen says "iOS acquisition is not available on this platform." Acquire on a Mac, a Windows x64 PC or Linux, and parse the case there or copy it over.
+The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project from pinned source releases and are part of the macOS and Windows x64 apps. Their source code, the two small source patches the build applies and the build script are attached to every release (see `THIRD-PARTY-NOTICES.md`). There is no build of them for Windows on Arm, so the arm64 Windows app parses evidence but cannot acquire iOS backups: its Acquire screen says "iOS acquisition is not available on this platform." Acquire on a Mac, a Windows x64 PC or Linux, and parse the case there or copy it over.
 
 ### macOS
 

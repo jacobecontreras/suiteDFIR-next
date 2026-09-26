@@ -23,10 +23,14 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
   - macOS: `libSystem`, `CoreFoundation` and `SystemConfiguration`.
   - Windows: system DLLs only, so `files` lists no DLL.
 - **Only the four tools are built.** `ideviceimagemounter`, the only tool that links libtatsu, is not. libtatsu is still built because libimobiledevice's `configure` requires it; on macOS it compiles against the system libcurl.
-- **Upstream build files are used unchanged** (no `autoreconf`, no source patches). Two static-build quirks are handled on the command line:
+- **Source patches (FX1):** two small patches (one changed code line each) in `scripts/idevice-tools-patches/`, pinned by SHA-256 in the script, applied with `patch -p1 --forward --fuzz=0` after extraction (any rejected hunk, fuzz or offset fails the build) and listed in `BUILDINFO.json` (`patches`). Each changed file carries a "Modified for suiteDFIR" comment. Without them `idevicepair pair` succeeds, but every lockdown SSL session then fails (§8, known issue):
+  - `mbedtls-3.6.7-x509-empty-issuer.patch`: `library/x509_crt.c` parses the issuer name only when it is not empty, like the subject. libimobiledevice creates its pairing certificates with empty issuer and subject names (`common/userpref.c` sets none), so mbedtls rejected the pair record's root certificate (-0x23E0).
+  - `libimobiledevice-1.4.0-mbedtls-hostname.patch`: `src/idevice.c` calls `mbedtls_ssl_set_hostname(ctx, NULL)` after `mbedtls_ssl_setup`. Since 3.6.3 (CVE-2025-27809) mbedtls refuses to verify a server certificate unless the host name was set, even to NULL (-0x5D80). The device certificate has no host name, and libimobiledevice's `cert_verify_cb` accepts any certificate.
+  - Nothing else changes: no other mbedtls configuration and no TLS 1.3 change (the device negotiates TLS 1.2).
+- **Upstream build files are used unchanged** (no `autoreconf`). Two static-build quirks are handled on the command line:
   - `3rd_party/libsrp6a-sha512` reads `$(mbedtls_CFLAGS)`, which `configure` never sets, so the script passes it to `make`.
   - libimobiledevice-glue initializes itself in a constructor in `glue.o` (on Windows it calls `WSAStartup`). The tools reference nothing else in that object, so a static link drops it, and on Windows every usbmuxd connection then fails. The tools are linked with `-u libimobiledevice_glue_version` (`_libimobiledevice_glue_version` on macOS) to pull it in, and the script checks that the constructor is present.
-- **Publishing:** the bundles are assets of the prerelease `idevice-tools-1.4.0`. Each zip holds the tools, `BUILDINFO.json` (sources, toolchain, flags, date, linked libraries) and the notices listed below. `cargo xtask fetch-idevice-tools` checks `bundle_sha256` and every file hash before it installs the tools as Tauri sidecars.
+- **Publishing:** `idevice-tools-1.4.0-p1`. The bundles are assets of the prerelease `idevice-tools-<release>`, where `release` in `idevice-tools.json` is `1.4.0-p1` (`version` stays `1.4.0`, the libimobiledevice version the tools report); the prerelease also holds the source tarballs, the build script and the patches. The unpatched `idevice-tools-1.4.0` prerelease is kept unchanged. Each zip holds the tools, `BUILDINFO.json` (sources, patches, toolchain, flags, date, linked libraries) and the notices listed below. `cargo xtask fetch-idevice-tools` checks `bundle_sha256` and every file hash before it installs the tools as Tauri sidecars.
 
 **Licenses:**
 - The source headers and README say LGPL-2.1-or-later. The repo also ships a GPL-2 `COPYING`.
@@ -34,7 +38,7 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - The release tarball omits the `3rd_party/*/LICENSE` files (ed25519: zlib; libsrp6a-sha512: Stanford SRP, BSD-style). The build takes them from the `1.4.0` tag, pinned by SHA-256; they match that tag's blobs.
 - libplist compiles in MIT-licensed code (`src/jsmn.c`, `src/time64.c`). The bundles carry those notices in `libplist-embedded-notices.txt`.
 - The Windows tools link the MinGW-w64 runtime statically, and its license requires its notices in binary distributions: `mingw-w64/COPYING.MinGW-w64-runtime.txt` in the Windows bundle.
-- The source obligation is met by attaching the exact source tarballs and the build script to each app release (ROADMAP F1/F2). A link to upstream is not enough.
+- The source obligation is met by attaching the exact source tarballs, the patches and the build script to each app release (ROADMAP F1/F2). A link to upstream is not enough.
 
 **Runtime service (usbmuxd):**
 - **macOS:** built into the OS.
@@ -156,6 +160,8 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 ## 8. UNVERIFIED items (X3a/X3b tests + human QA must resolve)
 
 Each item is in the human checklist, [QA-CHECKLIST.md](QA-CHECKLIST.md) §4.
+
+**Known issue, fixed by the `1.4.0-p1` build (FX1, §1):** SSL error -5 after a successful pair meant the unpatched `idevice-tools-1.4.0` build. Found in H4 testing (iPhone17,5, iOS 26.6.1, macOS): `idevicepair pair` succeeded, but every lockdown SSL session then failed with `LOCKDOWN_E_SSL_ERROR` (-5), so `validate` reported `pairing failed … unhandled error code -5`, and the full `ideviceinfo`, the `com.apple.mobile.backup` domain and `idevicebackup2` failed too. With the patched macOS arm64 tools, on the same device: `validate` succeeds, and the full `ideviceinfo` and `WillEncrypt` read.
 
 1. `SnapshotState == "finished"` and `Manifest.db` presence on iOS 17/18/26.
 2. Exact on-device prompts (passcode for backup / encryption) per iOS version, and their console lines.

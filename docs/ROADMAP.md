@@ -385,7 +385,7 @@ Implement `crates/core/src/bin/fake-leapp.rs` with every behavior and scenario i
   - the four tools (+ DLLs);
   - `BUILDINFO.json` (source URLs + hashes, compiler and toolchain versions, configure flags, date);
   - `COPYING`, `COPYING.LESSER`, the `3rd_party/` notices and the mbedtls notice.
-- **Publishing:** all bundles are built locally (no GitHub Actions) and uploaded to a **prerelease** named `idevice-tools-<version>` (`gh release upload --clobber` is allowed for these prereleases). This way both machines and release builds fetch the same pinned artifacts.
+- **Publishing:** all bundles are built locally (no GitHub Actions) and uploaded to a **prerelease** named `idevice-tools-<release>` (`gh release upload --clobber` is allowed for these prereleases). `release` in `idevice-tools.json` is `1.4.0-p1` since FX1, which added two source patches (IDEVICE-CLI.md §1); the unpatched `idevice-tools-1.4.0` stays as it is. This way both machines and release builds fetch the same pinned artifacts.
 - **`cargo xtask fetch-idevice-tools`:**
   - Downloads the host bundle via the **API asset URL** with `Accept: application/octet-stream` and a token from `GH_TOKEN`, or `gh auth token` while private.
   - Verifies `bundle_sha256` and every (unsigned) file hash.

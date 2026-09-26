@@ -16,7 +16,9 @@ iLEAPP and aLEAPP
 libimobiledevice stack (libimobiledevice, libimobiledevice-glue, libusbmuxd, libplist, libtatsu)
   License: LGPL-2.1-or-later (the upstream repositories also ship the GPL-2.0 COPYING text)
   https://libimobiledevice.org/
-  The bundled command-line tools are built from pinned upstream source releases; the exact
-  source tarballs and build script are published with each release.
+  The bundled command-line tools are built from pinned upstream source releases, with two small
+  source patches (libimobiledevice src/idevice.c and Mbed TLS library/x509_crt.c, each marked
+  "Modified for suiteDFIR"); the exact source tarballs, patches and build script are published
+  with each release.
 
 Full license texts: THIRD-PARTY-NOTICES.md.

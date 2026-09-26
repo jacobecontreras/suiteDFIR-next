@@ -46,7 +46,7 @@ Everything runs locally. The app's only network traffic is downloading the pinne
 
 > **Placeholder (owner checkpoint H7):** credits for the contributors to the earlier suiteDFIR versions will be added here by the owner.
 
-iLEAPP and aLEAPP are developed by Alexis Brignoni and contributors and are MIT-licensed. suiteDFIR runs their official releases and does not modify them. iOS acquisition uses [libimobiledevice](https://libimobiledevice.org/) (LGPL-2.1+/GPL-2.0+), built from pinned upstream sources; the source code is attached to every release.
+iLEAPP and aLEAPP are developed by Alexis Brignoni and contributors and are MIT-licensed. suiteDFIR runs their official releases and does not modify them. iOS acquisition uses [libimobiledevice](https://libimobiledevice.org/) (LGPL-2.1+/GPL-2.0+), built from pinned upstream sources with two small patches (to libimobiledevice and Mbed TLS, so that lockdown SSL sessions work); the source code, the patches and the build script are attached to every release.
 
 ## License
 
