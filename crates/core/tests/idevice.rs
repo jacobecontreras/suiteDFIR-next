@@ -265,7 +265,11 @@ fn missing_tools_are_reported() {
 #[test]
 fn windows_arm64_reports_acquisition_as_unsupported() {
     let manifest = embedded_manifest().unwrap();
-    assert!(!manifest.platforms.contains_key(&PlatformKey::WindowsAarch64));
+    assert!(
+        !manifest
+            .platforms
+            .contains_key(&PlatformKey::WindowsAarch64)
+    );
     assert!(
         !manifest
             .system_platforms
