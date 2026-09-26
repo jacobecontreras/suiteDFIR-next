@@ -1071,6 +1071,27 @@ fn crash_after_enable_is_recovered() {
     assert!(sweep.failed.is_empty(), "{sweep:?}");
 }
 
+/// A panic on the job thread while `encryption on|off` runs (here: in the event callback, on the
+/// command's passcode prompt) leaves a command that cannot be stopped and has no timeout, so
+/// `stop_after_panic` never reports the acquisition's processes as stopped (the shell then keeps
+/// the job slot).
+#[test]
+fn a_panic_during_an_encryption_command_is_not_taken_as_stopped() {
+    let lab = Lab::new("success_encrypt");
+    let case = new_case(&lab);
+    let job = acquire::start(&lab.idevice, request(&case, Some(PASSWORD)), context(&case)).unwrap();
+    let control = job.control();
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        job.run(&mut |event| {
+            if matches!(event, AcqEvent::DevicePrompt { .. }) {
+                panic!("test: the event callback panics");
+            }
+        })
+    }));
+    assert!(ran.is_err());
+    assert!(!control.stop_after_panic(Duration::from_millis(10)));
+}
+
 /// The final `acquisition.json` cannot be written (the folder became unwritable just before it):
 /// `finished` says `failed` with `record_write_failed`, the record on disk stays `running`, and
 /// the next case open recovers it as `interrupted` (ARCHITECTURE.md §6b step 11). Unix only: a

@@ -228,6 +228,27 @@ pub fn recover(
     record: &mut AcquisitionRecord,
     now: Timestamp,
 ) -> Result<(), AcqError> {
+    recover_with(
+        acq_dir,
+        record,
+        now,
+        "The app stopped before the acquisition finished; the record was recovered when the case \
+         was next opened",
+    )
+}
+
+/// The message of `app_interrupted` for an acquisition whose thread stopped by an internal error
+/// (a panic) while the app kept running; its device process was stopped first.
+pub const INTERNAL_ERROR_MESSAGE: &str = "The acquisition stopped because of an internal error in \
+     suiteDFIR; the device tool was stopped and the record was recovered at once";
+
+/// [`recover`] with the message of its `app_interrupted` reason (the code is the same).
+pub fn recover_with(
+    acq_dir: &Path,
+    record: &mut AcquisitionRecord,
+    now: Timestamp,
+    message: &str,
+) -> Result<(), AcqError> {
     if record.status != AcqStatus::Running {
         return Err(AcqError::AlreadyFinalized {
             acq_id: record.acq_id.clone(),
@@ -236,9 +257,7 @@ pub fn recover(
     record.status = AcqStatus::Interrupted;
     record.status_reasons = vec![Reason {
         code: APP_INTERRUPTED.to_owned(),
-        message: "The app stopped before the acquisition finished; the record was recovered when \
-                  the case was next opened"
-            .to_owned(),
+        message: message.to_owned(),
     }];
     record.recovered_at = Some(now);
     record.ended_at = None;
@@ -284,6 +303,11 @@ pub fn recover_case(
         }
         match recover(&acq.dir, &mut acq.record, now) {
             Ok(()) => recovered.push(acq.record.acq_id),
+            // Written as interrupted, only not read-only: it was recovered.
+            Err(e @ AcqError::NotReadOnly { .. }) => {
+                log::warn!("recovered acquisition {}, but {e}", acq.dir.display());
+                recovered.push(acq.record.acq_id);
+            }
             Err(e) => log::warn!("could not recover acquisition {}: {e}", acq.dir.display()),
         }
     }
@@ -294,6 +318,12 @@ pub fn recover_case(
 /// final (read-only, or any status but `running`), then write atomically and mark read-only
 /// ([`AcqError::NotReadOnly`] when only that last step fails).
 fn write_final(acq_dir: &Path, record: &AcquisitionRecord) -> Result<(), AcqError> {
+    #[cfg(test)]
+    if tests::FAIL_READ_ONLY.with(std::cell::Cell::get) {
+        return write_final_marking(acq_dir, record, |_| {
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        });
+    }
     write_final_marking(acq_dir, record, fsutil::set_read_only)
 }
 
@@ -699,6 +729,11 @@ mod tests {
     };
     use crate::fsutil::test_support::make_writable;
 
+    thread_local! {
+        /// This test thread's final writes cannot mark the record read-only (see `write_final`).
+        pub(super) static FAIL_READ_ONLY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
     const ACQ_ID: &str = "20260924-171200Z-ios-9c01de";
 
     fn at(text: &str) -> Timestamp {
@@ -832,6 +867,51 @@ mod tests {
             Vec::<String>::new()
         );
         assert_eq!(read(&dir), record);
+    }
+
+    #[test]
+    fn a_recovery_that_cannot_mark_read_only_still_counts_as_recovered() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = dir_for(case.path(), ACQ_ID);
+        write_initial(&dir, &running()).unwrap();
+        FAIL_READ_ONLY.with(|fail| fail.set(true));
+        let recovered = recover_case(case.path(), None, at("2026-09-25T00:00:00Z"));
+        FAIL_READ_ONLY.with(|fail| fail.set(false));
+        assert_eq!(recovered.unwrap(), [ACQ_ID]);
+        assert_eq!(read(&dir).status, AcqStatus::Interrupted);
+        assert!(!is_read_only(&dir));
+    }
+
+    #[test]
+    fn a_panic_recovery_says_so_and_keeps_the_encryption_warnings() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = dir_for(case.path(), ACQ_ID);
+        // Encryption was turned on by the examiner and not restored.
+        let mut record = running();
+        record.encryption.enabled_by_examiner = true;
+        record.encryption.will_encrypt_after_enable = Some(true);
+        record.encryption.restored_after = RestoreState::NotAttempted;
+        write_initial(&dir, &record).unwrap();
+        recover_with(
+            &dir,
+            &mut record,
+            at("2026-09-24T17:30:00Z"),
+            INTERNAL_ERROR_MESSAGE,
+        )
+        .unwrap();
+        let on_disk = read(&dir);
+        assert_eq!(on_disk.status, AcqStatus::Interrupted);
+        assert_eq!(on_disk.status_reasons[0].message, INTERNAL_ERROR_MESSAGE);
+        assert!(
+            on_disk
+                .warnings
+                .iter()
+                .any(|w| w.code == "encryption_left_enabled"),
+            "{:?}",
+            on_disk.warnings
+        );
+        assert!(is_read_only(&dir));
+        make_writable(&dir.join(ACQ_FILE));
     }
 
     #[test]

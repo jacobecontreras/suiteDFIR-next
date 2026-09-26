@@ -435,7 +435,16 @@ struct ControlState {
     cancel_requested: bool,
     backup: Option<Arc<process::Handle>>,
     seal_cancel: Arc<AtomicBool>,
+    /// An `encryption on|off` command was started and has not been seen to end. It cannot be
+    /// stopped and has no timeout (it may wait for the device passcode). Cleared only when the
+    /// command returned, never by unwinding.
+    encryption_command: bool,
 }
+
+/// How long [`AcqControl::stop_after_panic`] may wait for the backup's tree: its kill grace
+/// (SIGTERM, then SIGKILL after 30 s on Unix), the supervisor's checks that the tree is gone and
+/// the output drained (up to 7 s), and a margin.
+pub const ACQ_STOP_WAIT: Duration = Duration::from_secs(60);
 
 /// Shared with the shell: the phase (for `job_active`) and cancel (`acq_cancel`).
 #[derive(Debug)]
@@ -451,6 +460,7 @@ impl Default for AcqControl {
                 cancel_requested: false,
                 backup: None,
                 seal_cancel: Arc::new(AtomicBool::new(false)),
+                encryption_command: false,
             }),
         }
     }
@@ -480,6 +490,32 @@ impl AcqControl {
 
     pub fn phase(&self) -> AcqPhase {
         lock(&self.state).phase
+    }
+
+    /// After the thread running [`AcqJob::run`] died (a panic): stops the backup if it runs (and
+    /// the seal), whatever the phase, and waits up to `timeout` until no process of the
+    /// acquisition can still be running. `true` once that is confirmed: the backup's tree is gone,
+    /// or none was running and no `encryption on|off` command is in flight (short device commands
+    /// finish on the job thread, so none outlives it). `false` while an encryption command may
+    /// still run (it cannot be stopped and has no timeout) or when the backup outlived `timeout`.
+    pub fn stop_after_panic(&self, timeout: Duration) -> bool {
+        let (backup, encryption_command) = {
+            let mut state = lock(&self.state);
+            state.cancel_requested = true;
+            state.seal_cancel.store(true, Ordering::SeqCst);
+            if let Some(handle) = &state.backup {
+                handle.cancel();
+            }
+            (state.backup.clone(), state.encryption_command)
+        };
+        if encryption_command {
+            return false;
+        }
+        match backup {
+            // A result (even a supervisor error) is published only once the tree was stopped.
+            Some(handle) => !matches!(handle.wait_timeout(timeout), Ok(None)),
+            None => true,
+        }
     }
 
     fn cancel_requested(&self) -> bool {
@@ -955,10 +991,14 @@ impl AcqJob {
         let argv = encryption_argv(&self.tools, &self.udid, enable);
         log::info!("acquisition {}: running {}", self.acq_id, argv.join(" "));
         let index = self.begin_command(record, purpose, argv);
+        // Set around the command; if this thread unwinds meanwhile, it stays set (see
+        // `AcqControl::stop_after_panic`).
+        lock(&self.control.state).encryption_command = true;
         let result = session.set_encryption(&self.udid, enable, password, &mut |line| {
             events.output_line(line);
             events.flush_lines();
         });
+        lock(&self.control.state).encryption_command = false;
         events.flush_lines();
         match &result {
             Ok(command) => {
@@ -1419,6 +1459,19 @@ fn later_restore_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn after_a_panic_an_encryption_command_in_flight_is_never_taken_as_stopped() {
+        // No backup and no encryption command: nothing of ours runs.
+        let control = AcqControl::default();
+        assert!(control.stop_after_panic(Duration::from_millis(10)));
+        assert!(control.cancel_requested());
+        // `encryption on|off` cannot be stopped and has no timeout.
+        let control = AcqControl::default();
+        lock(&control.state).phase = AcqPhase::RestoringEncryption;
+        lock(&control.state).encryption_command = true;
+        assert!(!control.stop_after_panic(Duration::from_millis(10)));
+    }
 
     #[test]
     fn finished_reports_the_record_or_record_write_failed() {

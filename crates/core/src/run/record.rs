@@ -384,6 +384,27 @@ fn duration_ms(created_at: Timestamp, ended_at: Timestamp) -> u64 {
 /// `app_interrupted`, `recovered_at` set, `pending` hash and seal statuses become `interrupted`,
 /// then the record is finalized (atomic write, read-only).
 pub fn recover(run_dir: &Path, record: &mut RunRecord, now: Timestamp) -> Result<(), RecordError> {
+    recover_with(
+        run_dir,
+        record,
+        now,
+        "The app stopped before the run finished; the record was recovered when the case was \
+         next opened",
+    )
+}
+
+/// The message of `app_interrupted` for a run whose thread stopped by an internal error (a
+/// panic) while the app kept running; its process tree was stopped first.
+pub const INTERNAL_ERROR_MESSAGE: &str = "The run stopped because of an internal error in \
+     suiteDFIR; LEAPP was stopped and the record was recovered at once";
+
+/// [`recover`] with the message of its `app_interrupted` reason (the code is the same).
+pub fn recover_with(
+    run_dir: &Path,
+    record: &mut RunRecord,
+    now: Timestamp,
+    message: &str,
+) -> Result<(), RecordError> {
     if record.status != RunStatus::Running {
         return Err(RecordError::AlreadyFinalized {
             run_id: record.run_id.clone(),
@@ -392,9 +413,7 @@ pub fn recover(run_dir: &Path, record: &mut RunRecord, now: Timestamp) -> Result
     record.status = RunStatus::Interrupted;
     record.status_reasons = vec![Reason {
         code: APP_INTERRUPTED.to_owned(),
-        message: "The app stopped before the run finished; the record was recovered when the \
-                  case was next opened"
-            .to_owned(),
+        message: message.to_owned(),
     }];
     record.recovered_at = Some(now);
     record.ended_at = None;
@@ -425,6 +444,11 @@ pub fn recover_case(
         }
         match recover(&run.dir, &mut run.record, now) {
             Ok(()) => recovered.push(run.record.run_id),
+            // Written as interrupted, only not read-only: it was recovered.
+            Err(e @ RecordError::NotReadOnly { .. }) => {
+                log::warn!("recovered run {}, but {e}", run.dir.display());
+                recovered.push(run.record.run_id);
+            }
             Err(e) => log::warn!("could not recover run {}: {e}", run.dir.display()),
         }
     }
@@ -435,6 +459,12 @@ pub fn recover_case(
 /// final (read-only, or any status but `running`), then write atomically and mark read-only
 /// ([`RecordError::NotReadOnly`] when only that last step fails).
 fn write_final(run_dir: &Path, record: &RunRecord) -> Result<(), RecordError> {
+    #[cfg(test)]
+    if tests::FAIL_READ_ONLY.with(std::cell::Cell::get) {
+        return write_final_marking(run_dir, record, |_| {
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        });
+    }
     write_final_marking(run_dir, record, fsutil::set_read_only)
 }
 
@@ -495,6 +525,11 @@ mod tests {
 
     use crate::contracts::{RunProcess, examples};
     use crate::fsutil::test_support::make_writable;
+
+    thread_local! {
+        /// This test thread's final writes cannot mark the record read-only (see `write_final`).
+        pub(super) static FAIL_READ_ONLY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
 
     const RUN_ID: &str = "20260924-183005Z-ileapp-3f9a1c";
 
@@ -773,6 +808,42 @@ mod tests {
             RecordError::AlreadyFinalized { .. }
         ));
         assert_eq!(read(&dir), record);
+    }
+
+    #[test]
+    fn a_recovery_that_cannot_mark_read_only_still_counts_as_recovered() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = run_dir(case.path());
+        let initial = initial_record(setup_from_example()).unwrap();
+        write_initial(&dir, &initial).unwrap();
+        FAIL_READ_ONLY.with(|fail| fail.set(true));
+        let recovered = recover_case(case.path(), None, at("2026-09-25T00:00:00Z"));
+        FAIL_READ_ONLY.with(|fail| fail.set(false));
+        // On disk it is interrupted (only writable), so the case open reports it.
+        assert_eq!(recovered.unwrap(), [RUN_ID]);
+        assert_eq!(read(&dir).status, RunStatus::Interrupted);
+        assert!(!is_read_only(&dir));
+    }
+
+    #[test]
+    fn a_panic_recovery_says_so() {
+        let case = tempfile::tempdir().unwrap();
+        let dir = run_dir(case.path());
+        let mut record = initial_record(setup_from_example()).unwrap();
+        write_initial(&dir, &record).unwrap();
+        recover_with(
+            &dir,
+            &mut record,
+            at("2026-09-24T18:40:00Z"),
+            INTERNAL_ERROR_MESSAGE,
+        )
+        .unwrap();
+        let on_disk = read(&dir);
+        assert_eq!(on_disk.status, RunStatus::Interrupted);
+        assert_eq!(on_disk.status_reasons[0].code, APP_INTERRUPTED);
+        assert_eq!(on_disk.status_reasons[0].message, INTERNAL_ERROR_MESSAGE);
+        assert!(is_read_only(&dir));
+        make_writable(&dir.join(RUN_FILE));
     }
 
     #[test]

@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::acquire;
 use crate::case::{self, DiscoveredRun};
@@ -549,11 +550,18 @@ struct ControlState {
     process: Option<Arc<process::Handle>>,
 }
 
+/// How long [`RunControl::stop_after_panic`] may wait for LEAPP's tree: the kill grace (SIGTERM,
+/// then SIGKILL after 10 s on Unix), the supervisor's checks that the tree is gone and the output
+/// drained (up to 7 s), and a margin.
+pub const RUN_STOP_WAIT: Duration = Duration::from_secs(30);
+
 /// Shared with the shell: the phase (`job_active`) and cancel (`run_cancel`).
 #[derive(Debug)]
 pub struct RunControl {
     state: Mutex<ControlState>,
     hash_cancel: Arc<AtomicBool>,
+    /// The input-hash thread is running (it clears this when it ends, also by a panic).
+    hash_running: Arc<AtomicBool>,
 }
 
 impl Default for RunControl {
@@ -565,6 +573,7 @@ impl Default for RunControl {
                 process: None,
             }),
             hash_cancel: Arc::new(AtomicBool::new(false)),
+            hash_running: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -594,6 +603,29 @@ impl RunControl {
             .process
             .as_ref()
             .map(|handle| handle.pid())
+    }
+
+    /// After the thread running [`RunJob::run`] died (a panic): cancels (LEAPP's tree and the input
+    /// hashing) and waits up to `timeout` until LEAPP's process tree is gone and the hashing has
+    /// stopped. `true` once both are confirmed (also when LEAPP was never spawned), so nothing of
+    /// the run writes into its folder or temp dir any more; `false` if either outlived `timeout`.
+    pub fn stop_after_panic(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now().checked_add(timeout);
+        self.cancel();
+        let process = lock(&self.state).process.clone();
+        if let Some(process) = process {
+            // A result (even a supervisor error) is published only once the tree was stopped.
+            if let Ok(None) = process.wait_timeout(timeout) {
+                return false;
+            }
+        }
+        while self.hash_running.load(Ordering::SeqCst) {
+            if deadline.is_none_or(|deadline| Instant::now() >= deadline) {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        true
     }
 
     fn cancel_requested(&self) -> bool {
@@ -653,6 +685,15 @@ pub struct RunOutcome {
     pub write_error: Option<String>,
 }
 
+/// Clears the input-hash thread's `running` flag when the thread ends (also by a panic).
+struct Running(Arc<AtomicBool>);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// What the hashing thread reports.
 enum HashMessage {
     Progress { done: u64, total: u64 },
@@ -667,17 +708,28 @@ struct InputHashing {
 }
 
 impl InputHashing {
-    fn start(input: PathBuf, cancel: Arc<AtomicBool>) -> io::Result<Self> {
+    fn start(
+        input: PathBuf,
+        cancel: Arc<AtomicBool>,
+        running: Arc<AtomicBool>,
+    ) -> io::Result<Self> {
         let (sender, messages) = mpsc::channel();
         let started_at = Timestamp::now();
-        thread::Builder::new()
+        running.store(true, Ordering::SeqCst);
+        let flag = Arc::clone(&running);
+        let spawned = thread::Builder::new()
             .name("run-input-hash".to_owned())
             .spawn(move || {
+                let _running = Running(flag);
                 let result = hashing::sha256_file_with_progress(&input, &cancel, |done, total| {
                     let _ = sender.send(HashMessage::Progress { done, total });
                 });
                 let _ = sender.send(HashMessage::Done(result));
-            })?;
+            });
+        if let Err(e) = spawned {
+            running.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
         Ok(Self {
             messages,
             started_at,
@@ -793,6 +845,7 @@ impl RunJob {
             match InputHashing::start(
                 PathBuf::from(&record.input.path),
                 Arc::clone(&self.control.hash_cancel),
+                Arc::clone(&self.control.hash_running),
             ) {
                 Ok(started) => {
                     record.input.hash.started_at = Some(started.started_at);
@@ -1279,6 +1332,29 @@ mod tests {
     use super::*;
 
     use crate::contracts::examples;
+
+    #[test]
+    fn after_a_panic_the_hashing_must_have_stopped() {
+        // Never spawned, no hashing: stopped at once.
+        let control = RunControl::default();
+        assert!(control.stop_after_panic(Duration::from_millis(10)));
+        // A hash thread that does not stop within the wait: not confirmed.
+        let control = RunControl::default();
+        control.hash_running.store(true, Ordering::SeqCst);
+        assert!(!control.stop_after_panic(Duration::from_millis(30)));
+        assert!(
+            control.hash_cancel.load(Ordering::SeqCst),
+            "the hashing was cancelled"
+        );
+        // One that stops meanwhile: confirmed.
+        let running = Arc::clone(&control.hash_running);
+        let stopper = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(20));
+            running.store(false, Ordering::SeqCst);
+        });
+        assert!(control.stop_after_panic(Duration::from_secs(5)));
+        stopper.join().unwrap();
+    }
 
     #[test]
     fn finished_reports_the_record_or_record_write_failed() {
