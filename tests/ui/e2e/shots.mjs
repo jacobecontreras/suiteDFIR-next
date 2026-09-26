@@ -64,6 +64,17 @@ async function newRunReady(page) {
   await page.getByRole("radio", { name: /Custom selection/ }).waitFor();
 }
 
+/**
+ * New run with iLEAPP: "Find iOS backups" (S1), then waits for the search to end.
+ * @param {Page} page
+ */
+async function findBackups(page) {
+  await newRunReady(page);
+  await page.getByRole("button", { name: "Find iOS backups" }).click();
+  await page.locator(".backup-finder:not([aria-busy]) .card-head").waitFor();
+  await page.locator(".backup-finder .backups-table, .backup-finder .btn:text-is('Search again')").first().waitFor();
+}
+
 /** @param {Page} page */
 async function customMode(page) {
   await newRunReady(page);
@@ -445,6 +456,66 @@ const SCREENS = [
       await pickInput(page, "Choose folder…", "iPad-backup-encryption-unknown");
       await page.getByLabel(/Backup password/).waitFor();
       await page.getByText("The backup's encryption state couldn't be read, so a password is needed.", { exact: false }).first().waitFor();
+    },
+  },
+  // ---- S1: Find iOS backups ----
+  {
+    // The backups in the default backup folder, newest first; details a backup's plists do not give
+    // (or a folder that cannot be read) stay visible as unknown.
+    name: "newrun-backups-found",
+    query: "?mock",
+    hash: newRunHash,
+    element: ".form-section:nth-of-type(2)",
+    setup: async (page) => {
+      await findBackups(page);
+      await page.locator(".backups-table tbody tr").nth(3).waitFor();
+    },
+  },
+  {
+    name: "newrun-backups-empty",
+    query: "?mock&scenario=backups_empty",
+    hash: newRunHash,
+    element: ".form-section:nth-of-type(2)",
+    setup: async (page) => {
+      await findBackups(page);
+      await page.getByText("No Finder or iTunes backups were found", { exact: false }).waitFor();
+    },
+  },
+  {
+    // permission_denied on macOS (the protected Finder backup folder): the AppError and how to give
+    // suiteDFIR Full Disk Access.
+    name: "newrun-backups-denied",
+    query: "?mock&scenario=backups_denied",
+    hash: newRunHash,
+    element: ".form-section:nth-of-type(2)",
+    setup: async (page) => {
+      await findBackups(page);
+      await page.locator(".backup-finder .app-error").waitFor();
+      await page.getByText("Give suiteDFIR Full Disk Access").waitFor();
+      await page.locator(".backup-finder .app-error-detail summary").click();
+    },
+  },
+  {
+    name: "newrun-backups-denied-windows",
+    query: "?mock&scenario=backups_denied,windows",
+    hash: newRunHash,
+    element: ".form-section:nth-of-type(2)",
+    setup: async (page) => {
+      await findBackups(page);
+      await page.locator(".backup-finder .app-error").waitFor();
+      await page.getByText("Allow access to the backup folder").waitFor();
+    },
+  },
+  {
+    // "Use" sets the input to the backup, read as an iTunes backup through input_inspect: this one is
+    // encrypted, so the password field appears. Nothing starts.
+    name: "newrun-backup-chosen",
+    query: "?mock",
+    hash: newRunHash,
+    setup: async (page) => {
+      await findBackups(page);
+      await page.getByRole("button", { name: /^Use the backup of Alex's iPhone/ }).click();
+      await page.getByLabel(/Backup password/).waitFor();
     },
   },
   {
@@ -1219,6 +1290,57 @@ const SCREENS = [
 /** Behavior checks (no screenshot), run once in the light theme. */
 /** @type {Check[]} */
 const CHECKS = [
+  {
+    // S1: the finder works from the keyboard; choosing a backup only sets the input (read as
+    // itunes; nothing starts) and gives the focus back to "Find iOS backups"; a backup that cannot
+    // be read shows its inspection error; only iLEAPP offers the finder.
+    name: "check-backup-finder",
+    hash: newRunHash,
+    run: async (page) => {
+      await newRunReady(page);
+      const find = page.getByRole("button", { name: "Find iOS backups" });
+      await find.focus();
+      await page.keyboard.press("Enter");
+      await page.locator(".backups-table").waitFor();
+      await page.getByRole("button", { name: /^Use the backup of Evidence iPad/ }).focus();
+      await page.keyboard.press("Enter");
+      await page.locator("select[name=input_type]").waitFor();
+      await page.waitForTimeout(800);
+      const state = await page.evaluate(() => ({
+        finderHidden: /** @type {HTMLElement | null} */ (document.querySelector(".backup-finder"))?.hidden ?? false,
+        focused: document.activeElement?.textContent ?? "",
+        path: document.querySelector(".input-path")?.textContent ?? "",
+        type: /** @type {HTMLSelectElement | null} */ (document.querySelector("select[name=input_type]"))?.value ?? "",
+        password: document.querySelector("input[name=itunes_password]") !== null,
+        hash: location.hash,
+        indicator: document.querySelector(".job-indicator") !== null,
+      }));
+      if (!state.finderHidden) throw new Error(`the list stayed open after a choice: ${JSON.stringify(state)}`);
+      if (state.focused !== "Find iOS backups") throw new Error(`the focus went to "${state.focused}", not back to Find iOS backups`);
+      if (!state.path.endsWith("/00008030-001229C01146402E") || state.type !== "itunes") throw new Error(`the chosen backup is not the itunes input: ${JSON.stringify(state)}`);
+      if (state.password) throw new Error("an unencrypted backup asks for a password");
+      if (!state.hash.startsWith("#/new-run") || state.indicator) throw new Error(`choosing a backup started something: ${JSON.stringify(state)}`);
+      // A backup whose folder cannot be read: the inspection error shows inline.
+      await find.click();
+      await page.getByRole("button", { name: /^Use the backup in folder 9c01de2b/ }).click();
+      await page.locator(".form-section .app-error", { hasText: "permission_denied" }).waitFor();
+      // Close hides the list and gives the focus back.
+      await find.click();
+      await page.locator(".backups-table").waitFor();
+      await page.locator(".backup-finder").getByRole("button", { name: "Close" }).click();
+      await page.locator(".backup-finder").waitFor({ state: "hidden" });
+      const focused = await page.evaluate(() => document.activeElement?.textContent ?? "");
+      if (focused !== "Find iOS backups") throw new Error(`Close left the focus on "${focused}"`);
+      // aLEAPP does not read iTunes backups: no finder; back on iLEAPP it returns.
+      await find.click();
+      await page.locator(".backups-table").waitFor();
+      await page.getByRole("radio", { name: /aLEAPP/ }).check();
+      await find.waitFor({ state: "hidden" });
+      await page.locator(".backup-finder").waitFor({ state: "hidden" });
+      await page.getByRole("radio", { name: /iLEAPP/ }).check();
+      await find.waitFor();
+    },
+  },
   {
     // Regression check for implicit form submission: Enter in any New run field must never start a
     // run (a run folder and run.json are permanent); only activating Start run does.
