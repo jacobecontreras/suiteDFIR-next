@@ -1,5 +1,6 @@
 // @ts-check
-// The aria-live latest-line announcer is throttled to at most one update per second (D4a, §4.6).
+// The aria-live latest-line announcer is throttled to at most one update per second (D4a, §4.6);
+// the log search's reports (S2) go through the same limit, ahead of the latest line.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -95,5 +96,103 @@ test("cancel drops the pending value and its timer", () => {
   t.cancel();
   clock.advance(3000);
   assert.deepEqual(values, ["a"]);
+  assert.equal(clock.pending(), 0);
+});
+
+// ---- Urgent values: the log search's reports share the region and the limit (S2) ----
+
+test("an urgent value after a quiet interval goes out at once", () => {
+  const clock = fakeClock();
+  /** @type {[number, string][]} */
+  const calls = [];
+  const t = throttleLatest((/** @type {string} */ v) => calls.push([clock.now(), v]), 1000, clock);
+  t.pushUrgent("3 matching lines");
+  assert.deepEqual(calls, [[0, "3 matching lines"]]);
+  assert.equal(clock.pending(), 0);
+});
+
+test("a waiting urgent value is not replaced by lines; the latest line follows one interval later", () => {
+  const clock = fakeClock();
+  /** @type {[number, string][]} */
+  const calls = [];
+  const t = throttleLatest((/** @type {string} */ v) => calls.push([clock.now(), v]), 1000, clock);
+  t.push("line 1");
+  clock.advance(200);
+  t.pushUrgent("Match 1 of 3");
+  clock.advance(100);
+  t.push("line 2");
+  clock.advance(100);
+  t.push("line 3");
+  clock.advance(1600);
+  assert.deepEqual(calls, [
+    [0, "line 1"],
+    [1000, "Match 1 of 3"],
+    [2000, "line 3"],
+  ]);
+  assert.equal(clock.pending(), 0);
+});
+
+test("a line waiting before the urgent value goes out after it", () => {
+  const clock = fakeClock();
+  /** @type {string[]} */
+  const values = [];
+  const t = throttleLatest((/** @type {string} */ v) => values.push(v), 1000, clock);
+  t.push("line 1");
+  t.push("line 2");
+  t.pushUrgent("No matching lines");
+  clock.advance(5000);
+  assert.deepEqual(values, ["line 1", "No matching lines", "line 2"]);
+});
+
+test("a newer urgent value replaces a waiting one", () => {
+  const clock = fakeClock();
+  /** @type {string[]} */
+  const values = [];
+  const t = throttleLatest((/** @type {string} */ v) => values.push(v), 1000, clock);
+  t.pushUrgent("Match 1 of 42");
+  for (let i = 2; i <= 10; i++) {
+    clock.advance(20);
+    t.pushUrgent(`Match ${i} of 42`);
+  }
+  clock.advance(3000);
+  assert.deepEqual(values, ["Match 1 of 42", "Match 10 of 42"]);
+});
+
+test("latest-line announcements resume once no urgent value waits; one delivery per interval in all", () => {
+  const clock = fakeClock();
+  /** @type {[number, string][]} */
+  const calls = [];
+  const t = throttleLatest((/** @type {string} */ v) => calls.push([clock.now(), v]), 1000, clock);
+  // A streaming log (a line every 50 ms) with a search report now and then.
+  for (let i = 0; i < 200; i++) {
+    t.push(`line ${i}`);
+    if (i === 30 || i === 31 || i === 90) t.pushUrgent(`report ${i}`);
+    clock.advance(50);
+  }
+  clock.advance(3000);
+  for (let i = 1; i < calls.length; i++) assert.ok(calls[i][0] - calls[i - 1][0] >= 1000, `gap ${calls[i][0] - calls[i - 1][0]} ms`);
+  const values = calls.map(([, v]) => v);
+  assert.deepEqual(
+    values.filter((v) => v.startsWith("report")),
+    ["report 31", "report 90"],
+  );
+  // Lines are announced before, between and after the reports, and the very last line at the end.
+  const first = values.indexOf("report 31");
+  const second = values.indexOf("report 90");
+  assert.ok(first > 0 && values[first + 1].startsWith("line") && second > first + 1 && values[second + 1].startsWith("line"));
+  assert.equal(values[values.length - 1], "line 199");
+});
+
+test("cancel also drops a waiting urgent value", () => {
+  const clock = fakeClock();
+  /** @type {string[]} */
+  const values = [];
+  const t = throttleLatest((/** @type {string} */ v) => values.push(v), 1000, clock);
+  t.push("line");
+  t.pushUrgent("report");
+  t.push("line 2");
+  t.cancel();
+  clock.advance(5000);
+  assert.deepEqual(values, ["line"]);
   assert.equal(clock.pending(), 0);
 });
