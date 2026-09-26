@@ -5,15 +5,17 @@
 //! `idevice-tools.json`, and installs the files into `src-tauri/binaries/`: the four tools under
 //! their Tauri sidecar names (`<tool>-<target-triple>[.exe]`), any DLLs under their own names.
 //!
-//! While the repository is private, the bundle is downloaded through the release asset's API URL
-//! with `Accept: application/octet-stream` and a token: `GH_TOKEN` if set, otherwise the output of
-//! `gh auth token` (with `--user $SUITEDFIR_GH_USER` when that is set). Without a token the
-//! download is tried anonymously. The token is never printed.
+//! The bundle is downloaded through the release asset's API URL with
+//! `Accept: application/octet-stream` and, when one is available, a token: `GH_TOKEN` if set,
+//! otherwise the output of `gh auth token` (with `--user $SUITEDFIR_GH_USER` when that is set).
+//! Without a token the download is tried anonymously (enough while the repository is public). The
+//! token is never printed.
 
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::time::Duration;
 
 use suitedfir_core::contracts::{IdeviceToolsManifest, PlatformKey, ToolBundle, parse_versioned};
 use suitedfir_core::hashing::sha256_file;
@@ -26,6 +28,10 @@ const TOOLS: [&str; 4] = ["idevice_id", "ideviceinfo", "idevicepair", "ideviceba
 /// Upper bounds for the release metadata and for one bundle (a bundle is a few MB).
 const MAX_RELEASE_JSON_BYTES: u64 = 8 << 20;
 const MAX_BUNDLE_BYTES: u64 = 128 << 20;
+/// Network timeouts: connecting, waiting for the response headers, and reading a whole body.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
+const BODY_TIMEOUT: Duration = Duration::from_secs(600);
 /// The Tauri targets that have a pinned bundle. Linux uses the distro's tools.
 const TARGETS: [(&str, PlatformKey); 3] = [
     ("aarch64-apple-darwin", PlatformKey::MacosAarch64),
@@ -111,7 +117,6 @@ fn fetch(triple: &str, repo_root: &Path) -> Result<String, String> {
     fs::create_dir_all(&dest_dir).map_err(|e| format!("creating {}: {e}", dest_dir.display()))?;
     let zip_path = dest_dir.join(format!("{}.partial", bundle.bundle));
     let result = download_bundle(&manifest.version, bundle, &zip_path)
-        .and_then(|()| verify_bundle(&zip_path, bundle))
         .and_then(|()| install(&zip_path, bundle, triple, &dest_dir));
     // The download is only an intermediate; a leftover would be harmless (gitignored, never bundled).
     let _ = fs::remove_file(&zip_path);
@@ -130,14 +135,27 @@ fn fetch(triple: &str, repo_root: &Path) -> Result<String, String> {
     Ok(summary)
 }
 
-fn read_manifest(path: &Path) -> Result<IdeviceToolsManifest, String> {
+pub(crate) fn read_manifest(path: &Path) -> Result<IdeviceToolsManifest, String> {
     let bytes = fs::read(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
     parse_versioned(&bytes).map_err(|e| e.to_string())
 }
 
-/// Every file name must be a plain name (it becomes a path under `src-tauri/binaries/`), the four
-/// tools must be present, and anything else must be a Windows DLL.
-fn check_bundle_files(bundle: &ToolBundle, platform: PlatformKey) -> Result<(), String> {
+/// A name that is safe to join to a directory: not empty, not `.`/`..`, and without path
+/// separators or a drive prefix.
+pub(crate) fn is_plain_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':'])
+}
+
+/// The bundle name must be a plain `.zip` file name (it becomes a path under
+/// `src-tauri/binaries/`); every file name must be a plain name, the four tools must be present,
+/// and anything else must be a Windows DLL.
+pub(crate) fn check_bundle_files(bundle: &ToolBundle, platform: PlatformKey) -> Result<(), String> {
+    if !is_plain_name(&bundle.bundle) || !bundle.bundle.ends_with(".zip") {
+        return Err(format!(
+            "bundle name {:?} is not a plain .zip file name",
+            bundle.bundle
+        ));
+    }
     let windows = matches!(
         platform,
         PlatformKey::WindowsX86_64 | PlatformKey::WindowsAarch64
@@ -150,9 +168,7 @@ fn check_bundle_files(bundle: &ToolBundle, platform: PlatformKey) -> Result<(), 
         }
     }
     for (name, hash) in &bundle.files {
-        let plain =
-            !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':']);
-        if !plain {
+        if !is_plain_name(name) {
             return Err(format!(
                 "{}: file name {name:?} is not a plain name",
                 bundle.bundle
@@ -172,7 +188,7 @@ fn check_bundle_files(bundle: &ToolBundle, platform: PlatformKey) -> Result<(), 
     Ok(())
 }
 
-fn is_sha256_hex(s: &str) -> bool {
+pub(crate) fn is_sha256_hex(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -204,19 +220,42 @@ fn github_token() -> Option<String> {
     }
 }
 
-/// Downloads the bundle's release asset to `dest` through its API URL.
-fn download_bundle(version: &str, bundle: &ToolBundle, dest: &Path) -> Result<(), String> {
+/// An HTTPS-only agent with timeouts, for the GitHub API and pinned upstream files.
+pub(crate) fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .https_only(true)
+        .user_agent("suiteDFIR-xtask")
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_recv_response(Some(RESPONSE_TIMEOUT))
+        .timeout_recv_body(Some(BODY_TIMEOUT))
+        .build()
+        .into()
+}
+
+/// Downloads the bundle's release asset to `dest` and checks its SHA-256 against
+/// `bundle_sha256`. A failed check removes `dest`.
+pub(crate) fn download_bundle(
+    version: &str,
+    bundle: &ToolBundle,
+    dest: &Path,
+) -> Result<(), String> {
+    download_release_asset(&format!("idevice-tools-{version}"), &bundle.bundle, dest)?;
+    let verified = verify_bundle(dest, bundle);
+    if verified.is_err() {
+        let _ = fs::remove_file(dest);
+    }
+    verified
+}
+
+/// Downloads the asset `name` of this repository's release `tag` to `dest` through its API URL.
+fn download_release_asset(tag: &str, name: &str, dest: &Path) -> Result<(), String> {
     let token = github_token();
     let auth_hint = if token.is_some() {
         " (does the token have read access to the repository?)"
     } else {
         " (set GH_TOKEN, or SUITEDFIR_GH_USER for `gh auth token --user`)"
     };
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .user_agent("suiteDFIR-xtask")
-        .build()
-        .into();
+    let agent = agent();
     let get = |url: &str, accept: &str| {
         let mut request = agent
             .get(url)
@@ -231,7 +270,6 @@ fn download_bundle(version: &str, bundle: &ToolBundle, dest: &Path) -> Result<()
             .map_err(|e| format!("GET {url}: {e}{auth_hint}"))
     };
 
-    let tag = format!("idevice-tools-{version}");
     let release_url = format!("{API_BASE}/repos/{RELEASE_REPO}/releases/tags/{tag}");
     let mut response = get(&release_url, "application/vnd.github+json")?;
     let release: serde_json::Value = serde_json::from_reader(
@@ -242,42 +280,46 @@ fn download_bundle(version: &str, bundle: &ToolBundle, dest: &Path) -> Result<()
             .reader(),
     )
     .map_err(|e| format!("reading release {tag}: {e}"))?;
+    let (asset_url, size) =
+        select_asset(&release, name).map_err(|e| format!("release {tag}: {e}"))?;
+
+    let mut response = get(&asset_url, "application/octet-stream")?;
+    // ureq's limit reader fails the read after `limit` bytes even at end of body, so allow one more
+    // byte; copy_exact still rejects anything but exactly `size` bytes.
+    let mut reader = response.body_mut().with_config().limit(size + 1).reader();
+    let mut file = File::create(dest).map_err(|e| format!("creating {}: {e}", dest.display()))?;
+    copy_exact(&mut reader, &mut file, size).map_err(|e| format!("downloading {name}: {e}"))
+}
+
+/// The API URL and size of the release asset `name`. The URL must be on the API host (the only
+/// host the token is sent to), and the size must be known and within [`MAX_BUNDLE_BYTES`].
+fn select_asset(release: &serde_json::Value, name: &str) -> Result<(String, u64), String> {
     let asset = release["assets"]
         .as_array()
         .and_then(|assets| {
             assets
                 .iter()
-                .find(|asset| asset["name"].as_str() == Some(bundle.bundle.as_str()))
+                .find(|asset| asset["name"].as_str() == Some(name))
         })
-        .ok_or_else(|| format!("release {tag} has no asset {}", bundle.bundle))?;
-    let asset_url = asset["url"]
+        .ok_or_else(|| format!("no asset {name}"))?;
+    let url = asset["url"]
         .as_str()
         .filter(|url| url.starts_with(&format!("{API_BASE}/")))
-        .ok_or_else(|| format!("release {tag}: {} has no API URL", bundle.bundle))?;
+        .ok_or_else(|| format!("{name} has no API URL"))?;
     let size = asset["size"]
         .as_u64()
         .filter(|size| *size <= MAX_BUNDLE_BYTES)
-        .ok_or_else(|| {
-            format!(
-                "release {tag}: {} has no size under the limit",
-                bundle.bundle
-            )
-        })?;
+        .ok_or_else(|| format!("{name} has no size under the limit"))?;
+    Ok((url.to_owned(), size))
+}
 
-    let mut response = get(asset_url, "application/octet-stream")?;
-    // ureq's limit reader fails the read after `limit` bytes even at end of body, so allow one more
-    // byte; the size check below still rejects anything but exactly `size` bytes.
-    let mut reader = response.body_mut().with_config().limit(size + 1).reader();
-    let mut file = File::create(dest).map_err(|e| format!("creating {}: {e}", dest.display()))?;
-    let written = io::copy(&mut reader, &mut file)
-        .map_err(|e| format!("downloading {}: {e}", bundle.bundle))?;
+/// Copies `reader` to `writer` and fails unless exactly `size` bytes arrived.
+fn copy_exact(reader: &mut impl Read, writer: &mut impl Write, size: u64) -> Result<(), String> {
+    let written = io::copy(reader, writer).map_err(|e| e.to_string())?;
     if written != size {
-        return Err(format!(
-            "downloading {}: got {written} bytes, the release lists {size}",
-            bundle.bundle
-        ));
+        return Err(format!("got {written} bytes, the release lists {size}"));
     }
-    Ok(())
+    writer.flush().map_err(|e| e.to_string())
 }
 
 fn verify_bundle(zip_path: &Path, bundle: &ToolBundle) -> Result<(), String> {
@@ -305,33 +347,89 @@ fn installed_name(name: &str, triple: &str) -> String {
     name.to_owned()
 }
 
-/// Extracts every file listed in `bundle.files` from the zip and checks its SHA-256. Files are
-/// written as `<name>.partial` first and renamed only once all of them match, so a failed fetch
-/// leaves the previously installed files as they were.
+/// Extracts every file listed in `bundle.files` from the zip and checks its SHA-256, then installs
+/// them all or none: files are staged as `<name>.partial`, and only once all of them match are
+/// they moved into place, each previous file first set aside as `<name>.previous`. If a move
+/// fails, the files already moved are put back and the staged files removed, so a failed fetch
+/// leaves `dest_dir` as it was.
 fn install(
     zip_path: &Path,
     bundle: &ToolBundle,
     triple: &str,
     dest_dir: &Path,
 ) -> Result<Vec<PathBuf>, String> {
+    install_with(zip_path, bundle, triple, dest_dir, &mut |from, to| {
+        fs::rename(from, to)
+    })
+}
+
+/// [`install`] with the rename function injected, so tests can make a rename fail.
+fn install_with(
+    zip_path: &Path,
+    bundle: &ToolBundle,
+    triple: &str,
+    dest_dir: &Path,
+    rename: &mut dyn FnMut(&Path, &Path) -> io::Result<()>,
+) -> Result<Vec<PathBuf>, String> {
     let file = File::open(zip_path).map_err(|e| format!("opening {}: {e}", bundle.bundle))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("reading {}: {e}", bundle.bundle))?;
     let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
-    let result = stage_files(&mut archive, bundle, triple, dest_dir, &mut staged);
-    if let Err(e) = result {
+    if let Err(e) = stage_files(&mut archive, bundle, triple, dest_dir, &mut staged) {
         for (partial, _) in &staged {
             let _ = fs::remove_file(partial);
         }
         return Err(e);
     }
-    let mut installed = Vec::new();
-    for (partial, target) in staged {
-        fs::rename(&partial, &target)
-            .map_err(|e| format!("installing {}: {e}", target.display()))?;
-        installed.push(target);
+
+    // (target, the previous file set aside, if there was one)
+    let mut moved: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
+    let mut failure = None;
+    for (partial, target) in &staged {
+        let previous = with_suffix(target, ".previous");
+        let had_previous = target.exists();
+        if had_previous && let Err(e) = rename(target, &previous) {
+            failure = Some(format!("setting aside {}: {e}", target.display()));
+            break;
+        }
+        if let Err(e) = rename(partial, target) {
+            // Put the previous file back before rolling back the others.
+            if had_previous {
+                let _ = rename(&previous, target);
+            }
+            failure = Some(format!("installing {}: {e}", target.display()));
+            break;
+        }
+        moved.push((target.clone(), had_previous.then_some(previous)));
     }
-    Ok(installed)
+    if let Some(e) = failure {
+        for (target, previous) in moved.iter().rev() {
+            match previous {
+                Some(previous) => {
+                    let _ = rename(previous, target);
+                }
+                None => {
+                    let _ = fs::remove_file(target);
+                }
+            }
+        }
+        for (partial, _) in &staged {
+            let _ = fs::remove_file(partial);
+        }
+        return Err(e);
+    }
+    for (_, previous) in &moved {
+        if let Some(previous) = previous {
+            let _ = fs::remove_file(previous);
+        }
+    }
+    Ok(moved.into_iter().map(|(target, _)| target).collect())
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
 fn stage_files(
@@ -343,7 +441,7 @@ fn stage_files(
 ) -> Result<(), String> {
     for (name, want) in &bundle.files {
         let target = dest_dir.join(installed_name(name, triple));
-        let partial = dest_dir.join(format!("{}.partial", installed_name(name, triple)));
+        let partial = with_suffix(&target, ".partial");
         let mut entry = archive
             .by_name(name)
             .map_err(|e| format!("{}: {name}: {e}", bundle.bundle))?;
@@ -383,8 +481,9 @@ fn make_executable(_path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::io::Write;
+    use std::io::Cursor;
 
+    use serde_json::json;
     use zip::write::SimpleFileOptions;
 
     use super::*;
@@ -442,6 +541,13 @@ mod tests {
         ("idevicebackup2", b"backup"),
     ];
 
+    const MAC_NAMES: [&str; 4] = [
+        "idevice_id-aarch64-apple-darwin",
+        "idevicebackup2-aarch64-apple-darwin",
+        "ideviceinfo-aarch64-apple-darwin",
+        "idevicepair-aarch64-apple-darwin",
+    ];
+
     #[test]
     fn committed_manifest_pins_every_bundle() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
@@ -485,19 +591,24 @@ mod tests {
         assert!(err.contains("distro"), "{err}");
     }
 
+    /// The default target agrees with the core's platform, which is derived independently from the
+    /// runtime OS and CPU names: a host with a pinned bundle gets its own triple, any other host
+    /// (Linux, Windows arm64) must pass `--target`.
     #[test]
-    fn host_triple_matches_this_build() {
-        let expected = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            Some("aarch64-apple-darwin")
-        } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-            Some("x86_64-apple-darwin")
-        } else if cfg!(all(windows, target_arch = "x86_64", target_env = "msvc")) {
-            Some("x86_64-pc-windows-msvc")
-        } else {
-            None
-        };
-        assert_eq!(host_triple(), expected);
-        assert_eq!(parse_args(&[]).ok().as_deref(), expected);
+    fn the_default_target_is_this_hosts_platform() {
+        let host =
+            suitedfir_core::manifest::platform_for(std::env::consts::OS, std::env::consts::ARCH);
+        let pinned = host.filter(|platform| TARGETS.iter().any(|(_, p)| p == platform));
+        match parse_args(&[]) {
+            Ok(triple) => {
+                assert_eq!(Some(platform_for_triple(&triple).unwrap()), pinned);
+                assert!(triple.starts_with(std::env::consts::ARCH), "{triple}");
+            }
+            Err(e) => {
+                assert_eq!(pinned, None, "{e}");
+                assert!(e.contains("--target"), "{e}");
+            }
+        }
     }
 
     #[test]
@@ -573,6 +684,108 @@ mod tests {
     }
 
     #[test]
+    fn the_bundle_name_must_be_a_plain_zip_name() {
+        let hash = "a".repeat(64);
+        let mac = ["idevice_id", "ideviceinfo", "idevicepair", "idevicebackup2"];
+        for (name, ok) in [
+            ("idevice-tools-1.4.0-macos-aarch64.zip", true),
+            ("../x.zip", false),
+            ("sub/x.zip", false),
+            ("sub\\x.zip", false),
+            ("C:x.zip", false),
+            ("", false),
+            ("..", false),
+            ("x.tar.gz", false),
+        ] {
+            let bundle = ToolBundle {
+                bundle: name.into(),
+                bundle_sha256: hash.clone(),
+                files: mac
+                    .iter()
+                    .map(|n| ((*n).to_owned(), hash.clone()))
+                    .collect(),
+            };
+            assert_eq!(
+                check_bundle_files(&bundle, PlatformKey::MacosAarch64).is_ok(),
+                ok,
+                "{name:?}"
+            );
+        }
+    }
+
+    fn release(assets: serde_json::Value) -> serde_json::Value {
+        json!({ "tag_name": "idevice-tools-1.4.0", "assets": assets })
+    }
+
+    #[test]
+    fn the_asset_is_selected_by_exact_name() {
+        let url = format!("{API_BASE}/repos/{RELEASE_REPO}/releases/assets/2");
+        let release = release(json!([
+            { "name": "idevice-tools-1.4.0-macos-aarch64.zip.sig", "url": format!("{API_BASE}/x/1"), "size": 1 },
+            { "name": "idevice-tools-1.4.0-macos-aarch64.zip", "url": url, "size": 1_839_147 },
+            { "name": "idevice-tools-1.4.0-macos-x86_64.zip", "url": format!("{API_BASE}/x/3"), "size": 3 },
+        ]));
+        assert_eq!(
+            select_asset(&release, "idevice-tools-1.4.0-macos-aarch64.zip").unwrap(),
+            (url, 1_839_147)
+        );
+        let err = select_asset(&release, "idevice-tools-1.4.0-windows-x86_64.zip").unwrap_err();
+        assert!(err.contains("no asset"), "{err}");
+        assert!(select_asset(&json!({}), "x.zip").is_err());
+    }
+
+    #[test]
+    fn only_api_host_urls_are_accepted() {
+        let name = "b.zip";
+        for url in [
+            "https://github.com/jacobecontreras/suiteDFIR-next/releases/download/t/b.zip",
+            "https://api.github.com.evil.example/repos/x",
+            "http://api.github.com/repos/x",
+            "https://objects.githubusercontent.com/x",
+        ] {
+            let release = release(json!([{ "name": name, "url": url, "size": 10 }]));
+            let err = select_asset(&release, name).unwrap_err();
+            assert!(err.contains("API URL"), "{url}: {err}");
+        }
+        let release = release(json!([{ "name": name, "size": 10 }]));
+        assert!(select_asset(&release, name).is_err(), "a missing URL");
+    }
+
+    #[test]
+    fn the_asset_size_must_be_known_and_bounded() {
+        let name = "b.zip";
+        let url = format!("{API_BASE}/repos/x/releases/assets/1");
+        let ok = release(json!([{ "name": name, "url": url, "size": MAX_BUNDLE_BYTES }]));
+        assert_eq!(select_asset(&ok, name).unwrap().1, MAX_BUNDLE_BYTES);
+        for size in [
+            json!(MAX_BUNDLE_BYTES + 1),
+            json!(null),
+            json!(-1),
+            json!("10"),
+        ] {
+            let release = release(json!([{ "name": name, "url": url, "size": size }]));
+            let err = select_asset(&release, name).unwrap_err();
+            assert!(err.contains("size"), "{size}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_download_must_have_exactly_the_listed_size() {
+        let mut out = Vec::new();
+        copy_exact(&mut Cursor::new(b"12345".to_vec()), &mut out, 5).unwrap();
+        assert_eq!(out, b"12345");
+
+        let err = copy_exact(&mut Cursor::new(b"1234".to_vec()), &mut Vec::new(), 5).unwrap_err();
+        assert!(
+            err.contains("got 4 bytes") && err.contains("lists 5"),
+            "{err}"
+        );
+        // The download reader allows one byte beyond the size, which must still fail.
+        let err = copy_exact(&mut Cursor::new(b"123456".to_vec()), &mut Vec::new(), 5).unwrap_err();
+        assert!(err.contains("got 6 bytes"), "{err}");
+    }
+
+    #[test]
     fn install_extracts_and_renames_verified_files() {
         let src = tempfile::tempdir().unwrap();
         let dest = tempfile::tempdir().unwrap();
@@ -581,22 +794,17 @@ mod tests {
         // Only the files listed in `files` are installed (notices stay in the zip).
         bundle.files.remove("COPYING");
         verify_bundle(&zip_path, &bundle).unwrap();
+        // An earlier installation is replaced.
+        fs::write(dest.path().join(MAC_NAMES[3]), b"old").unwrap();
 
         let installed = install(&zip_path, &bundle, "aarch64-apple-darwin", dest.path()).unwrap();
         assert_eq!(installed.len(), 4);
-        assert_eq!(
-            file_names(dest.path()),
-            [
-                "idevice_id-aarch64-apple-darwin",
-                "idevicebackup2-aarch64-apple-darwin",
-                "ideviceinfo-aarch64-apple-darwin",
-                "idevicepair-aarch64-apple-darwin"
-            ]
-        );
+        assert_eq!(file_names(dest.path()), MAC_NAMES);
         assert_eq!(
             fs::read(dest.path().join("idevicebackup2-aarch64-apple-darwin")).unwrap(),
             b"backup"
         );
+        assert_eq!(fs::read(dest.path().join(MAC_NAMES[3])).unwrap(), b"pair");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -637,6 +845,60 @@ mod tests {
         let err = install(&zip_path, &bundle, "aarch64-apple-darwin", dest.path()).unwrap_err();
         assert!(err.contains("idevicebackup2"), "{err}");
         assert!(file_names(dest.path()).is_empty());
+    }
+
+    /// A rename that fails mid-way (for every position of the failing rename, with and without
+    /// earlier files present) leaves the directory exactly as it was: earlier files restored, no
+    /// `.partial` or `.previous` leftovers.
+    #[test]
+    fn a_failed_rename_rolls_back_the_whole_install() {
+        let src = tempfile::tempdir().unwrap();
+        let (zip_path, bundle) = make_bundle(src.path(), &ENTRIES, &[]);
+        for with_previous in [false, true] {
+            // Four files: one or two renames each (set aside, move into place).
+            for fail_at in 0..8 {
+                let dest = tempfile::tempdir().unwrap();
+                let mut before = Vec::new();
+                if with_previous {
+                    for (i, name) in MAC_NAMES.iter().enumerate() {
+                        let contents = format!("previous {i}");
+                        fs::write(dest.path().join(name), &contents).unwrap();
+                        before.push(((*name).to_owned(), contents.into_bytes()));
+                    }
+                }
+                let mut calls = 0;
+                let mut rename = |from: &Path, to: &Path| {
+                    calls += 1;
+                    if calls == fail_at + 1 {
+                        Err(io::Error::other("injected rename failure"))
+                    } else {
+                        fs::rename(from, to)
+                    }
+                };
+                let result = install_with(
+                    &zip_path,
+                    &bundle,
+                    "aarch64-apple-darwin",
+                    dest.path(),
+                    &mut rename,
+                );
+                let renames = if with_previous { 8 } else { 4 };
+                if fail_at >= renames {
+                    assert!(result.is_ok(), "{with_previous} {fail_at}");
+                    continue;
+                }
+                let err = result.unwrap_err();
+                assert!(err.contains("injected"), "{err}");
+                let after: Vec<(String, Vec<u8>)> = file_names(dest.path())
+                    .into_iter()
+                    .map(|name| {
+                        let contents = fs::read(dest.path().join(&name)).unwrap();
+                        (name, contents)
+                    })
+                    .collect();
+                assert_eq!(after, before, "previous={with_previous} fail_at={fail_at}");
+            }
+        }
     }
 
     #[test]
