@@ -1,5 +1,7 @@
 # suiteDFIR user guide
 
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built). There is no release of the app yet: this guide describes how the app is meant to be installed and used, and the file names in section 1 are the ones the release build will produce.
+
 suiteDFIR 0.2.0 runs the iLEAPP (iOS) and aLEAPP (Android) mobile-forensics parsers and takes iOS backups over USB. It keeps the results in case folders, with an audit record and a hash manifest for every run and acquisition. This guide covers installing it, the parsers and the iOS prerequisites, parsing evidence, acquiring an iOS backup, what each result means, verifying a report, and privacy.
 
 Contents:
@@ -62,7 +64,7 @@ The iOS acquisition tools (libimobiledevice) are built by the suiteDFIR project 
 
 ### Linux
 
-The app itself runs on Ubuntu 22.04 (glibc 2.35) and newer distributions with WebKitGTK 4.1, on x64 and arm64. The commands below use the x64 file names; on arm64 use `suiteDFIR_0.2.0_aarch64.AppImage` and `suiteDFIR_0.2.0_arm64.deb`.
+The app itself is built for Ubuntu 22.04 (glibc 2.35) and newer distributions with WebKitGTK 4.1, on x64 and arm64; it hasn't been tried by hand on Linux yet. The commands below use the x64 file names; on arm64 use `suiteDFIR_0.2.0_aarch64.AppImage` and `suiteDFIR_0.2.0_arm64.deb`.
 
 - **AppImage** (bundles WebKitGTK): `chmod +x suiteDFIR_0.2.0_amd64.AppImage`, then run it. If it does not start because FUSE is missing, install your distribution's FUSE 2 package (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04 and later), or run it as `./suiteDFIR_0.2.0_amd64.AppImage --appimage-extract-and-run`.
 - **deb** (Debian, Ubuntu): `sudo apt install ./suiteDFIR_0.2.0_amd64.deb`. It installs the WebKitGTK and GTK packages it needs. It does not depend on the iOS tools; install those only if you acquire iOS backups (section 6).
@@ -76,8 +78,8 @@ The app itself runs on Ubuntu 22.04 (glibc 2.35) and newer distributions with We
 
 | Distribution | glibc | Parsers |
 |---|---|---|
-| Ubuntu 26.04 | 2.43 | run (tested) |
-| Ubuntu 22.04 | 2.35 | do not start (tested) |
+| Ubuntu 26.04 | 2.43 | run (tested in CI, in a container) |
+| Ubuntu 22.04 | 2.35 | do not start (tested in CI, in a container) |
 | Ubuntu 24.04 | 2.39 | do not start |
 | Debian 13 | 2.41 | do not start |
 | RHEL / Rocky / Alma 9 and 10 | 2.34, 2.39 | do not start |
@@ -143,14 +145,14 @@ On the case screen, choose **New run**.
    | `raw` | a disk image (`.e01`, `.dd`, `.img`, `.bin`, `.raw`, `.001`) | ✓ | ✓ |
    | `file` | any other single file | ✓ | |
 
-   Inputs are only read, never changed. A run is refused if its output would land inside the input, or if the input is inside another run's output.
+   suiteDFIR only opens inputs for reading. The parsers run as your user, so nothing stops them from writing to an input, but LEAPP didn't change its input when this was checked once during development. A run is refused if its output would land inside the input, or if the input is inside another run's output.
 
    **Find iOS backups** (iLEAPP) lists the Finder/iTunes backups in the default folders, with device, iOS version, date, size and encryption; **Use** picks one as the input. The folders are `~/Library/Application Support/MobileSync/Backup` on macOS (needs Full Disk Access, section 1) and `%APPDATA%\Apple Computer\MobileSync\Backup` (iTunes) and `%USERPROFILE%\Apple\MobileSync\Backup` (Apple Devices) on Windows; Linux has none.
 3. **Options:**
    - **Timezone** (iLEAPP): the case's default, else the settings default, else UTC. It is always passed explicitly.
-   - **Backup password** (iLEAPP, iTunes/Finder backups): required when the backup is encrypted, and also when its encryption cannot be read, because iLEAPP would otherwise wait for a password prompt. It is never stored. iLEAPP only accepts it on its command line, so other programs of the same user can see it in the process list while the run lasts; `run.json` records it as `<redacted>`.
+   - **Backup password** (iLEAPP, iTunes/Finder backups): required when the backup is encrypted, and also when its encryption cannot be read, because iLEAPP would otherwise wait for a password prompt. It is never stored. iLEAPP only accepts it on its command line, so other programs of the same user can see it in the process list while the run lasts, and security software that logs process command lines (EDR, Sysmon, Windows process auditing) records it; `run.json` records it as `<redacted>`.
    - **Keychain file (optional)** (iLEAPP).
-   - **Hash the input file (SHA-256)** for file inputs (on by default). It runs alongside the parser.
+   - **Hash the input file (SHA-256)** for file inputs (on by default). It runs alongside the parser. Folder inputs, such as file-system extractions and iTunes/Finder backups, are not hashed.
    - **Label:** shown in the runs table and recorded.
 4. **Modules:** all, a saved profile, or a custom selection (search, categories, select all/none). Profiles use LEAPP's own format (`.ilprofile`, `.alprofile`) and can be imported and exported. A profile with module names that the installed version does not have cannot be used until they are removed.
 5. **Start run.** The run screen shows the phase, the elapsed time and the live log. The log's search box finds text in it (Enter jumps to the next match), **Only matching lines** filters it, and **Copy all** copies it. **Cancel run** asks for confirmation and stops the parser and every process it started.
@@ -221,7 +223,7 @@ Open **Acquire iOS backup** on the case screen. It lists the connected devices e
 | Pairing failed | Unplug the device and plug it in again, unlock it, then retry. |
 | Unknown | Check the cable and unlock the device; if it is not paired yet, click **Pair**. |
 
-Pairing creates a pairing record on the computer and on the device. `acquisition.json` records it (`pair_record_created`).
+Pairing creates a pairing record on the computer and on the device. `acquisition.json` records it (`pair_record_created`), but suiteDFIR only remembers a pairing until it quits. If you pair, quit and acquire later, the record says the device was already paired, and a pairing that no acquisition follows (for example one made only to turn backup encryption off) is recorded only in the app log, not in the case. This is a known gap.
 
 ### Backup encryption
 
@@ -231,7 +233,7 @@ An encrypted backup contains more data than an unencrypted one (for example save
 - **Backup encryption is already on:** the backup is encrypted with the owner's password, which suiteDFIR does not know and cannot change. The backup is taken as it is (`backup_encryption_preexisting`), but you need the owner's password to parse it. An unknown backup password can only be removed on the device with **Reset All Settings**, which suiteDFIR never does.
 - **The state cannot be read:** encryption cannot be turned on from suiteDFIR for this device.
 
-The password is never stored. It reaches the tools through an environment variable (never the command line) and is erased from memory after the last encryption step.
+The password is never stored. It reaches the tools through an environment variable, never the command line. suiteDFIR's core overwrites its copy in memory after the last encryption step. Other copies are not cleared, including those made while starting the tools and the one the app window keeps when you tick **Parse with iLEAPP now** (see Parse with iLEAPP below).
 
 ### Taking the backup
 
@@ -267,11 +269,15 @@ Check a run from its folder:
 
 ```bash
 cd "<case>/runs/<run id>"
-sha256sum -c report.sha256              # every file: OK; a changed or missing file: FAILED
+sha256sum --strict -c report.sha256     # every file: OK; a changed or missing file: FAILED
 sha256sum report.sha256                 # compare with output.seal.manifest_sha256 in run.json
 ```
 
 For an acquisition, run the same in `<case>/acquisitions/<acq id>` with `backup.sha256`.
+
+`--strict` makes a line the tool cannot read fail the check instead of being skipped with a warning. Older GNU coreutils (8.32, as on Ubuntu 22.04) cannot read the escaped line used for a file name that contains a carriage return.
+
+The manifests show whether the files still match what was hashed when the run or acquisition ended. They are not signed: someone who can change the report can also change `report.sha256` and `run.json`. If you need to show later that nothing changed, keep the manifest's SHA-256 somewhere else, for example in your case notes.
 
 - **macOS:** use `shasum -a 256 --strict -c report.sha256`. macOS's `shasum` and `sha256sum` cannot read the escaped lines that the format uses for file names containing a backslash or a line break, and without `--strict` they only warn about such lines and still report success. If `--strict` fails for that reason, check on Linux or with GNU coreutils (`gsha256sum` from Homebrew's `coreutils`).
 - **Windows:** use `sha256sum` from Git for Windows (Git Bash) or WSL.
@@ -297,8 +303,8 @@ The app's own folders (**Settings → About** shows the exact paths): settings, 
 ## 9. Privacy
 
 - Everything runs on your computer. There is no telemetry, no account, no crash reporting and no update check.
-- The only network access is downloading a parser's pinned release from GitHub when you click Install. iOS acquisition talks only to the connected device over USB.
-- Backup passwords are never stored or logged. They are held in memory only while a run or an acquisition needs them, and the password fields are cleared after use. For parsing, iLEAPP receives the password on its command line (visible to other programs of the same user while it runs); the libimobiledevice tools receive it through the environment.
+- suiteDFIR's only network access is downloading a parser's pinned release from GitHub when you click Install. iOS acquisition talks only to the connected device over USB. (The Windows online installers also download the WebView2 runtime during setup if it is missing.) The parsers are third-party programs, and suiteDFIR does not restrict their network access.
+- suiteDFIR never stores or logs backup passwords. They are held in memory only while a run or an acquisition needs them, and the password fields are cleared after use. For parsing, iLEAPP receives the password on its command line (visible to other programs of the same user while it runs, and recorded by security software that logs process command lines); the libimobiledevice tools receive it through the environment (also readable by other programs of the same user, but not part of command-line logs). Whether iLEAPP itself writes the password into its report or logs has not been checked yet (QA checklist §3).
 - LEAPP reports open in your web browser from the local case folder; suiteDFIR never shows them inside the app.
 
 ## 10. Troubleshooting

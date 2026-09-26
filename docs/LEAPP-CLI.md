@@ -1,10 +1,12 @@
 # LEAPP CLI reference (verified behavior)
 
+> Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built).
+
 Facts about the upstream iLEAPP/aLEAPP command-line builds that suiteDFIR depends on. They were verified on **2026-09-24** in two ways:
 - by running `ileapp v2026.4.2` (macOS arm64 build);
 - by reading source at tags `iLEAPP v2026.4.2` and `ALEAPP v2026.4.1`.
 
-Items marked **UNVERIFIED** must be confirmed before anything relies on them; ROADMAP task E3 confirmed the earlier ones with real runs, and §9 lists what only the human QA pass can check. When you bump the pinned version, re-run the smoke suite and update this file.
+**VERIFIED** means an AI agent confirmed the item while building the app, by running the tool or reading its source. Items that name a CI run or a test are backed by it; *(source)* means the item was read from the upstream source; items marked *one-off check* were checked once by an agent, with no saved log. Items marked **UNVERIFIED** must be confirmed before anything relies on them; ROADMAP task E3 confirmed the earlier ones with real runs, and §9 lists what only the human QA pass can check. When you bump the pinned version, re-run the smoke suite and update this file.
 
 ## 1. Pinned releases
 
@@ -37,7 +39,7 @@ aLEAPP **v2026.4.1**:
 | linux-x86_64 | `aleapp-v2026.4.1-Linux_x86_64.AppImage` | 63834616 | `0344db7fce169772b807a88fde3ee2eb7ff06c12c9c360b29928d50e7fc854be` |
 | linux-aarch64 | `aleapp-v2026.4.1-Linux_arm64.AppImage` | 63101448 | `6075153896a30d35e96aeefa47b73936a41aa78e6a0566cc03ba57e697563ebb` |
 
-**Digests:** `gh api repos/abrignoni/iLEAPP/releases/tags/<tag> --jq '.assets[]|{name,size,digest}'`. Downloaded assets matched these API digests (VERIFIED for 3 assets).
+**Digests:** `gh api repos/abrignoni/iLEAPP/releases/tags/<tag> --jq '.assets[]|{name,size,digest}'`. Downloaded assets matched these API digests (VERIFIED for 3 assets, one-off check).
 
 **Licensing:**
 - LEAPP is MIT-licensed. The zips contain no LICENSE file, so ship the notice ourselves.
@@ -48,8 +50,8 @@ aLEAPP **v2026.4.1**:
 - **macOS:**
   - The zip holds one PyInstaller **onefile** binary (arm64 ≈ 55.8 MB).
   - Developer ID signed (Johann POLEWCZYK, team N2G83326TZ), hardened runtime; `spctl` reports "Notarized Developer ID".
-  - Runs headless: `--help` ≈ 1 s, exit 0. VERIFIED.
-- **Windows:** one `ileapp.exe` (≈ 62.7 MB), onefile, **console** subsystem, **unsigned** (empty PE security directory). VERIFIED by inspection. Both tools were also executed by the A3 smoke on the Windows x64 test machine (introspection through the job object with `CREATE_NO_WINDOW`); Defender did not block them there.
+  - Runs headless: `--help` ≈ 1 s, exit 0. VERIFIED (one-off check).
+- **Windows:** one `ileapp.exe` (≈ 62.7 MB), onefile, **console** subsystem, **unsigned** (empty PE security directory). VERIFIED by inspection (one-off check). Both tools were also executed by the A3 smoke on the Windows x64 test machine (introspection through the job object with `CREATE_NO_WINDOW`); Defender did not block them there.
   - **windows-aarch64, VERIFIED (S3):** on a `windows-11-arm` runner with a native arm64 build of the tests (leapp-smoke run 36212509028), both arm64 tools install, verify against the pinned entry hashes, introspect with the same module lists as Windows x64 in the same run (iLEAPP 1138, list sha256 `34dbbc2c…4965`; aLEAPP 1287, `941ddecc…5658`), and pass every smoke run with the same outcomes as Windows x64 (`TEMP`/`TMP`, `\r\n` records, cancel, and the password prompt that blocks until stopped, Q5).
 - **Linux:**
   - A type-2 AppImage (≈ 71 MB) with the static runtime. Mounting needs FUSE; `--appimage-extract` does not.
@@ -99,11 +101,11 @@ aLEAPP **v2026.4.1**:
 **Process setup:**
 - cwd = run dir; stdin = null; no controlling terminal (`setsid`).
 - Env: inherit, plus `TMPDIR`, `TEMP` and `TMP` = the per-run temp dir. The bootloader extracts its runtime (`_MEI*`) there: VERIFIED by the E3 smoke on macOS arm64 and Linux x64/arm64 (`TMPDIR`) and on Windows x64 and (S3) arm64 (`TEMP`/`TMP`), which see `_MEI*` in the run's temp dir mid-run and the dir gone after a cancel.
-- `PYTHON*` variables have **no effect** on the frozen binary (VERIFIED).
+- `PYTHON*` variables have **no effect** on the frozen binary (VERIFIED, one-off check).
 
 ## 5. Introspection: modules, always-run and timezones (D11)
 
-The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP and 1,288 aLEAPP entries, matching the runtime. After the tool rules below, 1,138 iLEAPP and 1,287 aLEAPP modules are selectable, with identical lists on macOS arm64, Windows x64 and Linux x86_64 (A3 smoke), Linux aarch64 (E3) and Windows aarch64 (S3).
+The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off check): 1,176 iLEAPP and 1,288 aLEAPP entries, matching the runtime. After the tool rules below, 1,138 iLEAPP and 1,287 aLEAPP modules are selectable, with identical lists on macOS arm64, Windows x64 and Linux x86_64 (A3 smoke), Linux aarch64 (E3) and Windows aarch64 (S3).
 
 **Loader facts** (from source at the pinned tags):
 - `--custom_artifacts_path` feeds the same `PluginLoader` as the built-in artifacts (iLEAPP `ileapp.py:231-236`, aLEAPP `aleapp.py:197-200`).
@@ -169,7 +171,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED: 1,176 iLEAPP
 
 ## 6. Output layout (`<o>/<custom_output_folder>/`)
 
-The output folder contains (VERIFIED):
+The output folder contains (VERIFIED, one-off check):
 - `index.html`
 - `_HTML/`, including `_HTML/_Script_Logs/Screen_Output.html`
 - `_lava_artifacts.db`
@@ -197,7 +199,7 @@ The output folder contains (VERIFIED):
 
 | # | Quirk (evidence) | Handling |
 |---|---|---|
-| Q1 | stdout is block-buffered when piped. All 45 lines of an 8 s run arrived at t = 10.2 s, and a cancelled run captured 0 bytes. `PYTHONUNBUFFERED` is ignored. A pty or tailing `Screen_Output.html` streams line by line. | D7: tail `Screen_Output.html`; save stdout/stderr to files; show their tails after exit. |
+| Q1 | stdout is block-buffered when piped (one-off check). All 45 lines of an 8 s run arrived at t = 10.2 s, and a cancelled run captured 0 bytes. `PYTHONUNBUFFERED` is ignored. A pty or tailing `Screen_Output.html` streams line by line. | D7: tail `Screen_Output.html`; save stdout/stderr to files; show their tails after exit. |
 | Q2 | Onefile = bootloader + worker. SIGKILL to the parent orphans the worker (re-parented to PID 1, still running) and leaks `_MEI*`. SIGTERM to the parent or the group → both exit in ≈ 0.18 s and `_MEI` is cleaned. | D9 + D10. |
 | Q3 | The exit code is meaningless for success. An invalid iTunes folder logged "not a valid iTunes backup", exited 0, and `_lava_data.lava` said `Complete` with **empty** `modules` and no `index.html`. Failed artifacts also exit 0. Invalid profile/case-data content → exit 0, no output. Argparse errors → exit 2. | D8 status rules (CONTRACTS.md §7.3). |
 | Q4 | Profiles: unknown plugin names are silently dropped (`["noSuchModule","callHistory"]` ran `last_build` + `callHistory`, exit 0). Upstream's own sample profiles already contain removed names. | D12: validate before the run; record the resolved modules. |
@@ -205,8 +207,8 @@ The output folder contains (VERIFIED):
 | Q6 | `-tz` defaults to UTC silently; aLEAPP has none. | D19. |
 | Q7 | `param_input` is stored exactly as passed. | Always pass absolute paths. |
 | Q8 | `Screen_Output.html` records are `message + "<br>" + newline`, appended with an open/close per message. Messages are **not** HTML-escaped and may contain markup or evidence-derived text. The newline is `\n` on macOS and Linux and `\r\n` on Windows (VERIFIED by the E3 smoke on all four smoke platforms; `fixtures/leapp/` holds macOS samples). A message may itself contain a newline before its `<br>`. | Split on `<br>` followed by `\n` or `\r\n`; keep partial records; strip tags; render as text. |
-| Q9 | Asset naming drift and manual uploads; no attestations. The frozen artifact sources matched tag v2026.4.2 byte-for-byte (VERIFIED). | D6: exact names plus asset **and** entry SHA-256 pinned in the app. Plan a mirror (H2). |
-| Q10 | LEAPP copies matched evidence files into `report/data/` and opens SQLite DBs read-only. The input tree was unchanged after runs. Nothing was written to `~/Library/Application Support/LEAPP` (history is opt-in). | Principle 1 holds; seal the report (F6). |
+| Q9 | Asset naming drift and manual uploads; no attestations. The frozen artifact sources matched tag v2026.4.2 byte-for-byte (VERIFIED, one-off check). | D6: exact names plus asset **and** entry SHA-256 pinned in the app. Plan a mirror (H2). |
+| Q10 | LEAPP copies matched evidence files into `report/data/` and opens SQLite DBs read-only. The input tree was unchanged after runs (one-off check). Nothing was written to `~/Library/Application Support/LEAPP` (history is opt-in). | Principle 1 holds; seal the report (F6). |
 | Q11 | aLEAPP `--help` does not print its version. | The version comes from the manifest and `_lava_data.lava.parser_info`. |
 
 ## 8. Candidate upstream improvements (optional track U, owner approval H5)
