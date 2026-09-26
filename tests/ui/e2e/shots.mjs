@@ -1980,7 +1980,7 @@ const LOG_SEARCH_QUERIES = [
  * - query: setting the search box (an `input` event) until two animation frames later (every line
  *   searched, then the rows in view rendered with their highlights), 5 times per query, each from
  *   an empty box: typed prefixes of "safari", then queries matching ~3%, ~1%, all and none of the
- *   lines;
+ *   lines. `work` is the view's own part of that frame (the search and the row updates);
  * - next: 30 Enter presses in the box through the "SAFARI" matches, each until two frames later,
  *   with a check that the current match's row is rendered;
  * - "Only matching lines" with "a" (every line: the most rows) and with "SAFARI": the time to turn
@@ -2003,13 +2003,22 @@ async function measureLogSearch(page) {
     const only = /** @type {HTMLInputElement} */ (document.querySelector(".log-search input[type=checkbox]"));
     const vp = /** @type {HTMLElement} */ (document.querySelector(".log-viewport"));
     const status = () => document.querySelector(".log-search-status")?.textContent ?? "";
-    /** @param {string} q */
+    /**
+     * Sets the query; returns the time until two frames later, and the view's own work in the
+     * frame (animation-frame callbacks run in order: one before the view's render, one after).
+     * @param {string} q
+     */
     const setQuery = async (q) => {
+      let before = 0;
+      requestAnimationFrame(() => {
+        before = performance.now();
+      });
       const t = performance.now();
       input.value = q;
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      await twoFrames();
-      return performance.now() - t;
+      const after = await new Promise((resolve) => requestAnimationFrame(() => resolve(performance.now())));
+      await frame();
+      return { total: performance.now() - t, work: /** @type {number} */ (after) - before };
     };
     /** @param {boolean} on */
     const setOnly = async (on) => {
@@ -2024,11 +2033,15 @@ async function measureLogSearch(page) {
     for (const [q] of queries) {
       /** @type {number[]} */
       const ms = [];
+      /** @type {number[]} */
+      const work = [];
       for (let run = 0; run < 5; run++) {
         await setQuery("");
-        ms.push(await setQuery(q));
+        const m = await setQuery(q);
+        ms.push(m.total);
+        work.push(m.work);
       }
-      typed.push({ query: q, ms, status: status() });
+      typed.push({ query: q, ms, work, status: status() });
     }
 
     await setQuery("SAFARI");
@@ -2091,7 +2104,7 @@ async function measureLogSearch(page) {
   return {
     lines: r.lines,
     row_elements: r.rows,
-    query_ms: r.typed.map((q) => ({ query: q.query, status: q.status, ...stats(q.ms) })),
+    query_ms: r.typed.map((q) => ({ query: q.query, status: q.status, ...stats(q.ms), work: stats(q.work) })),
     next_ms: { ...stats(r.next), status: r.nextStatus, missing_current_rows: r.missing },
     only_matching: r.filtered.map((f) => ({
       query: f.query,
