@@ -7,8 +7,9 @@
 #   bundles, SHA256SUMS and the source-obligation files. Automation never publishes it (H3). The
 #   macOS and Windows legs run only while the repository is public; otherwise those bundles are
 #   built locally (DEVELOPMENT.md §2) and added to the draft by hand.
-# - Signing (H1): the macOS legs sign and notarize only when the APPLE_* secrets exist; Windows
-#   signing is not set up yet. The release notes say which builds are unsigned.
+# - Signing (H1): the macOS legs sign only when APPLE_CERTIFICATE, APPLE_SIGNING_IDENTITY and
+#   APPLE_TEAM_ID exist, and notarize only when APPLE_ID and APPLE_PASSWORD exist as well; Windows
+#   signing is not set up yet. The release notes say which builds are unsigned or not notarized.
 #
 # Release builds use no build cache and run `cargo tauri build --runner scripts/cargo-auditable`,
 # so every binary carries its dependency list (cargo-auditable).
@@ -239,6 +240,12 @@ jobs:
             export SUITEDFIR_APPLE_TEAM_ID="$APPLE_TEAM_ID"
             sign=""
             echo "signed=yes" >> "$GITHUB_ENV"
+            # The bundler notarizes when APPLE_ID and APPLE_PASSWORD are set (even if empty), so
+            # without both secrets the app is signed but not notarized. The assemble job's release
+            # notes follow the same rule.
+            if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ]; then
+              unset APPLE_ID APPLE_PASSWORD
+            fi
           else
             unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
             sign="--no-sign"
@@ -362,9 +369,14 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # The macOS wording follows what the macOS legs did: they ran only if MACOS_BUILT, and their
+      # build step signs and notarizes by exactly these secret rules (a failed signing or
+      # notarization fails the leg, and this job then does not run). Bundles that this workflow did
+      # not build are local, unsigned builds (H1).
       - name: SHA256SUMS and release notes
         env:
-          MACOS_SIGNED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_TEAM_ID != '' }}
+          MACOS_SIGNING_SECRETS: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_TEAM_ID != '' }}
+          MACOS_NOTARIZATION_SECRETS: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' }}
           MACOS_BUILT: ${{ needs.macos.result == 'success' }}
           WINDOWS_BUILT: ${{ needs.windows.result == 'success' }}
         run: |
@@ -373,10 +385,13 @@ jobs:
           tools="$(jq -r .version idevice-tools.json)"
           (cd dist && sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS" && mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS)
           cat dist/SHA256SUMS
-          if [ "$MACOS_SIGNED" = true ]; then
+          unsigned="The macOS builds are **unsigned** (not signed with a Developer ID and not notarized): macOS blocks them until you allow them, see the user guide."
+          if [ "$MACOS_BUILT" != true ] || [ "$MACOS_SIGNING_SECRETS" != true ]; then
+            macos_signing="$unsigned"
+          elif [ "$MACOS_NOTARIZATION_SECRETS" = true ]; then
             macos_signing="The macOS builds are signed with a Developer ID and notarized."
           else
-            macos_signing="The macOS builds are **unsigned** (not signed with a Developer ID and not notarized): macOS blocks them until you allow them, see the user guide."
+            macos_signing="The macOS builds are signed with a Developer ID but **not notarized**: macOS blocks them until you allow them, see the user guide."
           fi
           missing=""
           [ "$MACOS_BUILT" = true ] || missing="$missing macOS (arm64 and x64 dmg)"
@@ -419,7 +434,11 @@ jobs:
   draft:
     name: Draft release (never published by automation, H3)
     needs: [assemble]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # Explicit status check: without it the implicit success() would also require the skipped
+    # macOS/Windows legs (assemble's own needs) and skip the draft on a private repository.
+    if: >-
+      ${{ !cancelled() && needs.assemble.result == 'success' &&
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
