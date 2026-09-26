@@ -36,12 +36,14 @@ use crate::idevice_tools;
 const OUTPUT: &str = "THIRD-PARTY-NOTICES.md";
 /// The app package whose dependency tree ships.
 const APP_PACKAGE: &str = "suitedfir";
-/// The release targets (ROADMAP F1) and how the notices name them.
-const RELEASE_TARGETS: [(&str, &str); 4] = [
+/// The release targets (ROADMAP F1, S3) and how the notices name them.
+const RELEASE_TARGETS: [(&str, &str); 6] = [
     ("aarch64-apple-darwin", "macOS arm64"),
     ("x86_64-apple-darwin", "macOS x64"),
     ("x86_64-pc-windows-msvc", "Windows x64"),
+    ("aarch64-pc-windows-msvc", "Windows arm64"),
     ("x86_64-unknown-linux-gnu", "Linux x64"),
+    ("aarch64-unknown-linux-gnu", "Linux arm64"),
 ];
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 /// Upper bound for one pinned text file.

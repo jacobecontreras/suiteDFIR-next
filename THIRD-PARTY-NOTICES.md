@@ -3926,37 +3926,37 @@ SOFTWARE.
 
 ## Rust crates
 
-The app is compiled from these 269 crates.io crates: the normal dependencies of the `suitedfir` package on the release targets `aarch64-apple-darwin` (macOS arm64), `x86_64-apple-darwin` (macOS x64), `x86_64-pc-windows-msvc` (Windows x64), `x86_64-unknown-linux-gnu` (Linux x64), as `cargo tree -e normal,no-proc-macro --target <triple> -p suitedfir` lists them. Development, build and proc-macro dependencies run only on the build machine and are not part of the app. "Targets" names the builds that include a crate when not all of them do.
+The app is compiled from these 272 crates.io crates: the normal dependencies of the `suitedfir` package on the release targets `aarch64-apple-darwin` (macOS arm64), `x86_64-apple-darwin` (macOS x64), `x86_64-pc-windows-msvc` (Windows x64), `aarch64-pc-windows-msvc` (Windows arm64), `x86_64-unknown-linux-gnu` (Linux x64), `aarch64-unknown-linux-gnu` (Linux arm64), as `cargo tree -e normal,no-proc-macro --target <triple> -p suitedfir` lists them. Development, build and proc-macro dependencies run only on the build machine and are not part of the app. "Targets" names the builds that include a crate when not all of them do.
 
 | Crate | Version | License | Targets |
 |---|---|---|---|
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | macOS arm64, macOS x64 |
 | aho-corasick | 1.1.5 | Unlicense OR MIT |  |
 | anyhow | 1.0.104 | MIT OR Apache-2.0 |  |
-| async-broadcast | 0.7.2 | MIT OR Apache-2.0 | Linux x64 |
-| async-channel | 2.5.0 | Apache-2.0 OR MIT | Linux x64 |
-| async-executor | 1.14.0 | Apache-2.0 OR MIT | Linux x64 |
-| async-io | 2.6.0 | Apache-2.0 OR MIT | Linux x64 |
-| async-lock | 3.4.2 | Apache-2.0 OR MIT | Linux x64 |
-| async-process | 2.5.0 | Apache-2.0 OR MIT | Linux x64 |
-| async-signal | 0.2.14 | Apache-2.0 OR MIT | Linux x64 |
-| async-task | 4.7.1 | Apache-2.0 OR MIT | Linux x64 |
-| atk | 0.18.2 | MIT | Linux x64 |
-| atk-sys | 0.18.2 | MIT | Linux x64 |
-| atomic-waker | 1.1.2 | Apache-2.0 OR MIT | Linux x64 |
+| async-broadcast | 0.7.2 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| async-channel | 2.5.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| async-executor | 1.14.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| async-io | 2.6.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| async-lock | 3.4.2 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| async-process | 2.5.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| async-signal | 0.2.14 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| async-task | 4.7.1 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| atk | 0.18.2 | MIT | Linux x64, Linux arm64 |
+| atk-sys | 0.18.2 | MIT | Linux x64, Linux arm64 |
+| atomic-waker | 1.1.2 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 |  |
-| bitflags | 1.3.2 | MIT/Apache-2.0 | Linux x64 |
+| bitflags | 1.3.2 | MIT/Apache-2.0 | Linux x64, Linux arm64 |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 |  |
 | block-buffer | 0.10.4 | MIT OR Apache-2.0 |  |
 | block2 | 0.6.2 | MIT | macOS arm64, macOS x64 |
-| blocking | 1.7.0 | Apache-2.0 OR MIT | Linux x64 |
+| blocking | 1.7.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
 | byteorder | 1.5.0 | Unlicense OR MIT |  |
 | bytes | 1.12.1 | MIT |  |
-| cairo-rs | 0.18.5 | MIT | Linux x64 |
-| cairo-sys-rs | 0.18.2 | MIT | Linux x64 |
+| cairo-rs | 0.18.5 | MIT | Linux x64, Linux arm64 |
+| cairo-sys-rs | 0.18.2 | MIT | Linux x64, Linux arm64 |
 | cfb | 0.7.3 | MIT |  |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 |  |
-| concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | Linux x64 |
+| concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
 | cookie | 0.18.2 | MIT OR Apache-2.0 |  |
 | core-foundation | 0.10.1 | MIT OR Apache-2.0 | macOS arm64, macOS x64 |
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | macOS arm64, macOS x64 |
@@ -3968,60 +3968,60 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | crossbeam-utils | 0.8.23 | MIT OR Apache-2.0 |  |
 | crypto-common | 0.1.7 | MIT OR Apache-2.0 |  |
 | ctor | 0.8.0 | Apache-2.0 OR MIT |  |
-| dbus | 0.9.12 | Apache-2.0/MIT | Linux x64 |
+| dbus | 0.9.12 | Apache-2.0/MIT | Linux x64, Linux arm64 |
 | deranged | 0.5.8 | MIT OR Apache-2.0 |  |
 | digest | 0.10.7 | MIT OR Apache-2.0 |  |
 | dirs | 6.0.0 | MIT OR Apache-2.0 |  |
 | dirs-sys | 0.5.0 | MIT OR Apache-2.0 |  |
 | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT | macOS arm64, macOS x64 |
-| dlopen2 | 0.8.2 | MIT | Linux x64 |
+| dlopen2 | 0.8.2 | MIT | Linux x64, Linux arm64 |
 | dpi | 0.1.2 | Apache-2.0 AND MIT |  |
 | dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 |  |
 | embed_plist | 1.2.2 | MIT OR Apache-2.0 | macOS arm64, macOS x64 |
-| endi | 1.1.1 | MIT | Linux x64 |
-| enumflags2 | 0.7.12 | MIT OR Apache-2.0 | Linux x64 |
+| endi | 1.1.1 | MIT | Linux x64, Linux arm64 |
+| enumflags2 | 0.7.12 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | equivalent | 1.0.2 | Apache-2.0 OR MIT |  |
 | erased-serde | 0.4.10 | MIT OR Apache-2.0 |  |
-| errno | 0.3.14 | MIT OR Apache-2.0 | Linux x64 |
-| event-listener | 5.4.2 | Apache-2.0 OR MIT | Linux x64 |
-| event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT | Linux x64 |
-| fastrand | 2.5.0 | Apache-2.0 OR MIT | Linux x64 |
+| errno | 0.3.14 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| event-listener | 5.4.2 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| fastrand | 2.5.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
 | fdeflate | 0.3.7 | MIT OR Apache-2.0 | macOS arm64, macOS x64 |
-| field-offset | 0.3.6 | MIT OR Apache-2.0 | Linux x64 |
+| field-offset | 0.3.6 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | flate2 | 1.1.10 | MIT OR Apache-2.0 |  |
 | fnv | 1.0.7 | Apache-2.0 / MIT |  |
 | foreign-types | 0.5.0 | MIT/Apache-2.0 | macOS arm64, macOS x64 |
 | foreign-types-shared | 0.3.1 | MIT/Apache-2.0 | macOS arm64, macOS x64 |
 | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 |  |
-| futures-channel | 0.3.34 | MIT OR Apache-2.0 | Linux x64 |
-| futures-core | 0.3.34 | MIT OR Apache-2.0 | Linux x64 |
-| futures-executor | 0.3.34 | MIT OR Apache-2.0 | Linux x64 |
-| futures-io | 0.3.34 | MIT OR Apache-2.0 | Linux x64 |
-| futures-lite | 2.6.1 | Apache-2.0 OR MIT | Linux x64 |
-| futures-task | 0.3.34 | MIT OR Apache-2.0 | Linux x64 |
-| futures-util | 0.3.34 | MIT OR Apache-2.0 | Linux x64 |
-| gdk | 0.18.2 | MIT | Linux x64 |
-| gdk-pixbuf | 0.18.5 | MIT | Linux x64 |
-| gdk-pixbuf-sys | 0.18.0 | MIT | Linux x64 |
-| gdk-sys | 0.18.2 | MIT | Linux x64 |
-| gdkwayland-sys | 0.18.2 | MIT | Linux x64 |
-| gdkx11 | 0.18.2 | MIT | Linux x64 |
-| gdkx11-sys | 0.18.2 | MIT | Linux x64 |
+| futures-channel | 0.3.34 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| futures-core | 0.3.34 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| futures-executor | 0.3.34 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| futures-io | 0.3.34 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| futures-lite | 2.6.1 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| futures-task | 0.3.34 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| futures-util | 0.3.34 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| gdk | 0.18.2 | MIT | Linux x64, Linux arm64 |
+| gdk-pixbuf | 0.18.5 | MIT | Linux x64, Linux arm64 |
+| gdk-pixbuf-sys | 0.18.0 | MIT | Linux x64, Linux arm64 |
+| gdk-sys | 0.18.2 | MIT | Linux x64, Linux arm64 |
+| gdkwayland-sys | 0.18.2 | MIT | Linux x64, Linux arm64 |
+| gdkx11 | 0.18.2 | MIT | Linux x64, Linux arm64 |
+| gdkx11-sys | 0.18.2 | MIT | Linux x64, Linux arm64 |
 | generic-array | 0.14.7 | MIT |  |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 |  |
 | getrandom | 0.3.4 | MIT OR Apache-2.0 |  |
 | getrandom | 0.4.3 | MIT OR Apache-2.0 |  |
-| gio | 0.18.4 | MIT | Linux x64 |
-| gio-sys | 0.18.1 | MIT | Linux x64 |
-| glib | 0.18.5 | MIT | Linux x64 |
-| glib-sys | 0.18.1 | MIT | Linux x64 |
+| gio | 0.18.4 | MIT | Linux x64, Linux arm64 |
+| gio-sys | 0.18.1 | MIT | Linux x64, Linux arm64 |
+| glib | 0.18.5 | MIT | Linux x64, Linux arm64 |
+| glib-sys | 0.18.1 | MIT | Linux x64, Linux arm64 |
 | glob | 0.3.4 | MIT OR Apache-2.0 |  |
-| gobject-sys | 0.18.0 | MIT | Linux x64 |
-| gtk | 0.18.2 | MIT | Linux x64 |
-| gtk-sys | 0.18.2 | MIT | Linux x64 |
+| gobject-sys | 0.18.0 | MIT | Linux x64, Linux arm64 |
+| gtk | 0.18.2 | MIT | Linux x64, Linux arm64 |
+| gtk-sys | 0.18.2 | MIT | Linux x64, Linux arm64 |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 |  |
 | heck | 0.5.0 | MIT OR Apache-2.0 |  |
-| hex | 0.4.3 | MIT OR Apache-2.0 | Linux x64 |
+| hex | 0.4.3 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | http | 1.5.0 | MIT OR Apache-2.0 |  |
 | httparse | 1.10.1 | MIT OR Apache-2.0 |  |
 | icu_collections | 2.3.0 | Unicode-3.0 |  |
@@ -4035,22 +4035,22 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | idna_adapter | 1.2.2 | Apache-2.0 OR MIT |  |
 | indexmap | 2.14.2 | Apache-2.0 OR MIT |  |
 | infer | 0.19.0 | MIT |  |
-| is-docker | 0.2.0 | MIT | Linux x64 |
-| is-wsl | 0.4.0 | MIT | Linux x64 |
+| is-docker | 0.2.0 | MIT | Linux x64, Linux arm64 |
+| is-wsl | 0.4.0 | MIT | Linux x64, Linux arm64 |
 | itoa | 1.0.18 | MIT OR Apache-2.0 |  |
-| javascriptcore-rs | 1.1.2 | MIT | Linux x64 |
-| javascriptcore-rs-sys | 1.1.1 | MIT | Linux x64 |
+| javascriptcore-rs | 1.1.2 | MIT | Linux x64, Linux arm64 |
+| javascriptcore-rs-sys | 1.1.1 | MIT | Linux x64, Linux arm64 |
 | json-patch | 3.0.1 | MIT/Apache-2.0 |  |
 | jsonptr | 0.6.3 | MIT OR Apache-2.0 |  |
 | keyboard-types | 0.7.0 | MIT OR Apache-2.0 |  |
 | libc | 0.2.189 | MIT OR Apache-2.0 |  |
-| libdbus-sys | 0.2.7 | Apache-2.0/MIT | Linux x64 |
-| linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Linux x64 |
+| libdbus-sys | 0.2.7 | Apache-2.0/MIT | Linux x64, Linux arm64 |
+| linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Linux x64, Linux arm64 |
 | litemap | 0.8.3 | Unicode-3.0 |  |
-| lock_api | 0.4.14 | MIT OR Apache-2.0 | Windows x64, Linux x64 |
+| lock_api | 0.4.14 | MIT OR Apache-2.0 | Windows x64, Windows arm64, Linux x64, Linux arm64 |
 | log | 0.4.34 | MIT OR Apache-2.0 |  |
 | memchr | 2.8.3 | Unlicense OR MIT |  |
-| memoffset | 0.9.1 | MIT | Linux x64 |
+| memoffset | 0.9.1 | MIT | Linux x64, Linux arm64 |
 | mime | 0.3.17 | MIT OR Apache-2.0 |  |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | macOS arm64, macOS x64 |
 | miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | macOS arm64, macOS x64 |
@@ -4066,37 +4066,37 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | once_cell | 1.21.4 | MIT OR Apache-2.0 |  |
 | open | 5.4.4 | MIT |  |
 | option-ext | 0.2.0 | MPL-2.0 |  |
-| ordered-stream | 0.2.0 | MIT OR Apache-2.0 | Linux x64 |
-| pango | 0.18.3 | MIT | Linux x64 |
-| pango-sys | 0.18.0 | MIT | Linux x64 |
-| parking | 2.2.1 | Apache-2.0 OR MIT | Linux x64 |
-| parking_lot | 0.12.5 | MIT OR Apache-2.0 | Windows x64, Linux x64 |
-| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | Windows x64, Linux x64 |
+| ordered-stream | 0.2.0 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
+| pango | 0.18.3 | MIT | Linux x64, Linux arm64 |
+| pango-sys | 0.18.0 | MIT | Linux x64, Linux arm64 |
+| parking | 2.2.1 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
+| parking_lot | 0.12.5 | MIT OR Apache-2.0 | Windows x64, Windows arm64, Linux x64, Linux arm64 |
+| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | Windows x64, Windows arm64, Linux x64, Linux arm64 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |  |
 | phf | 0.13.1 | MIT |  |
 | phf_shared | 0.13.1 | MIT |  |
 | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT |  |
-| piper | 0.2.5 | MIT OR Apache-2.0 | Linux x64 |
+| piper | 0.2.5 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | plist | 1.10.1 | MIT |  |
 | png | 0.18.1 | MIT OR Apache-2.0 | macOS arm64, macOS x64 |
-| polling | 3.11.0 | Apache-2.0 OR MIT | Linux x64 |
+| polling | 3.11.0 | Apache-2.0 OR MIT | Linux x64, Linux arm64 |
 | potential_utf | 0.1.6 | Unicode-3.0 |  |
 | powerfmt | 0.2.0 | MIT OR Apache-2.0 |  |
-| proc-macro2 | 1.0.107 | MIT OR Apache-2.0 | Linux x64 |
+| proc-macro2 | 1.0.107 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | quick-xml | 0.42.0 | MIT |  |
-| quote | 1.0.47 | MIT OR Apache-2.0 | Linux x64 |
+| quote | 1.0.47 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib |  |
 | regex | 1.13.1 | MIT OR Apache-2.0 |  |
 | regex-automata | 0.4.18 | MIT OR Apache-2.0 |  |
 | regex-syntax | 0.8.11 | MIT OR Apache-2.0 |  |
 | rfd | 0.16.0 | MIT |  |
 | ring | 0.17.14 | Apache-2.0 AND ISC |  |
-| rustix | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Linux x64 |
+| rustix | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Linux x64, Linux arm64 |
 | rustls | 0.23.45 | Apache-2.0 OR ISC OR MIT |  |
 | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 |  |
 | rustls-webpki | 0.103.15 | ISC |  |
 | same-file | 1.0.6 | Unlicense/MIT |  |
-| scopeguard | 1.2.0 | MIT OR Apache-2.0 | Windows x64, Linux x64 |
+| scopeguard | 1.2.0 | MIT OR Apache-2.0 | Windows x64, Windows arm64, Linux x64, Linux arm64 |
 | semver | 1.0.28 | MIT OR Apache-2.0 |  |
 | serde | 1.0.229 | MIT OR Apache-2.0 |  |
 | serde-untagged | 0.1.9 | MIT OR Apache-2.0 |  |
@@ -4106,17 +4106,17 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | serde_with | 3.23.0 | MIT OR Apache-2.0 |  |
 | serialize-to-javascript | 0.1.2 | MIT OR Apache-2.0 |  |
 | sha2 | 0.10.9 | MIT OR Apache-2.0 |  |
-| signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | Linux x64 |
+| signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | simd-adler32 | 0.3.10 | MIT | macOS arm64, macOS x64 |
 | siphasher | 1.0.3 | MIT/Apache-2.0 |  |
-| slab | 0.4.12 | MIT | Linux x64 |
+| slab | 0.4.12 | MIT | Linux x64, Linux arm64 |
 | smallvec | 1.16.1 | MIT OR Apache-2.0 |  |
-| softbuffer | 0.4.8 | MIT OR Apache-2.0 | Windows x64 |
-| soup3 | 0.5.0 | MIT | Linux x64 |
-| soup3-sys | 0.5.0 | MIT | Linux x64 |
+| softbuffer | 0.4.8 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| soup3 | 0.5.0 | MIT | Linux x64, Linux arm64 |
+| soup3-sys | 0.5.0 | MIT | Linux x64, Linux arm64 |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 |  |
 | subtle | 2.6.1 | BSD-3-Clause |  |
-| syn | 3.0.6 | MIT OR Apache-2.0 | Linux x64 |
+| syn | 3.0.6 | MIT OR Apache-2.0 | Linux x64, Linux arm64 |
 | tao | 0.35.3 | Apache-2.0 |  |
 | tauri | 2.11.6 | Apache-2.0 OR MIT |  |
 | tauri-plugin-dialog | 2.7.3 | Apache-2.0 OR MIT |  |
@@ -4135,8 +4135,8 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | toml_datetime | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 |  |
 | toml_parser | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 |  |
 | toml_writer | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 |  |
-| tracing | 0.1.44 | MIT | Windows x64, Linux x64 |
-| tracing-core | 0.1.36 | MIT | Windows x64, Linux x64 |
+| tracing | 0.1.44 | MIT | Windows x64, Windows arm64, Linux x64, Linux arm64 |
+| tracing-core | 0.1.36 | MIT | Windows x64, Windows arm64, Linux x64, Linux arm64 |
 | typed-path | 0.12.3 | MIT OR Apache-2.0 |  |
 | typeid | 1.0.3 | MIT OR Apache-2.0 |  |
 | typenum | 1.20.1 | MIT OR Apache-2.0 |  |
@@ -4145,7 +4145,7 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | unic-common | 0.9.0 | MIT/Apache-2.0 |  |
 | unic-ucd-ident | 0.9.0 | MIT/Apache-2.0 |  |
 | unic-ucd-version | 0.9.0 | MIT/Apache-2.0 |  |
-| unicode-ident | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | Linux x64 |
+| unicode-ident | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | Linux x64, Linux arm64 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |  |
 | untrusted | 0.9.0 | ISC |  |
 | ureq | 3.4.2 | MIT OR Apache-2.0 |  |
@@ -4156,40 +4156,43 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | utf8_iter | 1.0.4 | Apache-2.0 OR MIT |  |
 | uuid | 1.26.1 | Apache-2.0 OR MIT |  |
 | walkdir | 2.5.0 | Unlicense/MIT |  |
-| webkit2gtk | 2.0.2 | MIT | Linux x64 |
-| webkit2gtk-sys | 2.0.2 | MIT | Linux x64 |
+| webkit2gtk | 2.0.2 | MIT | Linux x64, Linux arm64 |
+| webkit2gtk-sys | 2.0.2 | MIT | Linux x64, Linux arm64 |
 | webpki-roots | 1.0.9 | CDLA-Permissive-2.0 |  |
-| webview2-com | 0.38.2 | MIT | Windows x64 |
-| webview2-com-sys | 0.38.2 | MIT | Windows x64 |
-| winapi-util | 0.1.11 | Unlicense OR MIT | Windows x64 |
-| window-vibrancy | 0.6.0 | Apache-2.0 OR MIT | macOS arm64, macOS x64, Windows x64 |
-| windows | 0.61.3 | MIT OR Apache-2.0 | Windows x64 |
-| windows-collections | 0.2.0 | MIT OR Apache-2.0 | Windows x64 |
-| windows-core | 0.61.2 | MIT OR Apache-2.0 | Windows x64 |
-| windows-future | 0.2.1 | MIT OR Apache-2.0 | Windows x64 |
-| windows-link | 0.1.3 | MIT OR Apache-2.0 | Windows x64 |
-| windows-link | 0.2.1 | MIT OR Apache-2.0 | Windows x64 |
-| windows-numerics | 0.2.0 | MIT OR Apache-2.0 | Windows x64 |
-| windows-result | 0.3.4 | MIT OR Apache-2.0 | Windows x64 |
-| windows-strings | 0.4.2 | MIT OR Apache-2.0 | Windows x64 |
-| windows-sys | 0.59.0 | MIT OR Apache-2.0 | Windows x64 |
-| windows-sys | 0.60.2 | MIT OR Apache-2.0 | Windows x64 |
-| windows-sys | 0.61.2 | MIT OR Apache-2.0 | Windows x64 |
-| windows-targets | 0.52.6 | MIT OR Apache-2.0 | Windows x64 |
-| windows-targets | 0.53.5 | MIT OR Apache-2.0 | Windows x64 |
-| windows-threading | 0.1.0 | MIT OR Apache-2.0 | Windows x64 |
-| windows-version | 0.1.7 | MIT OR Apache-2.0 | Windows x64 |
+| webview2-com | 0.38.2 | MIT | Windows x64, Windows arm64 |
+| webview2-com-sys | 0.38.2 | MIT | Windows x64, Windows arm64 |
+| winapi-util | 0.1.11 | Unlicense OR MIT | Windows x64, Windows arm64 |
+| window-vibrancy | 0.6.0 | Apache-2.0 OR MIT | macOS arm64, macOS x64, Windows x64, Windows arm64 |
+| windows | 0.61.3 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-collections | 0.2.0 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-core | 0.61.2 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-future | 0.2.1 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-link | 0.1.3 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-link | 0.2.1 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-numerics | 0.2.0 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-result | 0.3.4 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-strings | 0.4.2 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-sys | 0.52.0 | MIT OR Apache-2.0 | Windows arm64 |
+| windows-sys | 0.59.0 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-sys | 0.60.2 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-sys | 0.61.2 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-targets | 0.52.6 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-targets | 0.53.5 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-threading | 0.1.0 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows-version | 0.1.7 | MIT OR Apache-2.0 | Windows x64, Windows arm64 |
+| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 | Windows arm64 |
+| windows_aarch64_msvc | 0.53.1 | MIT OR Apache-2.0 | Windows arm64 |
 | windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | Windows x64 |
 | windows_x86_64_msvc | 0.53.1 | MIT OR Apache-2.0 | Windows x64 |
 | winnow | 1.0.4 | MIT |  |
 | writeable | 0.6.4 | Unicode-3.0 |  |
 | wry | 0.55.1 | Apache-2.0 OR MIT |  |
-| x11 | 2.21.0 | MIT | Linux x64 |
-| x11-dl | 2.21.0 | MIT | Linux x64 |
+| x11 | 2.21.0 | MIT | Linux x64, Linux arm64 |
+| x11-dl | 2.21.0 | MIT | Linux x64, Linux arm64 |
 | yoke | 0.8.3 | Unicode-3.0 |  |
-| zbus | 5.19.0 | MIT | Linux x64 |
-| zbus_names | 4.3.4 | MIT | Linux x64 |
-| zcheapstr | 1.1.0 | MIT | Linux x64 |
+| zbus | 5.19.0 | MIT | Linux x64, Linux arm64 |
+| zbus_names | 4.3.4 | MIT | Linux x64, Linux arm64 |
+| zcheapstr | 1.1.0 | MIT | Linux x64, Linux arm64 |
 | zerofrom | 0.1.8 | Unicode-3.0 |  |
 | zeroize | 1.9.0 | Apache-2.0 OR MIT |  |
 | zerotrie | 0.2.5 | Unicode-3.0 |  |
@@ -4197,8 +4200,8 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | zip | 8.6.0 | MIT |  |
 | zlib-rs | 0.6.8 | Zlib |  |
 | zmij | 1.0.23 | MIT |  |
-| zvariant | 5.15.0 | MIT | Linux x64 |
-| zvariant_utils | 4.2.0 | MIT | Linux x64 |
+| zvariant | 5.15.0 | MIT | Linux x64, Linux arm64 |
+| zvariant_utils | 4.2.0 | MIT | Linux x64, Linux arm64 |
 
 The source code of each crate is its crates.io package, available at `https://crates.io/crates/<crate>/<version>`.
 
@@ -12828,7 +12831,7 @@ Creator: Person: Daniel Thompson-Yvetot
 
 #### windows 0.61.3: `license-apache-2.0`
 
-Also: windows-collections 0.2.0 (`license-apache-2.0`), windows-core 0.61.2 (`license-apache-2.0`), windows-future 0.2.1 (`license-apache-2.0`), windows-link 0.1.3 (`license-apache-2.0`), windows-link 0.2.1 (`license-apache-2.0`), windows-numerics 0.2.0 (`license-apache-2.0`), windows-result 0.3.4 (`license-apache-2.0`), windows-strings 0.4.2 (`license-apache-2.0`), windows-sys 0.59.0 (`license-apache-2.0`), windows-sys 0.60.2 (`license-apache-2.0`), windows-sys 0.61.2 (`license-apache-2.0`), windows-targets 0.52.6 (`license-apache-2.0`), windows-targets 0.53.5 (`license-apache-2.0`), windows-threading 0.1.0 (`license-apache-2.0`), windows-version 0.1.7 (`license-apache-2.0`), windows_x86_64_msvc 0.52.6 (`license-apache-2.0`), windows_x86_64_msvc 0.53.1 (`license-apache-2.0`).
+Also: windows-collections 0.2.0 (`license-apache-2.0`), windows-core 0.61.2 (`license-apache-2.0`), windows-future 0.2.1 (`license-apache-2.0`), windows-link 0.1.3 (`license-apache-2.0`), windows-link 0.2.1 (`license-apache-2.0`), windows-numerics 0.2.0 (`license-apache-2.0`), windows-result 0.3.4 (`license-apache-2.0`), windows-strings 0.4.2 (`license-apache-2.0`), windows-sys 0.52.0 (`license-apache-2.0`), windows-sys 0.59.0 (`license-apache-2.0`), windows-sys 0.60.2 (`license-apache-2.0`), windows-sys 0.61.2 (`license-apache-2.0`), windows-targets 0.52.6 (`license-apache-2.0`), windows-targets 0.53.5 (`license-apache-2.0`), windows-threading 0.1.0 (`license-apache-2.0`), windows-version 0.1.7 (`license-apache-2.0`), windows_aarch64_msvc 0.52.6 (`license-apache-2.0`), windows_aarch64_msvc 0.53.1 (`license-apache-2.0`), windows_x86_64_msvc 0.52.6 (`license-apache-2.0`), windows_x86_64_msvc 0.53.1 (`license-apache-2.0`).
 
 ```text
                                  Apache License
@@ -13036,7 +13039,7 @@ Also: windows-collections 0.2.0 (`license-apache-2.0`), windows-core 0.61.2 (`li
 
 #### windows 0.61.3: `license-mit`
 
-Also: windows-collections 0.2.0 (`license-mit`), windows-core 0.61.2 (`license-mit`), windows-future 0.2.1 (`license-mit`), windows-link 0.1.3 (`license-mit`), windows-link 0.2.1 (`license-mit`), windows-numerics 0.2.0 (`license-mit`), windows-result 0.3.4 (`license-mit`), windows-strings 0.4.2 (`license-mit`), windows-sys 0.59.0 (`license-mit`), windows-sys 0.60.2 (`license-mit`), windows-sys 0.61.2 (`license-mit`), windows-targets 0.52.6 (`license-mit`), windows-targets 0.53.5 (`license-mit`), windows-threading 0.1.0 (`license-mit`), windows-version 0.1.7 (`license-mit`), windows_x86_64_msvc 0.52.6 (`license-mit`), windows_x86_64_msvc 0.53.1 (`license-mit`).
+Also: windows-collections 0.2.0 (`license-mit`), windows-core 0.61.2 (`license-mit`), windows-future 0.2.1 (`license-mit`), windows-link 0.1.3 (`license-mit`), windows-link 0.2.1 (`license-mit`), windows-numerics 0.2.0 (`license-mit`), windows-result 0.3.4 (`license-mit`), windows-strings 0.4.2 (`license-mit`), windows-sys 0.52.0 (`license-mit`), windows-sys 0.59.0 (`license-mit`), windows-sys 0.60.2 (`license-mit`), windows-sys 0.61.2 (`license-mit`), windows-targets 0.52.6 (`license-mit`), windows-targets 0.53.5 (`license-mit`), windows-threading 0.1.0 (`license-mit`), windows-version 0.1.7 (`license-mit`), windows_aarch64_msvc 0.52.6 (`license-mit`), windows_aarch64_msvc 0.53.1 (`license-mit`), windows_x86_64_msvc 0.52.6 (`license-mit`), windows_x86_64_msvc 0.53.1 (`license-mit`).
 
 ```text
     MIT License
