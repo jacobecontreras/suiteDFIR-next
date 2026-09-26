@@ -470,15 +470,23 @@ fn developer_id_requirement(team: &str) -> String {
 /// `codesign --verify --strict -R=<Developer ID requirement for team> <path>` (macOS signed
 /// builds). A plain `--verify` would also accept an ad-hoc or any other valid signature.
 fn codesign_verify(path: &Path, team: &str) -> bool {
-    Command::new("/usr/bin/codesign")
+    codesign_verify_command(path, team)
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// The `codesign` command of [`codesign_verify`]. It exits 0 when the signature is valid and
+/// satisfies the requirement, 3 when it is valid but does not satisfy it.
+fn codesign_verify_command(path: &Path, team: &str) -> Command {
+    let mut command = Command::new("/usr/bin/codesign");
+    command
         .args(["--verify", "--strict"])
         .arg(format!("-R={}", developer_id_requirement(team)))
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+        .stderr(Stdio::null());
+    command
 }
 
 #[cfg(test)]
@@ -635,6 +643,12 @@ mod tests {
             "the plain check accepts an ad-hoc signature"
         );
         assert!(!codesign_verify(&tool, "ABCDE12345"));
+        // Exit 3: the signature is valid and the requirement well-formed, but not satisfied (a
+        // malformed requirement would exit 1).
+        let status = codesign_verify_command(&tool, "ABCDE12345")
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(3), "{status:?}");
 
         let mut lookup = lookup(&setup, HOST);
         lookup.signed_build = true;
@@ -662,7 +676,7 @@ mod tests {
             let problem = locate(&lookup).unwrap_err();
             assert_eq!(problem.state, IdeviceToolsState::VerificationFailed);
             assert!(
-                problem.detail.contains("team"),
+                problem.detail.contains("names no valid Developer ID team"),
                 "{team:?}: {}",
                 problem.detail
             );
@@ -694,6 +708,28 @@ mod tests {
         assert!(requirement.contains("certificate 1[field.1.2.840.113635.100.6.2.6]"));
         assert!(requirement.contains("certificate leaf[field.1.2.840.113635.100.6.1.13]"));
         assert!(requirement.ends_with("certificate leaf[subject.OU] = \"N2G83326TZ\""));
+    }
+
+    /// The requirement is valid code-requirement language: `csreq` compiles it (and rejects a
+    /// broken one, so the check is not vacuous).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_requirement_compiles() {
+        let compiles = |text: &str| {
+            Command::new("/usr/bin/csreq")
+                .arg(format!("-r={text}"))
+                .arg("-t")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        assert!(compiles(&developer_id_requirement("N2G83326TZ")));
+        assert!(!compiles(
+            "anchor apple generic and certificate leaf[subject.OU"
+        ));
     }
 
     #[test]
