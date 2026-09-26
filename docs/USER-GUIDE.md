@@ -147,7 +147,7 @@ On the case screen, choose **New run**.
    - **Hash the input file (SHA-256)** for file inputs (on by default). It runs alongside the parser.
    - **Label:** shown in the runs table and recorded.
 4. **Modules:** all, a saved profile, or a custom selection (search, categories, select all/none). Profiles use LEAPP's own format (`.ilprofile`, `.alprofile`) and can be imported and exported. A profile with module names that the installed version does not have cannot be used until they are removed.
-5. **Start run.** The run screen shows the phase, the elapsed time and the live log. **Cancel run** asks for confirmation and stops the parser and every process it started.
+5. **Start run.** The run screen shows the phase, the elapsed time and the live log. The log's search box finds text in it (Enter jumps to the next match), **Only matching lines** filters it, and **Copy all** copies it. **Cancel run** asks for confirmation and stops the parser and every process it started.
 
 **Results.** **Open report** opens LEAPP's HTML report in your web browser (never inside suiteDFIR). **Reveal folder**, **Open stdout**, **Open stderr** and **Open run.json** show the rest. "Parser output" shows the last lines the parser printed. Output of cancelled and failed runs is kept and marked; nothing is deleted.
 
