@@ -927,8 +927,8 @@ fn render(
     );
     push("");
     push(
-        "1. [libimobiledevice tools](#libimobiledevice-tools): bundled with the macOS and \
-         Windows builds.",
+        "1. [libimobiledevice tools](#libimobiledevice-tools): bundled with the macOS (arm64 \
+         and x64) and Windows x64 builds.",
     );
     push(
         "2. [iLEAPP and aLEAPP](#ileapp-and-aleapp): downloaded on request, run unmodified, not \
@@ -943,11 +943,13 @@ fn render(
     push("## libimobiledevice tools");
     push("");
     push(&format!(
-        "The macOS and Windows builds include `idevice_id`, `ideviceinfo`, `idevicepair` and \
-         `idevicebackup2` from libimobiledevice {}, built by `scripts/build-idevice-tools.sh` \
-         from the source tarballs below and linked statically. Every release attaches these \
-         exact tarballs, the build script and each tool bundle's `BUILDINFO.json`. The Linux \
-         builds use the distribution's tools and include none of this code.",
+        "The macOS (arm64 and x64) and Windows x64 builds include `idevice_id`, `ideviceinfo`, \
+         `idevicepair` and `idevicebackup2` from libimobiledevice {}, built by \
+         `scripts/build-idevice-tools.sh` from the source tarballs below and linked statically. \
+         Every release attaches these exact tarballs, the build script and each tool bundle's \
+         `BUILDINFO.json`. The Windows arm64 build includes none of this code (there is no \
+         pinned build for it, so it has no iOS acquisition), and the Linux builds use the \
+         distribution's tools and include none of it either.",
         idevice.version
     ));
     push("");
