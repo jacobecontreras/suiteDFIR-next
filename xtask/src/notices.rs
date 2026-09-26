@@ -863,6 +863,11 @@ fn normalize(text: &str) -> String {
     out
 }
 
+/// The crates.io page of a crate version, where its source package can be downloaded.
+fn crates_io_url(name: &str, version: &str) -> String {
+    format!("https://crates.io/crates/{name}/{version}")
+}
+
 /// The grouping key of a license text: its words, so texts that differ only in line breaks and
 /// indentation are shown once.
 fn same_words(text: &str) -> String {
@@ -1067,6 +1072,34 @@ fn render(
         ));
     }
     push("");
+    push(
+        "The source code of each crate is its crates.io package, available at \
+         `https://crates.io/crates/<crate>/<version>`.",
+    );
+    push("");
+    let mpl: Vec<&Crate> = crates
+        .values()
+        .filter(|krate| spdx_ids(&krate.license).contains(&"MPL-2.0"))
+        .collect();
+    if !mpl.is_empty() {
+        push("### Source code of the MPL-2.0 crates");
+        push("");
+        push(
+            "These crates are distributed in executable form under the Mozilla Public License \
+             2.0. Their Source Code Form is available, at no charge, from their crates.io \
+             packages (MPL-2.0 §3.2(a)):",
+        );
+        push("");
+        for krate in mpl {
+            push(&format!(
+                "- {} {}: <{}>",
+                krate.name,
+                krate.version,
+                crates_io_url(&krate.name, &krate.version)
+            ));
+        }
+        push("");
+    }
     push("### Crate license texts");
     push("");
     push(
@@ -1348,5 +1381,25 @@ mod tests {
         ] {
             assert!(notices.contains(heading), "{heading}");
         }
+        // MPL-2.0 §3.2(a): every MPL-2.0 crate in the table names where its source is.
+        let mut mpl = 0;
+        for row in notices.lines().filter(|l| l.starts_with("| ")) {
+            let cells: Vec<&str> = row.split(" | ").collect();
+            if cells.len() >= 3 && spdx_ids(cells[2]).contains(&"MPL-2.0") {
+                let name = cells[0].trim_start_matches("| ");
+                let url = crates_io_url(name, cells[1]);
+                assert!(notices.contains(&format!("<{url}>")), "{url}");
+                mpl += 1;
+            }
+        }
+        assert!(mpl > 0, "the app ships MPL-2.0 crates (option-ext)");
+    }
+
+    #[test]
+    fn crates_io_urls() {
+        assert_eq!(
+            crates_io_url("option-ext", "0.2.0"),
+            "https://crates.io/crates/option-ext/0.2.0"
+        );
     }
 }

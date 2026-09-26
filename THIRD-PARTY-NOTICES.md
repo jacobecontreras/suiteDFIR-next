@@ -4200,6 +4200,14 @@ The app is compiled from these 269 crates.io crates: the normal dependencies of 
 | zvariant | 5.15.0 | MIT | Linux x64 |
 | zvariant_utils | 4.2.0 | MIT | Linux x64 |
 
+The source code of each crate is its crates.io package, available at `https://crates.io/crates/<crate>/<version>`.
+
+### Source code of the MPL-2.0 crates
+
+These crates are distributed in executable form under the Mozilla Public License 2.0. Their Source Code Form is available, at no charge, from their crates.io packages (MPL-2.0 §3.2(a)):
+
+- option-ext 0.2.0: <https://crates.io/crates/option-ext/0.2.0>
+
 ### Crate license texts
 
 Each crate's license and notice files, from its crates.io package. For the few crates whose package has none, the license files at the root of their repository at the commit the package was published from (per its `.cargo_vcs_info.json`) are shown, together with the standard texts (SPDX license list v3.29.0) of the licenses they declare. A text that several crates ship with the same wording (line breaks and indentation aside) is shown once, under the first of them, with the others listed.
