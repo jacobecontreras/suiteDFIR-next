@@ -1,9 +1,10 @@
 // @ts-check
 /**
  * Run screen (ROADMAP D4a): the header (tool, input, label), the phase and elapsed time, the
- * virtualized log (auto-scroll, copy all), hash and seal progress, Cancel with an in-DOM confirm,
- * and the result panel (status, reasons, warnings, module counts, the parser's stdout/stderr tails
- * as "Parser output", and open report / reveal folder / open stdout, stderr, run.json).
+ * virtualized log (auto-scroll, copy all, and search/filter from S2), hash and seal progress,
+ * Cancel with an in-DOM confirm, and the result panel (status, reasons, warnings, module counts,
+ * the parser's stdout/stderr tails as "Parser output", and open report / reveal folder / open
+ * stdout, stderr, run.json).
  *
  * The events come from the job stream hub (lib/jobstream.js): the run started in this window, or
  * `job_attach` after a reload. A run that is not the active job is shown from its `run.json`.
@@ -82,7 +83,7 @@ export function runScreen(ctx) {
   const sealMeter = progressMeter({ label: "Sealing the report (report.sha256)", done: null, total: null, detail: "" });
   const progressNote = h("p", { class: "muted small" }, "Input hashing and report sealing show their progress here when they run.");
   const actionErrors = errorSlot();
-  const log = logView({ label: "Run log", emptyText: "No log lines yet." });
+  const log = logView({ label: "Run log", emptyText: "No log lines yet.", search: true });
   const logBody = h("div", { class: "stack-sm" });
   const logCard = h("section", { class: "card", "aria-labelledby": "run-log-heading" }, h("div", { class: "card-head" }, h("h2", { id: "run-log-heading" }, "Log")), logBody);
   const resultCard = h("section", { class: "card result-card", "aria-labelledby": "run-result-heading", hidden: true });

@@ -35,6 +35,11 @@
   --purple: #6639ba;
   --purple-bg: #fbefff;
   --purple-border: #ecd8ff;
+  --mark-bg: #ffe58a;
+  --mark-fg: #1b1f24;
+  --mark-current-bg: #fb8f44;
+  --mark-current-fg: #1b1f24;
+  --mark-row-bg: #fff4e5;
 
   --radius: 6px;
   --radius-lg: 10px;
@@ -77,6 +82,11 @@
     --purple: #bc8cff;
     --purple-bg: #221a33;
     --purple-border: #4b3470;
+    --mark-bg: #6e5a12;
+    --mark-fg: #fff5d1;
+    --mark-current-bg: #b35900;
+    --mark-current-fg: #ffffff;
+    --mark-row-bg: #2b2012;
 
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
@@ -1637,6 +1647,58 @@ input[type="radio"] {
   display: grid;
   place-items: center;
   pointer-events: none;
+}
+
+/* Log search (S2): matches are <mark>; the current matching line is outlined. */
+
+.log-search {
+  display: flex;
+  align-items: center;
+  gap: 8px 10px;
+  flex-wrap: wrap;
+}
+
+.log-search-field {
+  position: relative;
+  flex: 0 1 320px;
+  min-width: 200px;
+}
+
+.log-search-field > .icon {
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  color: var(--muted);
+}
+
+.log-search-input {
+  padding-left: 30px;
+}
+
+.log-search-status {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-search-status:empty {
+  display: none;
+}
+
+.log-text mark {
+  border-radius: 2px;
+  background: var(--mark-bg);
+  color: var(--mark-fg);
+}
+
+.log-row-current {
+  background: var(--mark-row-bg);
+  outline: 1px solid var(--mark-current-bg);
+  outline-offset: -1px;
+}
+
+.log-row-current mark {
+  background: var(--mark-current-bg);
+  color: var(--mark-current-fg);
 }
 
 /* ---- Settings ---- */
