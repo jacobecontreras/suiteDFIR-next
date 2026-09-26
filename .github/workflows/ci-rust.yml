@@ -26,6 +26,7 @@ on:
       - "fixtures/**"
       - "ui-dev/fixtures/contracts/**"
       - "docs/CONTRACTS.md"
+      - "THIRD-PARTY-NOTICES.md"
       - ".github/workflows/ci-rust.yml"
   push:
     branches: [main]
@@ -49,6 +50,7 @@ on:
       - "fixtures/**"
       - "ui-dev/fixtures/contracts/**"
       - "docs/CONTRACTS.md"
+      - "THIRD-PARTY-NOTICES.md"
       - ".github/workflows/ci-rust.yml"
   workflow_dispatch:
     inputs:
@@ -215,6 +217,19 @@ jobs:
           if [ -n "$changes" ]; then
             echo "$changes"
             echo "::error::'cargo xtask contracts' added files to ui-dev/fixtures/contracts; commit the result"
+            exit 1
+          fi
+
+      # THIRD-PARTY-NOTICES.md must be what `cargo xtask notices` generates (ROADMAP F2). It downloads
+      # the pinned tool bundles (public release assets, through the API with the job's read-only
+      # token) and a few pinned license files. Unprivileged like every cargo step.
+      - name: notices-drift
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cargo --locked xtask notices
+          if ! git diff --exit-code -- THIRD-PARTY-NOTICES.md; then
+            echo "::error::THIRD-PARTY-NOTICES.md is stale: run 'cargo xtask notices' and commit the result"
             exit 1
           fi
 

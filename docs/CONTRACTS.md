@@ -517,7 +517,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 | `PairState` | `paired`, `not_paired`, `awaiting_trust`, `locked`, `trust_denied`, `pairing_failed`, `unknown` |
 | `IdeviceToolSource` | `bundled`, `system`, `dev_override` |
 | `IdeviceToolsState` | `ok`, `missing`, `verification_failed`, `usbmuxd_unavailable`, `unsupported_platform` |
-| `ToolVerification` | `manifest` (hash equals the pinned unsigned hash), `code_signature` (macOS `codesign --verify --strict` passed), `recorded_only` (hash recorded, not verifiable: signed Windows builds and Linux system tools), `none` (dev override) |
+| `ToolVerification` | `manifest` (hash equals the pinned unsigned hash), `code_signature` (macOS `codesign --verify --strict` passed, with a requirement for a Developer ID signature of the app's team), `recorded_only` (hash recorded, not verifiable: signed Windows builds and Linux system tools), `none` (dev override) |
 | `RestoreState` | `not_requested`, `restored`, `failed`, `not_attempted`, `unknown` |
 | `DevicePromptKind` | `passcode_for_backup`, `passcode_for_encryption` |
 
@@ -545,7 +545,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 - **What gets pinned:** hashes are of the **unsigned** build outputs. `fetch-idevice-tools` enforces them.
 - **Runtime verification** (`ToolVerification`):
   - `manifest`: file hashes equal these values (unsigned/debug builds).
-  - `code_signature`: macOS signed builds pass `codesign --verify --strict`.
+  - `code_signature`: macOS signed builds pass `codesign --verify --strict` with a requirement for a Developer ID signature of the app's own team (so an ad-hoc or foreign signature fails).
   - `recorded_only`: otherwise.
 - **Sources:** `sources` lists every tarball the build consumes (TLS, curl if built). The libplist asset has no GitHub digest, so X1 computes it.
 - **Linux:** `system_platforms` use tools found on `PATH` (hashes recorded).

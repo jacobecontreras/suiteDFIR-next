@@ -460,6 +460,7 @@ fn the_dev_override_uses_fake_idevice_for_all_four_tools() {
             dev_override: Some(FAKE.into()),
             path_var: None,
             signed_build: false,
+            signing_team_id: None,
         },
         app_cache: root.path().join("cache"),
         env: vec![("FAKE_IDEVICE_STATE_DIR".into(), state.into_os_string())],
@@ -474,4 +475,58 @@ fn the_dev_override_uses_fake_idevice_for_all_four_tools() {
         record.binaries.idevicepair.verified_against,
         ToolVerification::None
     );
+}
+
+/// ROADMAP F1: the libimobiledevice tools inside a release bundle verify against
+/// `idevice-tools.json` through the same lookup the app runs at startup (unsigned builds). Run it
+/// against a built bundle's tool directory (`suiteDFIR.app/Contents/MacOS`, or the Windows install
+/// directory):
+///
+/// `SUITEDFIR_BUNDLED_TOOLS_DIR=<dir> [SUITEDFIR_BUNDLED_TOOLS_PLATFORM=macos-x86_64] cargo test -p
+/// suitedfir-core --test idevice -- --ignored --exact release_bundle_tools_verify_against_the_manifest`
+#[test]
+#[ignore = "needs a release bundle: set SUITEDFIR_BUNDLED_TOOLS_DIR"]
+fn release_bundle_tools_verify_against_the_manifest() {
+    let dir = std::env::var_os("SUITEDFIR_BUNDLED_TOOLS_DIR")
+        .expect("set SUITEDFIR_BUNDLED_TOOLS_DIR to the bundle's tool directory");
+    let platform = std::env::var("SUITEDFIR_BUNDLED_TOOLS_PLATFORM").map_or_else(
+        |_| common::host_platform(),
+        |key| serde_json::from_value(serde_json::Value::String(key)).unwrap(),
+    );
+    let cache = tempfile::tempdir().unwrap();
+    let idevice = Idevice::new(IdeviceConfig {
+        lookup: ToolLookup {
+            platform: Some(platform),
+            manifest: embedded_manifest().unwrap(),
+            bundled_dir: Some(dir.into()),
+            dev_override: None,
+            path_var: None,
+            signed_build: false,
+            signing_team_id: None,
+        },
+        app_cache: cache.path().to_path_buf(),
+        env: Vec::new(),
+    });
+    let tools = idevice
+        .tools()
+        .unwrap_or_else(|problem| panic!("{problem}"));
+    let record = tools.record();
+    println!("{}", serde_json::to_string_pretty(&record).unwrap());
+    assert_eq!(record.source, IdeviceToolSource::Bundled);
+    assert_eq!(record.version.as_deref(), Some("1.4.0"));
+    let manifest = embedded_manifest().unwrap();
+    let pinned = &manifest.platforms[&platform].files;
+    for binary in [
+        &record.binaries.idevice_id,
+        &record.binaries.ideviceinfo,
+        &record.binaries.idevicepair,
+        &record.binaries.idevicebackup2,
+    ] {
+        assert_eq!(binary.verified_against, ToolVerification::Manifest);
+        assert!(
+            pinned.values().any(|hash| *hash == binary.sha256),
+            "{}",
+            binary.path
+        );
+    }
 }

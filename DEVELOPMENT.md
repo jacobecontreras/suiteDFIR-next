@@ -8,11 +8,11 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. This file covers how to
 |---|---|
 | Rust | Pinned in `rust-toolchain.toml` to a specific stable release (≥ 1.89 for `File::try_lock`; 1.98.x at planning time) with `components = ["rustfmt", "clippy"]`. On a new machine, first run `rustup toolchain install <pin> -c rustfmt,clippy`. |
 | Tauri | `tauri` 2.11.x, `tauri-build` 2.6.x, `tauri-plugin-dialog` 2.x. Exact versions come from `Cargo.lock`. |
-| Tauri CLI | Exactly **2.11.5**: `cargo install tauri-cli --version "=2.11.5" --locked`. The exact version is recorded in CI; bump deliberately. |
+| Tauri CLI | Exactly **2.11.5**: `cargo install tauri-cli --version "=2.11.5" --locked`. `release.yml` pins the same version (`TAURI_CLI_VERSION`; the only workflow that installs it); bump both deliberately. |
 | Node.js | Dev-only (`tsc`, `node --test`, `scripts/serve-ui.mjs`). `.node-version` = 22 (the lowest in use), `engines.node` = `>=22`. |
 | TypeScript | Exact version in `package.json` `devDependencies` (7.0.x), installed with `npm ci`. |
 | cargo-deny | Exactly **0.20.2**. CI uses the prebuilt release binary checked against a pinned SHA-256; locally `cargo install cargo-deny --version "=0.20.2" --locked`. |
-| cargo-auditable | Release builds only (see F1). |
+| cargo-auditable | Exactly **0.7.6**, release builds only: `cargo install cargo-auditable --version "=0.7.6" --locked`. Release builds run `cargo tauri build --runner <abs>/scripts/cargo-auditable` (`scripts/cargo-auditable.cmd` on Windows), which embeds each binary's dependency list. `release.yml` pins the same version (`CARGO_AUDITABLE_VERSION`). |
 | sccache | Recommended locally: `cargo install sccache --locked`, then `RUSTC_WRAPPER=sccache`. It caches compiled dependencies by content hash, so it is safe across worktrees, unlike a shared `CARGO_TARGET_DIR`. |
 | Linux build deps | Ubuntu 22.04 packages: `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev build-essential libssl-dev pkg-config curl wget file`. |
 
@@ -45,14 +45,40 @@ cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update
                                          # (~350 MB per tool, downloaded to the OS temp dir or
                                          # --download-dir <dir> and deleted after checking)
 cargo xtask contracts                    # regenerate ui-dev/fixtures/contracts/ (*.json + index.js)
-cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md
+cargo xtask notices                      # regenerate THIRD-PARTY-NOTICES.md (needs the network: the pinned tool
+                                         # bundles and license files, cached in target/xtask-notices/; token as
+                                         # for fetch-idevice-tools). CI fails when the committed file is stale.
 scripts/build-idevice-tools.sh <platform-key>  # build a pinned libimobiledevice tool bundle: macos-aarch64 / macos-x86_64
                                          # on the Mac, windows-x86_64 in a per-user MSYS2 UCRT64 shell (X1)
 cargo xtask fetch-idevice-tools [--target <triple>]  # fetch + verify the pinned tool bundle into src-tauri/binaries/
                                          # (release builds; token: GH_TOKEN, else `gh auth token [--user $SUITEDFIR_GH_USER]`)
 cargo test -p suitedfir-core --test leapp_smoke --locked -- --ignored --test-threads=1   # real LEAPP
-cargo xtask fetch-idevice-tools && cargo tauri build --config src-tauri/tauri.release.conf.json   # release bundle (host)
 ```
+
+**Release bundles** (ROADMAP F1; unsigned until H1). The macOS and Windows bundles are built on local machines, the Linux ones by `release.yml` (§6); run from the repository root, without `RUSTC_WRAPPER`, and with `CI=true` on a Mac without a desktop session (the dmg script then skips its Finder step):
+
+```bash
+# macOS, per architecture: .app + .dmg in target/<triple>/release/bundle/{macos,dmg}/
+cargo xtask fetch-idevice-tools --target aarch64-apple-darwin    # and x86_64-apple-darwin
+cargo tauri build --runner "$PWD/scripts/cargo-auditable" --target aarch64-apple-darwin \
+  --config src-tauri/tauri.release.conf.json
+
+# Windows x64: the online installer, then the offline one (WebView2 embedded); both come out as
+# target/release/bundle/nsis/suiteDFIR_<ver>_x64-setup.exe, so rename each one in between
+cargo xtask fetch-idevice-tools
+cargo tauri build --runner <abs path>\scripts\cargo-auditable.cmd --config src-tauri/tauri.release.conf.json
+#   → suiteDFIR_<ver>_x64-online-setup.exe
+cargo tauri build --runner <abs path>\scripts\cargo-auditable.cmd --config src-tauri/tauri.release.conf.json \
+  --config src-tauri/tauri.offline.conf.json
+#   → suiteDFIR_<ver>_x64-offline-setup.exe
+
+# The bundled iOS tools must match idevice-tools.json (unsigned builds), checked with the app's own lookup:
+SUITEDFIR_BUNDLED_TOOLS_DIR=<suiteDFIR.app/Contents/MacOS or the Windows install dir> \
+  [SUITEDFIR_BUNDLED_TOOLS_PLATFORM=macos-x86_64] \
+  cargo test -p suitedfir-core --test idevice -- --ignored --exact release_bundle_tools_verify_against_the_manifest
+```
+
+Linux release builds (AppImage + deb, `ubuntu:22.04`) use no overlay: Linux uses the distribution's iOS tools. On a Mac the tool bundle is fetched with `SUITEDFIR_GH_USER` set while `gh` holds several accounts; while the repository is public, an anonymous download works too.
 
 The `xtask` alias lives in `.cargo/config.toml`.
 
@@ -73,7 +99,7 @@ The bundled libimobiledevice tools are **not** needed for `cargo tauri dev` or `
 ```
 Cargo.toml / Cargo.lock       workspace ([profile.dev.package.sha2] opt-level = 3)
 rust-toolchain.toml  deny.toml  leapp-manifest.json  idevice-tools.json  .cargo/config.toml
-.gitattributes (* text=auto eol=lf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
+.gitattributes (* text=auto eol=lf; *.cmd eol=crlf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
 crates/core/                  suitedfir-core: all logic, no Tauri dependency
   src/{lib.rs, contracts/, fsutil/, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
        settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice/, acquire/}
@@ -81,6 +107,7 @@ crates/core/                  suitedfir-core: all logic, no Tauri dependency
   src/bin/fake-idevice.rs     test double for the libimobiledevice tools (never bundled)
   tests/{process.rs, introspection.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/}
 src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.json (externalBin overlay),
+                              tauri.offline.conf.json (Windows offline-installer overlay),
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
 xtask/                        pin-leapp, contracts, notices, fetch-idevice-tools
 ui/                           SHIPPED frontend (frontendDist): index.html app.js styles/ lib/ api/ screens/ components/ types.d.ts
@@ -303,7 +330,7 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 |---|---|---|
 | `gate/macos` | a Mac, clean checkout of the head SHA | `npm ci`, `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, `npm run typecheck`, `npm test`, `cargo tauri build --debug --no-bundle` |
 | `gate/windows` | a Windows machine, clean checkout of the head SHA | the same Rust commands (fmt, clippy, test, `cargo tauri build --debug --no-bundle`) |
-| CI (`ci-rust.yml`, `ci-js.yml`) | GitHub Actions, Linux, on non-draft PRs and on push to `main` | Rust: fmt, clippy, tests, `cargo build --workspace --locked`, cargo-deny (prebuilt, hash-checked), contracts-drift, all in **one job** in an `ubuntu:22.04` container on `ubuntu-24.04`. JS: typecheck and tests. Each workflow has `paths` filters, so UI-only PRs skip Rust and vice versa. |
+| CI (`ci-rust.yml`, `ci-js.yml`) | GitHub Actions, Linux, on non-draft PRs and on push to `main` | Rust: fmt, clippy, tests, `cargo build --workspace --locked`, cargo-deny (prebuilt, hash-checked), contracts-drift, notices-drift (`cargo xtask notices` must leave `THIRD-PARTY-NOTICES.md` unchanged), all in **one job** in an `ubuntu:22.04` container on `ubuntu-24.04`. JS: typecheck and tests. Each workflow has `paths` filters, so UI-only PRs skip Rust and vice versa. |
 
 **CI rules:**
 - **Tauri CLI:** CI does **not** install the Tauri CLI; `cargo build` compiles the app, including `tauri-build` config validation. `cargo tauri build` runs in the local gates.
@@ -311,7 +338,12 @@ GitHub Actions minutes are limited for private repositories (Windows minutes cou
 - **macOS/Windows on Actions:** the Rust workflow also has macOS and Windows jobs. A `workflow_dispatch` runs only the job(s) selected by its `os` input (`linux`, `macos`, `windows` or `all`). On pull requests and pushes to `main`, the Linux job always runs, and the macOS and Windows jobs run only once the repository is public (`!github.event.repository.private`). Draft pull requests run no CI jobs.
 - **LEAPP smoke container:** `leapp-smoke.yml` runs its Linux legs (x64 and arm64) in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
 - **LEAPP smoke triggers** (the repository is public): a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process,run}/**`, `crates/core/src/{runner,tail,inspect,hashing}.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`.
-- **Dispatch-only workflows:** `release.yml` is `workflow_dispatch`-only. All other builds, including the iOS tools and the macOS/Windows release bundles, happen on local machines. Skeleton versions exist on `main` from M0.2, because dispatch requires the workflow file on the default branch. Later tasks dispatch their branch's version with `--ref <branch>`.
+- **Release workflow (`release.yml`, F1):**
+  - `workflow_dispatch` is a build-only dry run: the `os` input picks the legs (default `linux`), and the bundles, the source-obligation files, `SHA256SUMS` and the release notes are uploaded to the run. No release is created.
+  - A pushed tag `v<version>` builds every leg and creates a **draft** release (never published by automation, H3) with the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json`).
+  - Its macOS and Windows legs run only when dispatched with `os=macos|windows|all` (owner approval) or for a tag while the repository is public. Otherwise those bundles are built on local machines (§2) and added to the draft by hand.
+  - Signing and notarization run only when the H1 secrets exist; the release notes say which builds are unsigned.
+- **Other builds:** the iOS tools (X1) are built on local machines. Dispatch requires a workflow file on the default branch, so tasks dispatch their branch's version with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 
 ### Platform test caveats

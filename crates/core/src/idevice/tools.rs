@@ -7,8 +7,10 @@
 //!
 //! **Verification** (`ToolVerification`): bundled tools must match the pinned unsigned hashes in
 //! `idevice-tools.json` (`manifest`). A code-signed build's tools no longer match them: on macOS they
-//! must pass `codesign --verify --strict` (`code_signature`); on Windows their hashes are recorded
-//! only (`recorded_only`), as for Linux system tools. The dev override is not verified (`none`).
+//! must pass `codesign --verify --strict` with a requirement for a Developer ID signature of the
+//! app's own team (`code_signature`), so an ad-hoc or foreign-signed replacement fails; on Windows
+//! their hashes are recorded only (`recorded_only`), as for Linux system tools. The dev override is
+//! not verified (`none`).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -81,6 +83,10 @@ pub struct ToolLookup {
     /// The app is a code-signed build, so bundled tools are verified by signature (macOS) or
     /// recorded only (Windows) instead of against the unsigned pins.
     pub signed_build: bool,
+    /// The Apple Developer ID team (10 characters) that signed a signed macOS build. Bundled tools
+    /// that no longer match the pins must carry a Developer ID signature of this team; a signed
+    /// macOS build without one cannot verify them.
+    pub signing_team_id: Option<String>,
 }
 
 /// One located tool: the program, the arguments that select it (the dev override's fake-idevice
@@ -226,13 +232,10 @@ pub fn locate(lookup: &ToolLookup) -> Result<IdeviceTools, ToolsProblem> {
     if let (Some(bundle), Some(dir)) = (bundle, &lookup.bundled_dir)
         && let Some(paths) = find_all(|name| sidecar(dir, name, platform))
     {
-        return verify_bundled(
-            paths,
-            bundle,
-            platform,
-            lookup.signed_build,
-            &manifest.version,
-        );
+        let signing = lookup
+            .signed_build
+            .then_some(lookup.signing_team_id.as_deref());
+        return verify_bundled(paths, bundle, platform, signing, &manifest.version);
     }
     if system || cfg!(debug_assertions) {
         let path_var = lookup.path_var.as_deref();
@@ -385,11 +388,12 @@ fn system_tools(paths: [PathBuf; 4]) -> Result<IdeviceTools, ToolsProblem> {
     )
 }
 
+/// `signing`: `None` for an unsigned build, else `Some(the Developer ID team)` (macOS).
 fn verify_bundled(
     paths: [PathBuf; 4],
     bundle: &ToolBundle,
     platform: PlatformKey,
-    signed_build: bool,
+    signing: Option<Option<&str>>,
     version: &str,
 ) -> Result<IdeviceTools, ToolsProblem> {
     let failed = |detail: String| ToolsProblem {
@@ -410,16 +414,26 @@ fn verify_bundled(
             let file = format!("{}{}", name.as_str(), exe_suffix(platform));
             if bundle.files.get(&file).map(String::as_str) == Some(sha256) {
                 Ok(ToolVerification::Manifest)
-            } else if signed_build && macos {
-                if codesign_verify(path) {
+            } else if let Some(team) = signing
+                && macos
+            {
+                let Some(team) = team.filter(|team| is_team_id(team)) else {
+                    return Err(failed(format!(
+                        "{} does not match the pinned hash, and this signed build names no \
+                         valid Developer ID team to check its signature against",
+                        path.display()
+                    )));
+                };
+                if codesign_verify(path, team) {
                     Ok(ToolVerification::CodeSignature)
                 } else {
                     Err(failed(format!(
-                        "{} fails `codesign --verify --strict`",
+                        "{} fails `codesign --verify --strict` with a Developer ID requirement \
+                         for team {team}",
                         path.display()
                     )))
                 }
-            } else if signed_build {
+            } else if signing.is_some() {
                 Ok(ToolVerification::RecordedOnly)
             } else {
                 Err(failed(format!(
@@ -434,16 +448,45 @@ fn verify_bundled(
     )
 }
 
-/// `codesign --verify --strict <path>` (macOS signed builds).
-fn codesign_verify(path: &Path) -> bool {
-    Command::new("/usr/bin/codesign")
+/// An Apple team identifier: 10 ASCII uppercase letters and digits.
+fn is_team_id(team: &str) -> bool {
+    team.len() == 10
+        && team
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+}
+
+/// The code requirement for a Developer ID Application signature of `team`: an Apple-anchored
+/// chain whose intermediate is the Developer ID CA and whose leaf is a Developer ID Application
+/// certificate issued to that team (the designated requirement Xcode generates for such apps).
+fn developer_id_requirement(team: &str) -> String {
+    format!(
+        "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and \
+         certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \
+         \"{team}\""
+    )
+}
+
+/// `codesign --verify --strict -R=<Developer ID requirement for team> <path>` (macOS signed
+/// builds). A plain `--verify` would also accept an ad-hoc or any other valid signature.
+fn codesign_verify(path: &Path, team: &str) -> bool {
+    codesign_verify_command(path, team)
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// The `codesign` command of [`codesign_verify`]. It exits 0 when the signature is valid and
+/// satisfies the requirement, 3 when it is valid but does not satisfy it.
+fn codesign_verify_command(path: &Path, team: &str) -> Command {
+    let mut command = Command::new("/usr/bin/codesign");
+    command
         .args(["--verify", "--strict"])
+        .arg(format!("-R={}", developer_id_requirement(team)))
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+        .stderr(Stdio::null());
+    command
 }
 
 #[cfg(test)]
@@ -490,6 +533,7 @@ mod tests {
             dev_override: None,
             path_var: None,
             signed_build: false,
+            signing_team_id: None,
         }
     }
 
@@ -568,9 +612,124 @@ mod tests {
         fs::write(setup.dir.path().join("idevice_id"), "not signed").unwrap();
         let mut lookup = lookup(&setup, HOST);
         lookup.signed_build = true;
+        lookup.signing_team_id = Some("ABCDE12345".to_owned());
         let problem = locate(&lookup).unwrap_err();
         assert_eq!(problem.state, IdeviceToolsState::VerificationFailed);
         assert!(problem.detail.contains("codesign"), "{}", problem.detail);
+        assert!(problem.detail.contains("ABCDE12345"), "{}", problem.detail);
+    }
+
+    /// K7 review N1: a valid ad-hoc signature (which plain `codesign --verify --strict` accepts)
+    /// is not a Developer ID signature of the app's team, so it fails.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_ad_hoc_signed_replacement_fails_the_team_requirement() {
+        let setup = setup(HOST);
+        let tool = setup.dir.path().join("idevicepair");
+        fs::copy(std::env::current_exe().unwrap(), &tool).unwrap();
+        let codesign = |args: &[&str]| {
+            Command::new("/usr/bin/codesign")
+                .args(args)
+                .arg(&tool)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        assert!(codesign(&["--force", "--sign", "-"]), "ad-hoc signing");
+        assert!(
+            codesign(&["--verify", "--strict"]),
+            "the plain check accepts an ad-hoc signature"
+        );
+        assert!(!codesign_verify(&tool, "ABCDE12345"));
+        // Exit 3: the signature is valid and the requirement well-formed, but not satisfied (a
+        // malformed requirement would exit 1).
+        let status = codesign_verify_command(&tool, "ABCDE12345")
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(3), "{status:?}");
+
+        let mut lookup = lookup(&setup, HOST);
+        lookup.signed_build = true;
+        lookup.signing_team_id = Some("ABCDE12345".to_owned());
+        let problem = locate(&lookup).unwrap_err();
+        assert_eq!(problem.state, IdeviceToolsState::VerificationFailed);
+        assert!(problem.detail.contains("idevicepair"), "{}", problem.detail);
+    }
+
+    /// A signed macOS build must name a valid team; otherwise changed tools fail without running
+    /// codesign at all. Files that still match the pins verify against the manifest.
+    #[test]
+    fn a_signed_macos_build_without_a_team_fails_closed() {
+        let setup = setup(HOST);
+        fs::write(setup.dir.path().join("ideviceinfo"), "signed bytes").unwrap();
+        for team in [
+            None,
+            Some("abcde12345"),
+            Some("ABCDE1234"),
+            Some("ABCDE12345\""),
+        ] {
+            let mut lookup = lookup(&setup, HOST);
+            lookup.signed_build = true;
+            lookup.signing_team_id = team.map(str::to_owned);
+            let problem = locate(&lookup).unwrap_err();
+            assert_eq!(problem.state, IdeviceToolsState::VerificationFailed);
+            assert!(
+                problem.detail.contains("names no valid Developer ID team"),
+                "{team:?}: {}",
+                problem.detail
+            );
+        }
+        fs::write(
+            setup.dir.path().join("ideviceinfo"),
+            "binary of ideviceinfo",
+        )
+        .unwrap();
+        let mut lookup = lookup(&setup, HOST);
+        lookup.signed_build = true;
+        let tools = locate(&lookup).unwrap();
+        assert_eq!(
+            tools.record().binaries.ideviceinfo.verified_against,
+            ToolVerification::Manifest
+        );
+    }
+
+    #[test]
+    fn the_requirement_names_developer_id_and_the_team() {
+        assert!(is_team_id("N2G83326TZ"));
+        assert!(!is_team_id("n2g83326tz") && !is_team_id("N2G83326T") && !is_team_id(""));
+        let requirement = developer_id_requirement("N2G83326TZ");
+        assert!(
+            requirement.starts_with("anchor apple generic and "),
+            "{requirement}"
+        );
+        // The Developer ID CA intermediate and the Developer ID Application leaf.
+        assert!(requirement.contains("certificate 1[field.1.2.840.113635.100.6.2.6]"));
+        assert!(requirement.contains("certificate leaf[field.1.2.840.113635.100.6.1.13]"));
+        assert!(requirement.ends_with("certificate leaf[subject.OU] = \"N2G83326TZ\""));
+    }
+
+    /// The requirement is valid code-requirement language: `csreq` compiles it (and rejects a
+    /// broken one, so the check is not vacuous).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_requirement_compiles() {
+        let compiles = |text: &str| {
+            Command::new("/usr/bin/csreq")
+                .arg(format!("-r={text}"))
+                .arg("-t")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        assert!(compiles(&developer_id_requirement("N2G83326TZ")));
+        assert!(!compiles(
+            "anchor apple generic and certificate leaf[subject.OU"
+        ));
     }
 
     #[test]
@@ -623,6 +782,7 @@ mod tests {
                 std::env::join_paths([Path::new("/nonexistent-dir"), setup.dir.path()]).unwrap(),
             ),
             signed_build: false,
+            signing_team_id: None,
         };
         let tools = locate(&lookup).unwrap();
         assert_eq!(tools.source, IdeviceToolSource::System);
@@ -654,6 +814,7 @@ mod tests {
             dev_override: None,
             path_var: Some(setup.dir.path().as_os_str().to_owned()),
             signed_build: false,
+            signing_team_id: None,
         };
         let result = locate(&lookup);
         if cfg!(debug_assertions) {

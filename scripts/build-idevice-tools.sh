@@ -23,12 +23,18 @@
 #   IDEVICE_BUILD_DIR   work directory; the zip is written there too
 #                       (default: <repo>/target/idevice-tools-build)
 #   IDEVICE_BUILDTOOLS  prefix for bootstrapped build tools (default: ~/.local/idevice-buildtools)
+# Both are made absolute. autotools and libtool cannot build in paths with whitespace, so the
+# script refuses such directories.
 #
 # Written for bash 3.2 (the macOS /bin/bash): no associative arrays, no mapfile.
 set -euo pipefail
 
 TOOLS="idevice_id ideviceinfo idevicepair idevicebackup2"
 MACOS_DEPLOYMENT_TARGET=11.0
+# The only DLLs the Windows tools may import (compared case-insensitively): these system DLLs and
+# the UCRT's api-ms-win-crt-*-l1-1-0.dll sets. Anything else (the MSYS2 runtime, libgcc,
+# libwinpthread, libcurl, ...) fails the build: the tools must run on a stock Windows.
+WINDOWS_DLL_ALLOWLIST="advapi32.dll bcrypt.dll iphlpapi.dll kernel32.dll ole32.dll shell32.dll ws2_32.dll"
 
 # Build tools bootstrapped when missing: name version url sha256 (hashes cross-checked against the
 # Homebrew formulae).
@@ -128,11 +134,23 @@ esac
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 manifest="$repo_root/idevice-tools.json"
 [[ -f $manifest ]] || die "missing $manifest"
-build_root="${IDEVICE_BUILD_DIR:-$repo_root/target/idevice-tools-build}"
+
+# absolute_dir <dir>: creates <dir> and prints its absolute path; refuses whitespace.
+absolute_dir() {
+  local dir
+  mkdir -p "$1"
+  dir=$(cd "$1" && pwd)
+  case $dir in
+    *[[:space:]]*) die "$dir contains whitespace, which autotools builds do not support; set IDEVICE_BUILD_DIR / IDEVICE_BUILDTOOLS to a path without it" ;;
+  esac
+  echo "$dir"
+}
+
+build_root=$(absolute_dir "${IDEVICE_BUILD_DIR:-$repo_root/target/idevice-tools-build}")
 work="$build_root/$platform"
 downloads="$build_root/downloads"
 out_dir="$build_root"
-buildtools="${IDEVICE_BUILDTOOLS:-$HOME/.local/idevice-buildtools}"
+buildtools=$(absolute_dir "${IDEVICE_BUILDTOOLS:-$HOME/.local/idevice-buildtools}")
 src="$work/src"
 prefix="$work/prefix"
 stage="$work/stage"
@@ -291,21 +309,26 @@ done <<<"$NOTICE_PINS"
 
 # ---- build ----
 
-common_flags="--prefix=$prefix --host=$host --enable-static --disable-shared --disable-dependency-tracking"
-flags_libplist="$common_flags --without-cython --without-tests --without-tools"
-flags_glue="$common_flags"
-flags_usbmuxd="$common_flags"
-flags_tatsu="$common_flags"
-flags_limd="$common_flags --with-mbedtls --without-cython --without-readline"
+common_flags=(--prefix="$prefix" --host="$host" --enable-static --disable-shared --disable-dependency-tracking)
+flags_libplist=("${common_flags[@]}" --without-cython --without-tests --without-tools)
+flags_glue=("${common_flags[@]}")
+flags_usbmuxd=("${common_flags[@]}")
+flags_tatsu=("${common_flags[@]}")
+flags_limd=("${common_flags[@]}" --with-mbedtls --without-cython --without-readline)
 
-# configure_in <dir> <flags> [VAR=value...]
+# configure_in <dir> <configure arguments...>
 configure_in() {
-  local dir=$1 flags=$2
-  shift 2
+  local dir=$1
+  shift
   log "configuring ${dir##*/}"
-  # shellcheck disable=SC2086 # the flags are word lists without spaces inside words
-  (cd "$dir" && ./configure $flags "$@" >"$work/${dir##*/}.configure.log" 2>&1) ||
+  (cd "$dir" && ./configure "$@" >"$work/${dir##*/}.configure.log" 2>&1) ||
     die "configure failed in ${dir##*/}; see $work/${dir##*/}.configure.log"
+}
+
+# The configure arguments as recorded in BUILDINFO.json, with the prefix as <prefix>.
+recorded_flags() {
+  local all="$*"
+  echo "${all//$prefix/<prefix>}"
 }
 
 # make_in <dir> [make args...]
@@ -317,22 +340,23 @@ make_in() {
 }
 
 d=$(src_dir libplist)
-configure_in "$d" "$flags_libplist"
+configure_in "$d" "${flags_libplist[@]}"
 make_in "$d"
 make_in "$d" install
 
 d=$(src_dir libimobiledevice-glue)
-configure_in "$d" "$flags_glue"
+configure_in "$d" "${flags_glue[@]}"
 make_in "$d"
 make_in "$d" install
 
 d=$(src_dir libusbmuxd)
-configure_in "$d" "$flags_usbmuxd"
+configure_in "$d" "${flags_usbmuxd[@]}"
 make_in "$d"
 make_in "$d" install
 
 d=$(src_dir libtatsu)
-configure_in "$d" "$flags_tatsu" "libcurl_CFLAGS=$libcurl_cflags" "libcurl_LIBS=$libcurl_libs"
+flags_tatsu+=("libcurl_CFLAGS=$libcurl_cflags" "libcurl_LIBS=$libcurl_libs")
+configure_in "$d" "${flags_tatsu[@]}"
 make_in "$d"
 make_in "$d" install
 
@@ -349,16 +373,16 @@ mbedtls_flags="make -C library static CC=\"$CC\" CFLAGS=\"$CFLAGS\""
 # links libtatsu, is not built).
 d=$(src_dir libimobiledevice)
 limd=$d
-configure_in "$d" "$flags_limd" "mbedtls_INCLUDES=$prefix/include" "mbedtls_LIBDIR=$prefix/lib" "mbedtls_LIBS=$mbedtls_libs"
+flags_limd+=("mbedtls_INCLUDES=$prefix/include" "mbedtls_LIBDIR=$prefix/lib" "mbedtls_LIBS=$mbedtls_libs")
+configure_in "$d" "${flags_limd[@]}"
 # 3rd_party/libsrp6a-sha512 reads $(mbedtls_CFLAGS), which configure never sets (it sets
 # ssl_lib_CFLAGS), so pass it to make.
 make_in "$d/3rd_party" "mbedtls_CFLAGS=-I$prefix/include"
 make_in "$d/common"
 make_in "$d/src"
-tool_targets=""
-for t in $TOOLS; do tool_targets="$tool_targets $t$exe"; done
-# shellcheck disable=SC2086
-make_in "$d/tools" LDFLAGS="$tools_ldflags" $tool_targets
+tool_targets=()
+for t in $TOOLS; do tool_targets+=("$t$exe"); done
+make_in "$d/tools" LDFLAGS="$tools_ldflags" "${tool_targets[@]}"
 
 # ---- check the tools ----
 
@@ -386,11 +410,13 @@ for t in $TOOLS; do
       libs=$(objdump -p "$f" | awk '/DLL Name:/ { print $3 }')
       bad=""
       for dll in $libs; do
-        if [[ -n $(find /ucrt64/bin /usr/bin -maxdepth 1 -iname "$dll" 2>/dev/null) ]]; then
-          bad="$bad $dll"
-        fi
+        lower=$(tr '[:upper:]' '[:lower:]' <<<"$dll")
+        case " $WINDOWS_DLL_ALLOWLIST " in
+          *" $lower "*) ;;
+          *) [[ $lower == api-ms-win-crt-*-l1-1-0.dll ]] || bad="$bad $dll" ;;
+        esac
       done
-      [[ -z $bad ]] || die "$t imports MSYS2 DLLs:$bad"
+      [[ -z $bad ]] || die "$t imports DLLs outside the allowlist (WINDOWS_DLL_ALLOWLIST):$bad"
       ;;
   esac
   list=""
@@ -399,16 +425,22 @@ for t in $TOOLS; do
     }$(json_str "$t$exe"): [$list]"
 done
 
-# --version must print the pinned version where the binary can run here (x86_64 needs Rosetta).
-if "$stage/idevicebackup2$exe" --version >/dev/null 2>&1; then
+# --version must print the pinned version. Binaries for this machine's own architecture must run;
+# only a cross-built one (macos-x86_64 on an arm64 Mac without Rosetta) may skip the check.
+case $platform in
+  macos-aarch64) [[ $(uname -m) == arm64 ]] && native=true || native=false ;;
+  macos-x86_64) [[ $(uname -m) == x86_64 ]] && native=true || native=false ;;
+  *) native=true ;;
+esac
+if $native || "$stage/idevicebackup2$exe" --version >/dev/null 2>&1; then
   for t in $TOOLS; do
-    out=$("$stage/$t$exe" --version 2>&1 | tr -d '\r')
+    out=$("$stage/$t$exe" --version 2>&1 | tr -d '\r') || die "$t --version failed: $out"
     [[ $out == *" $version" ]] || die "$t --version printed '$out', want $version"
     log "$out"
   done
   version_checked=true
 else
-  log "cannot run $platform binaries on this machine; --version not checked"
+  log "cannot run $platform binaries on this $(uname -m) machine (no Rosetta?); --version not checked"
   version_checked=false
 fi
 
@@ -505,12 +537,12 @@ cat >"$stage/BUILDINFO.json" <<EOF
     "PKG_CONFIG": $(json_str "$PKG_CONFIG")
   },
   "configure_flags": {
-    "libplist": $(json_str "${flags_libplist//$prefix/<prefix>}"),
-    "libimobiledevice-glue": $(json_str "${flags_glue//$prefix/<prefix>}"),
-    "libusbmuxd": $(json_str "${flags_usbmuxd//$prefix/<prefix>}"),
-    "libtatsu": $(json_str "${flags_tatsu//$prefix/<prefix>} libcurl_CFLAGS=$libcurl_cflags libcurl_LIBS=$libcurl_libs"),
+    "libplist": $(json_str "$(recorded_flags "${flags_libplist[@]}")"),
+    "libimobiledevice-glue": $(json_str "$(recorded_flags "${flags_glue[@]}")"),
+    "libusbmuxd": $(json_str "$(recorded_flags "${flags_usbmuxd[@]}")"),
+    "libtatsu": $(json_str "$(recorded_flags "${flags_tatsu[@]}")"),
     "mbedtls": $(json_str "$mbedtls_flags"),
-    "libimobiledevice": $(json_str "${flags_limd//$prefix/<prefix>} mbedtls_INCLUDES=<prefix>/include mbedtls_LIBDIR=<prefix>/lib mbedtls_LIBS=$mbedtls_libs; make -C 3rd_party mbedtls_CFLAGS=-I<prefix>/include; make -C tools LDFLAGS=<tools_LDFLAGS>$tool_targets")
+    "libimobiledevice": $(json_str "$(recorded_flags "${flags_limd[@]}"); make -C 3rd_party mbedtls_CFLAGS=-I<prefix>/include; make -C tools LDFLAGS=<tools_LDFLAGS> ${tool_targets[*]}")
   },
   "version_checked": $version_checked,
   "files": {
