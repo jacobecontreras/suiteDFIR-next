@@ -138,6 +138,8 @@ On the case screen, choose **New run**.
    | `file` | any other single file | ✓ | |
 
    Inputs are only read, never changed. A run is refused if its output would land inside the input, or if the input is inside another run's output.
+
+   **Find iOS backups** (iLEAPP) lists the Finder/iTunes backups in the default folders, with device, iOS version, date, size and encryption; **Use** picks one as the input. The folders are `~/Library/Application Support/MobileSync/Backup` on macOS (needs Full Disk Access, section 1) and `%APPDATA%\Apple Computer\MobileSync\Backup` (iTunes) and `%USERPROFILE%\Apple\MobileSync\Backup` (Apple Devices) on Windows; Linux has none.
 3. **Options:**
    - **Timezone** (iLEAPP): the case's default, else the settings default, else UTC. It is always passed explicitly.
    - **Backup password** (iLEAPP, iTunes/Finder backups): required when the backup is encrypted, and also when its encryption cannot be read, because iLEAPP would otherwise wait for a password prompt. It is never stored. iLEAPP only accepts it on its command line, so other programs of the same user can see it in the process list while the run lasts; `run.json` records it as `<redacted>`.
