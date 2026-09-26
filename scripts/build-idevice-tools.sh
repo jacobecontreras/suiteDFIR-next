@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the pinned libimobiledevice tools (idevice_id, ideviceinfo, idevicepair, idevicebackup2)
-# for one platform and packs them into idevice-tools-<version>-<platform>.zip (ROADMAP X1,
-# docs/IDEVICE-CLI.md §1).
+# for one platform and packs them into idevice-tools-<release>-<platform>.zip (ROADMAP X1,
+# docs/IDEVICE-CLI.md §1). <release> is the manifest's "release" (the prerelease tag is
+# idevice-tools-<release>); "version" is the libimobiledevice version.
 #
 # Usage: scripts/build-idevice-tools.sh <platform-key>
 #   macos-aarch64, macos-x86_64   on a Mac (x86_64 is cross-built with -arch x86_64)
@@ -12,6 +13,9 @@
 #
 # - Every source tarball comes from idevice-tools.json and is verified against its SHA-256 before
 #   use. The configure scripts shipped in the tarballs are used as they are (no autoreconf).
+# - The patches in scripts/idevice-tools-patches/ (PATCH_PINS) are verified against their SHA-256
+#   and applied to the extracted tarballs with patch -p1 --forward --fuzz=0; a rejected hunk, fuzz
+#   or an offset fails the build.
 # - Every library is built with --enable-static --disable-shared, and pkg-config runs with --static,
 #   so the tools link only system libraries. The script checks that (otool -L / objdump -p).
 # - Build tools: autoconf, automake, libtool and pkg-config. If autoconf, automake or pkg-config is
@@ -50,6 +54,14 @@ pkgconf 3.0.7 https://distfiles.ariadne.space/pkgconf/pkgconf-3.0.7.tar.xz c926f
 NOTICE_PINS="
 3rd_party/ed25519/LICENSE https://raw.githubusercontent.com/libimobiledevice/libimobiledevice/1.4.0/3rd_party/ed25519/LICENSE f68d76b9c1c2271422e55134ea94cf71f2ac3fc3ed6a7ec6b83a1a0538753214
 3rd_party/libsrp6a-sha512/LICENSE https://raw.githubusercontent.com/libimobiledevice/libimobiledevice/1.4.0/3rd_party/libsrp6a-sha512/LICENSE 6b420542f5295bd85e285a2142eca27be4f700e4bd1648450c07be4f82548a85
+"
+
+# Source patches (docs/IDEVICE-CLI.md §1): file in scripts/idevice-tools-patches/, sha256, and the
+# manifest source it applies to (-p1, in the extracted tarball's top directory). Every *.patch file
+# in that directory must be pinned here.
+PATCH_PINS="
+mbedtls-3.6.7-x509-empty-issuer.patch 7d30c01afd8b46e69bfd990e8e995aa8579c3b87e92c93a9f5eb89d5d108adfb mbedtls
+libimobiledevice-1.4.0-mbedtls-hostname.patch 52c3b0134d718a2ad453b10537edbaaa0bca6779cafa082d26863d5cf4905035 libimobiledevice
 "
 
 die() {
@@ -103,7 +115,7 @@ first_line() {
 }
 
 usage() {
-  sed -n '6,8p' "$0" >&2
+  sed -n '7,9p' "$0" >&2
   exit 2
 }
 
@@ -134,6 +146,7 @@ esac
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 manifest="$repo_root/idevice-tools.json"
 [[ -f $manifest ]] || die "missing $manifest"
+patch_dir="$repo_root/scripts/idevice-tools-patches"
 
 # absolute_dir <dir>: creates <dir> and prints its absolute path; refuses whitespace.
 absolute_dir() {
@@ -156,12 +169,17 @@ prefix="$work/prefix"
 stage="$work/stage"
 if have nproc; then jobs=$(nproc); else jobs=$(sysctl -n hw.ncpu); fi
 
-# ---- the manifest: version and sources ----
+# ---- the manifest: version, release and sources ----
 
 manifest_flat=$(tr -d '\r\n' <"$manifest")
 head_part=${manifest_flat%%\"sources\"*}
 version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$head_part" | sed -nE '1s/.*"([^"]*)"$/\1/p')
 [[ -n $version ]] || die "no version in $manifest"
+release=$(grep -oE '"release"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$head_part" | sed -nE '1s/.*"([^"]*)"$/\1/p')
+[[ -n $release ]] || die "no release in $manifest"
+# The release is the version, optionally with a suffix (1.4.0-p1); it names the tag and the zip.
+[[ $release == "$version" || $release =~ ^"$version"-[A-Za-z0-9.]+$ ]] ||
+  die "release $release in $manifest is not $version or $version-<suffix>"
 sources_part=${manifest_flat#*\"sources\"}
 sources_part=${sources_part%%\"platforms\"*}
 
@@ -189,6 +207,42 @@ src_dir() {
   for ((i = 0; i < ${#SRC_NAMES[@]}; i++)); do
     if [[ ${SRC_NAMES[$i]} == "$1" ]]; then
       echo "$src/$1-${SRC_VERSIONS[$i]}"
+      return
+    fi
+  done
+  die "source $1 is not in $manifest"
+}
+
+# ---- source patches: pinned hashes ----
+
+PATCH_FILES=()
+PATCH_SHAS=()
+PATCH_SOURCES=()
+while read -r file sha source; do
+  [[ -n $file ]] || continue
+  [[ -f $patch_dir/$file ]] || die "missing patch $patch_dir/$file"
+  got=$(sha256_of "$patch_dir/$file")
+  [[ $got == "$sha" ]] || die "SHA-256 mismatch for $patch_dir/$file: got $got, want $sha"
+  src_dir "$source" >/dev/null
+  PATCH_FILES+=("$file")
+  PATCH_SHAS+=("$sha")
+  PATCH_SOURCES+=("$source")
+done <<<"$PATCH_PINS"
+for f in "$patch_dir"/*.patch; do
+  [[ -e $f ]] || continue
+  case " ${PATCH_FILES[*]} " in
+    *" ${f##*/} "*) ;;
+    *) die "$f is not pinned in PATCH_PINS" ;;
+  esac
+done
+
+# The tarball file name of a manifest source.
+src_tarball() {
+  local i url
+  for ((i = 0; i < ${#SRC_NAMES[@]}; i++)); do
+    if [[ ${SRC_NAMES[$i]} == "$1" ]]; then
+      url=${SRC_URLS[$i]}
+      echo "${url##*/}"
       return
     fi
   done
@@ -240,7 +294,7 @@ elif [[ $(libtool --version 2>/dev/null) == *"GNU libtool"* ]]; then
 else
   die "GNU libtool is required (glibtool or libtool on PATH)"
 fi
-for tool in make curl tar zip; do
+for tool in make curl tar zip patch; do
   have "$tool" || die "$tool is required"
 done
 
@@ -299,6 +353,17 @@ for ((i = 0; i < ${#SRC_NAMES[@]}; i++)); do
   fetch "$url" "${SRC_SHAS[$i]}" "$downloads/${url##*/}"
   tar -xf "$downloads/${url##*/}" -C "$src"
   [[ -d $(src_dir "${SRC_NAMES[$i]}") ]] || die "unexpected layout in ${url##*/}"
+done
+# The patches (hashes checked above). --fuzz=0 and the offset check make any drift fail.
+for ((i = 0; i < ${#PATCH_FILES[@]}; i++)); do
+  file=${PATCH_FILES[$i]}
+  d=$(src_dir "${PATCH_SOURCES[$i]}")
+  log "applying $file to ${d##*/}"
+  out=$(patch -d "$d" -p1 --forward --fuzz=0 --batch -i "$patch_dir/$file" </dev/null 2>&1) ||
+    die "$file does not apply to ${d##*/}: $out"
+  if grep -qiE 'offset|fuzz' <<<"$out"; then
+    die "$file applied to ${d##*/} with an offset or fuzz: $out"
+  fi
 done
 notice_paths=()
 while read -r path url sha; do
@@ -497,6 +562,11 @@ while read -r path url sha; do
   notices_json="$notices_json${notices_json:+,
     }{ \"file\": $(json_str "$path"), \"url\": $(json_str "$url"), \"sha256\": $(json_str "$sha") }"
 done <<<"$NOTICE_PINS"
+patches_json=""
+for ((i = 0; i < ${#PATCH_FILES[@]}; i++)); do
+  patches_json="$patches_json${patches_json:+,
+    }{ \"file\": $(json_str "${PATCH_FILES[$i]}"), \"sha256\": $(json_str "${PATCH_SHAS[$i]}"), \"applies_to\": $(json_str "$(src_tarball "${PATCH_SOURCES[$i]}")") }"
+done
 files_json=""
 for t in $TOOLS; do
   files_json="$files_json${files_json:+,
@@ -507,6 +577,7 @@ cat >"$stage/BUILDINFO.json" <<EOF
 {
   "name": "idevice-tools",
   "version": $(json_str "$version"),
+  "release": $(json_str "$release"),
   "platform": $(json_str "$platform"),
   "host_triplet": $(json_str "$host"),
   "built_at": $(json_str "$(date -u +%Y-%m-%dT%H:%M:%SZ)"),
@@ -518,6 +589,9 @@ cat >"$stage/BUILDINFO.json" <<EOF
   ],
   "notices": [
     $notices_json
+  ],
+  "patches": [
+    $patches_json
   ],
   "toolchain": {
     "cc": $(json_str "$(first_line ${CC%% *} --version)"),
@@ -556,7 +630,7 @@ EOF
 
 # ---- zip ----
 
-bundle="idevice-tools-$version-$platform.zip"
+bundle="idevice-tools-$release-$platform.zip"
 rm -f "$out_dir/$bundle"
 (cd "$stage" && zip -q -X -D -r -9 "$out_dir/$bundle" .)
 log "wrote $out_dir/$bundle"
