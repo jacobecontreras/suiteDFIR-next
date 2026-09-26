@@ -540,7 +540,7 @@ jobs:
             echo
             echo "**Installation, prerequisites and privacy:** docs/USER-GUIDE.md. The Linux parser builds need glibc 2.43 or later."
             echo
-            echo "**Source code for the bundled iOS tools.** The macOS and Windows x64 builds include libimobiledevice $tools tools (LGPL-2.1-or-later; the Windows arm64 and Linux builds include none), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`), which applies the attached \`*.patch\` files (two small changes to Mbed TLS and libimobiledevice, marked \"Modified for suiteDFIR\"; their SHA-256s are in each \`BUILDINFO-<platform>.json\` too). THIRD-PARTY-NOTICES.md lists every license."
+            echo "**Source code for the bundled iOS tools.** The macOS and Windows x64 builds include libimobiledevice $tools tools (LGPL-2.1-or-later; the Windows arm64 and Linux builds include none), built from the source tarballs attached here by the attached \`build-idevice-tools.sh\` (the version that built the pinned tool bundles; its SHA-256 is in each \`BUILDINFO-<platform>.json\`), which applies the attached \`*.patch\` files (changes to the upstream sources, each marked in the modified file with a dated \"Modified for suiteDFIR\" notice; their SHA-256s are in each \`BUILDINFO-<platform>.json\` too). THIRD-PARTY-NOTICES.md lists every license."
           } > "$RUNNER_TEMP/RELEASE-NOTES.md"
           # Only now, so the file table above does not list the notes themselves.
           mv "$RUNNER_TEMP/RELEASE-NOTES.md" dist/RELEASE-NOTES.md
