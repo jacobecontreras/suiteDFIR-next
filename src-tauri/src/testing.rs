@@ -67,6 +67,8 @@ pub struct Lab {
     pub cases: PathBuf,
     /// fake-idevice's state dir.
     pub device_state: PathBuf,
+    /// The one default backup folder `ios_backups_find` searches (not created).
+    pub backups: PathBuf,
 }
 
 impl Lab {
@@ -121,6 +123,7 @@ pub fn lab(options: LabOptions) -> Lab {
     fs::create_dir_all(&cases).unwrap();
     let device_state = root.path().join("device");
     fs::create_dir_all(&device_state).unwrap();
+    let backups = root.path().join("bk");
     let platform = manifest::host_platform();
     let opener = Arc::new(RecordingOpener::default());
     let fake_leapp = core_binary("fake-leapp");
@@ -131,6 +134,7 @@ pub fn lab(options: LabOptions) -> Lab {
     ];
     let config = AppConfig {
         idevice: idevice_config(&paths, &device_state, &options.idevice_scenario, platform),
+        ios_backup_dirs: vec![backups.clone()],
         paths,
         host: crate::host::detect(),
         manifest: options.manifest,
@@ -151,12 +155,35 @@ pub fn lab(options: LabOptions) -> Lab {
         opener,
         cases,
         device_state,
+        backups,
     }
 }
 
 /// A lab with both LEAPP tools overridden and fake-idevice's `success` device.
 pub fn lab_state() -> Lab {
     lab(LabOptions::default())
+}
+
+/// A minimal Finder/iTunes backup in `dir` for `ios_backups_find`: XML `Info.plist` and
+/// `Manifest.plist`, and an empty `Manifest.db`. `device_name` must need no XML escaping.
+pub fn write_backup(dir: &Path, device_name: &str, encrypted: bool) {
+    let plist = |body: String| {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD \
+             PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist \
+             version=\"1.0\">\n<dict>\n{body}</dict>\n</plist>\n"
+        )
+    };
+    fs::create_dir_all(dir).unwrap();
+    let info = format!(
+        "<key>Device Name</key><string>{device_name}</string>\n<key>Product Type</key>\
+         <string>iPhone13,2</string>\n<key>Product Version</key><string>18.6</string>\n\
+         <key>Last Backup Date</key><date>2026-09-20T21:04:33Z</date>\n"
+    );
+    fs::write(dir.join("Info.plist"), plist(info)).unwrap();
+    let manifest = format!("<key>IsEncrypted</key><{encrypted}/>\n");
+    fs::write(dir.join("Manifest.plist"), plist(manifest)).unwrap();
+    fs::write(dir.join("Manifest.db"), b"").unwrap();
 }
 
 // ---- an aLEAPP stand-in for the real install pipeline ----
