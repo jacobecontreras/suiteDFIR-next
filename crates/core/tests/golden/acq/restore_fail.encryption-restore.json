@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "acq_id": "<ACQ_ID>",
+  "at": "<TIMESTAMP>",
+  "argv": [
+    "<TOOLS>/idevicebackup2",
+    "-u",
+    "00008101-000A1B2C3D4E001E",
+    "encryption",
+    "off"
+  ],
+  "exit_code": 49,
+  "will_encrypt_after": true,
+  "restored": false,
+  "tools": {
+    "version": "1.4.0",
+    "source": "bundled",
+    "binaries": {
+      "idevice_id": {
+        "path": "<TOOLS>/idevice_id",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "ideviceinfo": {
+        "path": "<TOOLS>/ideviceinfo",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "idevicepair": {
+        "path": "<TOOLS>/idevicepair",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "idevicebackup2": {
+        "path": "<TOOLS>/idevicebackup2",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      }
+    }
+  }
+}
