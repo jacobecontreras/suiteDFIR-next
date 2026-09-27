@@ -1312,14 +1312,14 @@ mod tests {
 
 /// Z0b characterization goldens (the simplification pass, SIMPLIFY.md §3): the fake's outputs as
 /// they are at main 24af32c, compared as text with the files in `tests/golden/acq/fake/`. A file
-/// under `tests/golden/acq/fake/<os>/` (`windows`, `linux`) replaces the default (macOS) one on
+/// under `tests/golden/acq/<os>/fake/` (`windows`, `linux`) replaces the default (macOS) one on
 /// that OS. On a mismatch the actual text is printed and written to
 /// `<temp dir>/suitedfir-z0b-actual/<os>/fake/`. Frozen: later bundles do not edit this module.
 #[cfg(test)]
 mod z0 {
     use super::*;
 
-    const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/acq/fake");
+    const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/acq");
 
     fn os_name() -> &'static str {
         if cfg!(windows) {
@@ -1334,11 +1334,14 @@ mod z0 {
     /// Compares `actual` with the golden file `name` (the per-OS one if it exists); returns a
     /// description of the mismatch, after printing and saving the actual text.
     fn check(name: &str, actual: &str) -> Option<String> {
-        let os_file = Path::new(GOLDEN_DIR).join(os_name()).join(name);
+        let os_file = Path::new(GOLDEN_DIR)
+            .join(os_name())
+            .join("fake")
+            .join(name);
         let file = if os_file.is_file() {
             os_file
         } else {
-            Path::new(GOLDEN_DIR).join(name)
+            Path::new(GOLDEN_DIR).join("fake").join(name)
         };
         let expected = fs::read_to_string(&file).ok();
         if expected.as_deref() == Some(actual) {
