@@ -31,6 +31,24 @@ const runRequest = (input) => ({
 });
 
 /**
+ * @param {string} label
+ * @param {Partial<import("../../ui/types").AcqRequest>} [extra]
+ * @returns {import("../../ui/types").AcqRequest}
+ */
+const acqRequest = (label, extra = {}) => ({
+  case_path: CASE,
+  udid: "00008101-000A1B2C3D4E001E",
+  label,
+  enable_encryption: true,
+  encryption_password: "1234",
+  restore_encryption: true,
+  ...extra,
+});
+
+/** @param {number} ms */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
  * Starts a run and resolves with its events once `finished` arrives (or `onStart` returns).
  * @param {string} input
  * @param {(runId: string, events: RunEvent[]) => Promise<void>} [during]
@@ -54,7 +72,7 @@ async function runToEnd(input, during) {
 
 /** Resolves once no job is active. */
 async function idle() {
-  while (await mock.job_active()) await new Promise((resolve) => setTimeout(resolve, 2));
+  while (await mock.job_active()) await sleep(2);
 }
 
 for (const [suffix, status, reasons] of /** @type {const} */ ([
@@ -95,7 +113,7 @@ test("a flood run streams 100,000 log lines in batches of at most 500, then succ
 
 test("a cancelled run finishes cancelled", async () => {
   const { fin } = await runToEnd(`${EV}/slow`, async (runId, events) => {
-    while (!events.some((e) => e.type === "log")) await new Promise((resolve) => setTimeout(resolve, 2));
+    while (!events.some((e) => e.type === "log")) await sleep(2);
     await mock.run_cancel({ run_id: runId });
     await mock.run_cancel({ run_id: runId }); // idempotent
   });
@@ -121,7 +139,7 @@ test("one active job at a time; job_attach replaces the subscriber and returns t
   const first = [];
   const started = await mock.run_start(runRequest(`${EV}/slow`), (e) => first.push(e));
   await assert.rejects(mock.run_start(runRequest(`${EV}/slow`), () => {}), { code: "run_already_active" });
-  while (!first.some((e) => e.type === "log")) await new Promise((resolve) => setTimeout(resolve, 2));
+  while (!first.some((e) => e.type === "log")) await sleep(2);
   /** @type {(RunEvent | AcqEvent)[]} */
   const second = [];
   const { backlog } = await mock.job_attach({ kind: "run", id: started.run_id }, (e) => second.push(e));
@@ -166,21 +184,10 @@ async function acquire(label, extra = {}, during) {
   const finished = new Promise((resolve) => {
     done = resolve;
   });
-  const started = await mock.acq_start(
-    {
-      case_path: CASE,
-      udid: "00008101-000A1B2C3D4E001E",
-      label,
-      enable_encryption: true,
-      encryption_password: "1234",
-      restore_encryption: true,
-      ...extra,
-    },
-    (event) => {
-      events.push(event);
-      if (event.type === "finished") done(event);
-    },
-  );
+  const started = await mock.acq_start(acqRequest(label, extra), (event) => {
+    events.push(event);
+    if (event.type === "finished") done(event);
+  });
   if (during) await during(started.acq_id, events);
   const fin = /** @type {Extract<AcqEvent, { type: "finished" }>} */ (await finished);
   await idle();
@@ -254,7 +261,7 @@ test("a later restore is refused for an acquisition that did not leave encryptio
 
 test("a cancelled acquisition finishes cancelled and still restores encryption", async () => {
   const { fin, started } = await acquire("Handset/slow", {}, async (acqId, events) => {
-    while (!events.some((e) => e.type === "progress")) await new Promise((resolve) => setTimeout(resolve, 2));
+    while (!events.some((e) => e.type === "progress")) await sleep(2);
     await mock.acq_cancel({ acq_id: acqId });
   });
   assert.equal(fin.status, "cancelled");
@@ -263,17 +270,7 @@ test("a cancelled acquisition finishes cancelled and still restores encryption",
 });
 
 test("an interrupted acquisition is marked interrupted by the next case_open", async () => {
-  const started = await mock.acq_start(
-    {
-      case_path: CASE,
-      udid: "00008101-000A1B2C3D4E001E",
-      label: "Handset/interrupt",
-      enable_encryption: true,
-      encryption_password: "1234",
-      restore_encryption: true,
-    },
-    () => {},
-  );
+  const started = await mock.acq_start(acqRequest("Handset/interrupt"), () => {});
   await idle();
   const detail = await mock.case_open({ path: CASE });
   const summary = detail.acquisitions.find((a) => a.acq_id === started.acq_id);
