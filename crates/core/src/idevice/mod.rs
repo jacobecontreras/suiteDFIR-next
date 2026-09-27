@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use crate::contracts::{
     AppError, DevicePromptKind, DeviceSummary, DevicesResult, ErrorCode, IdeviceToolsState,
-    IdeviceToolsStatus, PairState, PlatformKey, StdStream, Timestamp,
+    IdeviceToolsStatus, PairState, StdStream, Timestamp,
 };
 use crate::fsutil;
 use crate::process::{self, ExitInfo, SpawnSpec};
@@ -239,10 +239,6 @@ impl Idevice {
 
     pub fn app_cache(&self) -> &Path {
         &self.config.app_cache
-    }
-
-    pub fn platform(&self) -> Option<PlatformKey> {
-        self.config.lookup.platform
     }
 
     /// The located tools, verified when first located; later calls reuse them. A failure is not
@@ -665,10 +661,6 @@ impl Session {
             scratch: Scratch::Borrowed(dir.to_path_buf()),
             counter: AtomicU32::new(0),
         }
-    }
-
-    pub fn tools(&self) -> &Arc<IdeviceTools> {
-        &self.tools
     }
 
     /// A spawn spec for `name` with `args`, its logs in the scratch dir.
