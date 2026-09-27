@@ -95,10 +95,9 @@ The bundled libimobiledevice tools are **not** needed for `cargo tauri dev` or `
 ```
 Cargo.toml / Cargo.lock       workspace ([profile.dev.package.sha2] opt-level = 3)
 rust-toolchain.toml  deny.toml  leapp-manifest.json  idevice-tools.json  .cargo/config.toml
-.gitattributes (* text=auto eol=lf; *.cmd eol=crlf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
+.gitattributes  .editorconfig  .gitignore  .node-version
 crates/core/                  suitedfir-core: all logic, no Tauri dependency
-  src/{lib.rs, contracts/, fsutil/, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
-       settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice/, acquire/}
+  src/                        modules as in ARCHITECTURE §5.1
   src/bin/fake-leapp.rs       test double (never bundled); tests use env!("CARGO_BIN_EXE_fake-leapp")
   src/bin/fake-idevice.rs     test double for the libimobiledevice tools (never bundled)
   tests/{process.rs, introspection.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/}
@@ -112,6 +111,7 @@ ui-dev/                       NOT shipped: mock.js (+ mock/), fixtures/contracts
 tests/ui/                     node --test files for ui/ modules; e2e/shots.mjs (Playwright screenshots)
 fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <RUN_DIR>, <INPUT>)
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
+scripts/record-invokes.mjs    rewrites tests/ui/recorded-invokes.json (§2)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
 scripts/build-idevice-tools.sh  scripted (not bit-reproducible) libimobiledevice build from pinned tarballs (X1)
 scripts/idevice-tools-patches/  the two source patches that build applies, pinned in the script (FX1)
