@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "acq_id": "20260924-171200Z-ios-#1",
+  "acq_id": "20260924-171200Z-ios-9c01de",
   "label": "Suspect iPhone 12",
   "status": "succeeded",
   "status_reasons": [],
@@ -125,7 +125,7 @@
         "00008101-000A1B2C3D4E001E",
         "backup",
         "--full",
-        "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/acquisitions/20260924-171200Z-ios-#1/backup"
+        "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/acquisitions/20260924-171200Z-ios-9c01de/backup"
       ],
       "exit_code": 0,
       "started_at": "2026-09-24T17:12:09Z",

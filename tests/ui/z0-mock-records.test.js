@@ -9,15 +9,19 @@
 // Only the public mock functions (the names of ui/api/ipc.js) are used.
 //
 // Normalized (see `normalize`), and nothing else:
-// - job ids `YYYYMMDD-HHMMSSZ-<kind>-<6 hex>`: the hex (random in the mock) is numbered in order of
-//   first appearance (`#1`); the time part is masked (`<now>`) only when it is from this test run;
+// - job ids `YYYYMMDD-HHMMSSZ-<kind>-<6 hex>` that the mock generates at load or run time (their
+//   hex is random): the hex is numbered in order of first appearance (`#1`); the time part is
+//   masked (`<now>`) only when it is from this test run. The fixed ids (the contract fixtures'
+//   and the mock's literal ones) stay exact: they are the ids that two fresh mock instances seed
+//   alike (`STABLE_IDS`);
 // - RFC 3339 timestamps from this test run: `<iso-now>`;
 // - `duration_ms` of a record created during this test run (whole seconds apart, so 0 or 1000 by
 //   chance): `"<duration-ms>"`; null stays null;
 // - `modules.resolved` when it is exactly every module name of `tool_modules`, sorted (the seeded
 //   "All modules" runs; 1,300 names): `"<every tool_modules name, sorted>"`.
 // The goldens are tests/ui/z0-mock-records/<name>.json. With Z0_ACTUAL_DIR=<dir> in the
-// environment, the normalized actual texts are also written there (never over the goldens).
+// environment, the normalized actual texts are also written there; the test refuses to run when
+// <dir> is the goldens folder.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -40,6 +44,24 @@ const ALL_MODULES = "<every tool_modules name, sorted>";
 const GOLDEN_DIR = new URL("./z0-mock-records/", import.meta.url);
 const ACTUAL_DIR = /** @type {any} */ (globalThis).process?.env?.Z0_ACTUAL_DIR ?? null;
 
+if (ACTUAL_DIR) {
+  // Never write the actual texts over the goldens (the same folder by any spelling or link).
+  const fs = /** @type {any} */ (await import("node:fs"));
+  // (node:url is not declared in tests/ui/node.d.ts; a computed specifier is typed `any`.)
+  const nodeUrl = "node:url";
+  const url = await import(nodeUrl);
+  const platform = /** @type {any} */ (globalThis).process?.platform;
+  fs.mkdirSync(ACTUAL_DIR, { recursive: true });
+  /** @param {string} p */
+  const canonical = (p) => {
+    const real = fs.realpathSync.native(p);
+    return platform === "win32" || platform === "darwin" ? real.toLowerCase() : real;
+  };
+  if (canonical(ACTUAL_DIR) === canonical(url.fileURLToPath(GOLDEN_DIR))) {
+    throw new Error(`Z0_ACTUAL_DIR (${ACTUAL_DIR}) is the goldens folder tests/ui/z0-mock-records/; choose another folder`);
+  }
+}
+
 let instances = 0;
 /**
  * A fresh mock instance (its state is per module load); no scenario flags.
@@ -49,6 +71,48 @@ async function freshMock() {
   instances += 1;
   return import(new URL(`../../ui-dev/mock.js?z0=${instances}`, import.meta.url).href);
 }
+
+/**
+ * A fresh mock instance loaded with scenario flags (the mock reads them from `location` at load).
+ * @param {string} flags
+ * @returns {Promise<Api>}
+ */
+async function freshMockWith(flags) {
+  instances += 1;
+  const g = /** @type {any} */ (globalThis);
+  g.location = { search: `?mock&scenario=${flags}` };
+  try {
+    return await import(new URL(`../../ui-dev/mock.js?z0=${instances}&flags=${flags}`, import.meta.url).href);
+  } finally {
+    delete g.location;
+  }
+}
+
+/**
+ * The job ids of every seeded case (in order).
+ * @param {Api} mock
+ */
+async function seededIds(mock) {
+  /** @type {string[]} */
+  const ids = [];
+  for (const summary of await mock.cases_list()) {
+    if (!summary.exists) continue;
+    const detail = await mock.case_open({ path: summary.path });
+    ids.push(...detail.runs.map((r) => r.run_id), ...detail.acquisitions.map((a) => a.acq_id));
+  }
+  return ids;
+}
+
+/**
+ * The fixed job ids: those that two fresh mock instances seed alike. A seeded id with random hex
+ * differs between them (a 1 in 16,777,216 chance of matching).
+ */
+const STABLE_IDS = await (async () => {
+  const a = await seededIds(await freshMock());
+  const b = await seededIds(await freshMock());
+  assert.equal(a.length, b.length);
+  return new Set(a.filter((id, i) => id === b[i]));
+})();
 
 /**
  * @param {Api} mock
@@ -88,6 +152,7 @@ async function normalize(mock, value) {
   const hexes = new Map();
   return `${JSON.stringify(v, null, 2)}\n`
     .replace(/\b(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})Z-(ileapp|aleapp|ios)-([0-9a-f]{6})\b/g, (m, y, mo, d, h, mi, s, kind, hex) => {
+      if (STABLE_IDS.has(m)) return m;
       const stamp = inRun(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s)) ? "<now>" : `${y}${mo}${d}-${h}${mi}${s}Z`;
       if (!hexes.has(hex)) hexes.set(hex, hexes.size + 1);
       return `${stamp}-${kind}-#${hexes.get(hex)}`;
@@ -350,3 +415,19 @@ for (const [name, request, how] of ACQS) {
     await snapshot(mock, name, await mock.acq_get({ case_path: CASE, acq_id: acqId }));
   });
 }
+
+// An acquisition cancelled while sealing (`hold_sealing` keeps it there until the cancel): the
+// backup finished, so the seal is cancelled and `seal_cancelled` is a warning (ui-dev/mock.js).
+test("z0 mock records: acq-cancelled-while-sealing", async () => {
+  const mock = await freshMockWith("hold_sealing");
+  const req = await acqRequest(mock, "Seized iPhone, item 7", false);
+  const acqId = await jobToEnd(
+    mock,
+    /** @param {(e: AcqEvent) => void} onEvent */ async (onEvent) => (await mock.acq_start(req, onEvent)).acq_id,
+    async (id, events) => {
+      await until(events, (e) => e.type === "seal_progress");
+      await mock.acq_cancel({ acq_id: id });
+    },
+  );
+  await snapshot(mock, "acq-cancelled-while-sealing", await mock.acq_get({ case_path: CASE, acq_id: acqId }));
+});

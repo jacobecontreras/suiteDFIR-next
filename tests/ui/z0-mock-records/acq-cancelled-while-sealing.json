@@ -1,24 +1,20 @@
 {
   "schema_version": 1,
-  "acq_id": "20260923-101500Z-ios-51be07",
-  "label": "Second handset",
+  "acq_id": "<now>-ios-#1",
+  "label": "Seized iPhone, item 7",
   "status": "succeeded",
   "status_reasons": [],
   "warnings": [
     {
-      "code": "encryption_restore_failed",
-      "message": "Turning backup encryption off failed"
-    },
-    {
-      "code": "encryption_left_enabled",
-      "message": "Backup encryption was enabled by the examiner and not confirmed disabled"
+      "code": "seal_cancelled",
+      "message": "Sealing was cancelled; backup.sha256 is incomplete"
     }
   ],
-  "created_at": "2026-09-23T10:15:00Z",
-  "started_at": "2026-09-23T10:15:03Z",
-  "ended_at": "2026-09-23T10:52:40Z",
+  "created_at": "<iso-now>",
+  "started_at": "<iso-now>",
+  "ended_at": "<iso-now>",
   "recovered_at": null,
-  "duration_ms": 2260000,
+  "duration_ms": "<duration-ms>",
   "app": {
     "name": "suiteDFIR",
     "version": "0.2.0"
@@ -43,36 +39,21 @@
     "product_type": "iPhone13,2",
     "product_version": "18.6",
     "build_version": "22G86",
-    "captured_at": "2026-09-24T17:12:01Z",
+    "captured_at": "<iso-now>",
     "info_file": "device-info.plist",
     "info_file_sha256": "30850597bc288cc05c5b0d037d179d2ca8bc29586b578b82c1f11116fe4a8bc1"
   },
   "pairing": {
-    "paired_before": false,
-    "paired_by_app_at": "2026-09-24T17:10:40Z",
+    "paired_before": true,
+    "paired_by_app_at": null,
     "host_id": "5E1B7C2A-9D4F-4E8B-A3C6-1F0D2B7E9A48",
     "system_buid": "0C6F3A9E-2B7D-4C1E-8F5A-6D9B3E0A7C21"
   },
   "device_changes": [
     {
-      "at": "2026-09-24T17:10:40Z",
-      "change": "pair_record_created",
-      "detail": "Trusted this computer via idevicepair pair"
-    },
-    {
-      "at": "2026-09-24T17:12:05Z",
-      "change": "backup_encryption_enabled",
-      "detail": "WillEncrypt false → true"
-    },
-    {
-      "at": "2026-09-24T17:12:09Z",
+      "at": "<iso-now>",
       "change": "sync_lock_taken",
       "detail": "idevicebackup2 holds /com.apple.itunes.lock_sync during backup"
-    },
-    {
-      "at": "2026-09-24T17:48:40Z",
-      "change": "backup_encryption_disabled",
-      "detail": "WillEncrypt true → false"
     }
   ],
   "tools": {
@@ -103,29 +84,16 @@
   },
   "encryption": {
     "will_encrypt_before": false,
-    "enable_requested": true,
-    "enabled_by_examiner": true,
-    "will_encrypt_after_enable": true,
-    "restore_requested": true,
-    "restored_after": "failed",
-    "will_encrypt_after_restore": true,
-    "password_supplied": true,
-    "password_channel": "env"
+    "enable_requested": false,
+    "enabled_by_examiner": false,
+    "will_encrypt_after_enable": null,
+    "restore_requested": false,
+    "restored_after": "not_requested",
+    "will_encrypt_after_restore": null,
+    "password_supplied": false,
+    "password_channel": null
   },
   "commands": [
-    {
-      "purpose": "enable_encryption",
-      "argv": [
-        "/Applications/suiteDFIR.app/Contents/MacOS/idevicebackup2",
-        "-u",
-        "00008101-000A1B2C3D4E001E",
-        "encryption",
-        "on"
-      ],
-      "exit_code": 0,
-      "started_at": "2026-09-24T17:12:04Z",
-      "exited_at": "2026-09-24T17:12:05Z"
-    },
     {
       "purpose": "backup",
       "argv": [
@@ -134,24 +102,11 @@
         "00008101-000A1B2C3D4E001E",
         "backup",
         "--full",
-        "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/acquisitions/20260924-171200Z-ios-9c01de/backup"
+        "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/acquisitions/<now>-ios-#1/backup"
       ],
       "exit_code": 0,
-      "started_at": "2026-09-24T17:12:09Z",
-      "exited_at": "2026-09-24T17:48:30Z"
-    },
-    {
-      "purpose": "restore_encryption",
-      "argv": [
-        "/Applications/suiteDFIR.app/Contents/MacOS/idevicebackup2",
-        "-u",
-        "00008101-000A1B2C3D4E001E",
-        "encryption",
-        "off"
-      ],
-      "exit_code": 0,
-      "started_at": "2026-09-24T17:48:31Z",
-      "exited_at": "2026-09-24T17:48:40Z"
+      "started_at": "<iso-now>",
+      "exited_at": "<iso-now>"
     }
   ],
   "process": {
@@ -174,11 +129,11 @@
   "output": {
     "backup_dir": "backup",
     "seal": {
-      "status": "sealed",
-      "manifest": "backup.sha256",
-      "manifest_sha256": "3c77d9ed56c5af819196f7b12d7830783bd93468712a9a3cb505e77f2061212f",
-      "file_count": 48210,
-      "total_bytes": 61203455110
+      "status": "cancelled",
+      "manifest": null,
+      "manifest_sha256": null,
+      "file_count": null,
+      "total_bytes": null
     }
   },
   "logs": {
