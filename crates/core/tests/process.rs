@@ -101,9 +101,7 @@ impl Fixture {
     fn wait_for_tree(&self) -> Tree {
         let mut pids = None;
         let found = poll_until(STARTUP_TIMEOUT, || {
-            pids = fs::read_to_string(&self.pidfile)
-                .ok()
-                .and_then(|text| parse_pids(&text));
+            pids = read_pids(&self.pidfile);
             pids.is_some()
         });
         assert!(found, "fake-leapp did not write {}", self.pidfile.display());
@@ -115,9 +113,7 @@ impl Fixture {
     fn wait_for_tree_unless_done(&self, handle: &Handle) -> Option<Tree> {
         let mut pids = None;
         poll_until(STARTUP_TIMEOUT, || {
-            pids = fs::read_to_string(&self.pidfile)
-                .ok()
-                .and_then(|text| parse_pids(&text));
+            pids = read_pids(&self.pidfile);
             pids.is_some() || matches!(handle.wait_timeout(Duration::ZERO), Ok(Some(_)))
         });
         pids.map(Tree::watch)
@@ -156,7 +152,8 @@ impl Tree {
     }
 }
 
-fn parse_pids(text: &str) -> Option<(u32, u32)> {
+fn read_pids(pidfile: &Path) -> Option<(u32, u32)> {
+    let text = fs::read_to_string(pidfile).ok()?;
     let pid = |role: &str| {
         text.lines()
             .find_map(|line| line.strip_prefix(role)?.trim().parse().ok())
