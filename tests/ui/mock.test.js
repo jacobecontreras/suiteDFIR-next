@@ -3,11 +3,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { loadMock } from "./helpers.js";
+
 /** @typedef {import("../../ui/types").AcqEvent} AcqEvent */
 /** @typedef {import("../../ui/types").RunEvent} RunEvent */
 
-/** @type {any} */ (globalThis).__SUITEDFIR_MOCK_TICK_MS = 1;
-const mock = await import("../../ui-dev/mock.js");
+const mock = await loadMock();
 
 const CASE = "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar";
 const EV = "/Volumes/Evidence";

@@ -2,7 +2,6 @@
 // Acquire screen logic: pair states and transitions, tools states, preflight levels, options (D5).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import {
   ACQ_OPTION_DEFAULTS,
@@ -25,6 +24,7 @@ import {
   withPairOutcomes,
 } from "../../ui/lib/acquire.js";
 import { DeviceSummary } from "../../ui-dev/fixtures/contracts/index.js";
+import { contractValues, loadMock } from "./helpers.js";
 
 /** @typedef {import("../../ui/types").DeviceSummary} Device */
 /** @typedef {import("../../ui/types").PairState} PairState */
@@ -35,17 +35,6 @@ import { DeviceSummary } from "../../ui-dev/fixtures/contracts/index.js";
  * @returns {Device}
  */
 const device = (fields = {}) => ({ ...structuredClone(DeviceSummary), ...fields });
-
-/**
- * The values of an enumeration row in CONTRACTS.md.
- * @param {string} name
- */
-function contractValues(name) {
-  const doc = readFileSync(new URL("../../docs/CONTRACTS.md", import.meta.url), "utf8");
-  const row = new RegExp(`^\\| \`${name}\` \\| (.+) \\|$`, "m").exec(doc);
-  assert.ok(row, `${name} row not found`);
-  return [...row[1].matchAll(/`([a-z_]+)`/g)].map((m) => m[1]);
-}
 
 test("every PairState of CONTRACTS.md §13.1 has instructions; pairing is offered only as an explicit action", () => {
   const states = contractValues("PairState");
@@ -79,8 +68,7 @@ test("a busy device is in use by the current acquisition, whatever its pair stat
 });
 
 test("pair-state transitions through Pair and Retry: not_paired → awaiting_trust → paired (with the mock)", async () => {
-  /** @type {any} */ (globalThis).__SUITEDFIR_MOCK_TICK_MS = 1;
-  const mock = await import("../../ui-dev/mock.js");
+  const mock = await loadMock();
   const before = await mock.devices_list();
   const ipad = before.devices.find((d) => d.pair_state === "not_paired");
   assert.ok(ipad);
