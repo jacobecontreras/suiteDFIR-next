@@ -12,7 +12,7 @@ import { restoreEncryptionDialog } from "../components/restore-dialog.js";
 import { needsEncryptionOff } from "../lib/acquire.js";
 import { editableFields, folderLabel, updatedRunSummary } from "../lib/cases.js";
 import { h } from "../lib/dom.js";
-import { formatBytes, formatCount, formatDuration, middleEllipsis } from "../lib/format.js";
+import { formatBytes, formatCount, formatDuration, middleEllipsis, plural } from "../lib/format.js";
 import { jobKey } from "../lib/jobs.js";
 import { routeHref } from "../lib/router.js";
 import { DEFAULT_RUN_SORT, nextSort, sortRuns } from "../lib/sort.js";
@@ -197,7 +197,7 @@ export function caseScreen(ctx) {
         "div",
         { class: "card-head" },
         h("h2", { id: "runs-heading" }, "Runs"),
-        h("span", { class: "muted" }, count === 1 ? "1 run" : `${formatCount(count)} runs`),
+        h("span", { class: "muted" }, plural(count, "run", "runs")),
       ),
       runsErrors.node,
       count === 0
@@ -366,7 +366,7 @@ export function caseScreen(ctx) {
         "div",
         { class: "card-head" },
         h("h2", { id: "acquisitions-heading" }, "Acquisitions"),
-        h("span", { class: "muted" }, acqs.length === 1 ? "1 acquisition" : `${formatCount(acqs.length)} acquisitions`),
+        h("span", { class: "muted" }, plural(acqs.length, "acquisition", "acquisitions")),
       ),
       acqErrors.node,
       acqs.length === 0

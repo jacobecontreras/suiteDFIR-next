@@ -236,9 +236,9 @@ export function runScreen(ctx) {
     progressSlot.update(`${s.hash !== null}|${s.seal !== null}|${note}`, () => [s.hash !== null && hashMeter.node, s.seal !== null && sealMeter.node, note && progressNote]);
   }
 
-  /** @param {Exclude<RunStatus, "running"> | RunStatus} status */
+  /** @param {Exclude<RunStatus, "running">} status */
   function renderResult(status) {
-    if (!record || status === "running") return;
+    if (!record) return;
     const r = record;
     const finished = /** @type {RunFinished | null} */ (stream?.finished ?? null);
     const reasons = finished ? finished.reasons : r.status_reasons;
@@ -264,7 +264,7 @@ export function runScreen(ctx) {
     fill(
       resultCard,
       h("div", { class: "card-head" }, h("h2", { id: "run-result-heading" }, "Result"), statusBadge(status)),
-      h("p", null, OUTCOME[/** @type {Exclude<RunStatus, "running">} */ (status)]),
+      h("p", null, OUTCOME[status]),
       reasonList("Reasons", reasons, "reasons"),
       reasonList("Warnings", warnings, "warnings"),
       summary.length > 0 && h("dl", { class: "facts facts-compact" }, summary.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
