@@ -1411,3 +1411,96 @@ mod tests {
         make_all_writable(&dir);
     }
 }
+
+/// Z0b characterization (SIMPLIFY.md §3): what case-open recovery writes, through
+/// [`recover_case`], as at main 24af32c: the exact `app_interrupted` reason and the exact
+/// encryption warnings. Frozen: later bundles do not edit this module.
+#[cfg(test)]
+mod z0 {
+    use super::*;
+
+    use crate::contracts::{AcqCommandPurpose, RestoreState, Seal, examples};
+    use crate::fsutil::test_support::make_writable;
+
+    const ACQ_ID: &str = "20260924-171200Z-ios-9c01de";
+
+    fn reason(code: &str, message: &str) -> Reason {
+        Reason {
+            code: code.to_owned(),
+            message: message.to_owned(),
+        }
+    }
+
+    /// The §13.3 example as a crash left it: running, after the enable and the backup's start.
+    fn crashed(will_encrypt_after_enable: Option<bool>) -> AcquisitionRecord {
+        let mut record = examples::acquisition_record();
+        record.status = AcqStatus::Running;
+        record.status_reasons = Vec::new();
+        record.warnings = Vec::new();
+        record.ended_at = None;
+        record.duration_ms = None;
+        record.process = None;
+        record.backup_result = None;
+        record
+            .commands
+            .retain(|c| c.purpose != AcqCommandPurpose::RestoreEncryption);
+        record.encryption.enabled_by_examiner = will_encrypt_after_enable == Some(true);
+        record.encryption.will_encrypt_after_enable = will_encrypt_after_enable;
+        record.encryption.restored_after = RestoreState::NotAttempted;
+        record.encryption.will_encrypt_after_restore = None;
+        record.output.seal = Seal {
+            status: SealStatus::Pending,
+            manifest: None,
+            manifest_sha256: None,
+            file_count: None,
+            total_bytes: None,
+        };
+        record
+    }
+
+    fn recovered(record: &AcquisitionRecord) -> AcquisitionRecord {
+        let case = tempfile::tempdir().unwrap();
+        let dir = acq_dir(case.path(), ACQ_ID);
+        fs::create_dir_all(&dir).unwrap();
+        write_initial(&dir, record).unwrap();
+        let now = Timestamp::parse("2026-09-25T08:00:00Z").unwrap();
+        assert_eq!(recover_case(case.path(), None, now).unwrap(), [ACQ_ID]);
+        let back = load(case.path(), ACQ_ID).unwrap();
+        make_writable(&dir.join(ACQ_FILE));
+        assert_eq!(back.recovered_at, Some(now));
+        assert_eq!(back.output.seal.status, SealStatus::Interrupted);
+        back
+    }
+
+    #[test]
+    fn z0_recovery_reason_and_warnings() {
+        let interrupted = reason(
+            "app_interrupted",
+            "The app stopped before the acquisition finished; the record was recovered when the \
+             case was next opened",
+        );
+        // Enabled by the examiner, not restored.
+        let left_on = recovered(&crashed(Some(true)));
+        assert_eq!(left_on.status, AcqStatus::Interrupted);
+        assert_eq!(left_on.status_reasons, std::slice::from_ref(&interrupted));
+        assert_eq!(
+            left_on.warnings,
+            [reason(
+                "encryption_left_enabled",
+                "Backup encryption was turned on by the examiner and was not confirmed to be off \
+                 again; turn it off with the backup password"
+            )]
+        );
+        // The enable ran, but WillEncrypt was never read afterwards.
+        let unknown = recovered(&crashed(None));
+        assert_eq!(unknown.status_reasons, [interrupted]);
+        assert_eq!(
+            unknown.warnings,
+            [reason(
+                "encryption_state_unknown",
+                "The device's backup-encryption setting could not be confirmed after it was \
+                 changed; turn it off with the backup password if it is on"
+            )]
+        );
+    }
+}
