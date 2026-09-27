@@ -499,6 +499,15 @@ fn cancel_when_backing_up(event: &AcqEvent, control: &AcqControl) {
     }
 }
 
+/// Cancels on the `Phase` event of `phase`.
+fn cancel_at(phase: AcqPhase) -> impl Fn(&AcqEvent, &AcqControl) {
+    move |event, control| {
+        if matches!(event, AcqEvent::Phase { phase: p } if *p == phase) {
+            control.cancel();
+        }
+    }
+}
+
 #[test]
 fn slow_cancel() {
     let lab = Lab::new("slow");
@@ -839,16 +848,7 @@ fn cancel_during_restore_is_ignored() {
         &lab,
         &case,
         request(&case, Some(PASSWORD)),
-        |event, control| {
-            if matches!(
-                event,
-                AcqEvent::Phase {
-                    phase: AcqPhase::RestoringEncryption
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(AcqPhase::RestoringEncryption),
     );
     let record = assert_final(&lab, &outcome, &events, AcqStatus::Succeeded, &[], &[]);
     assert_eq!(record.encryption.restored_after, RestoreState::Restored);
@@ -901,16 +901,7 @@ fn a_cancel_while_preparing_skips_the_device_changes() {
         &lab,
         &case,
         request(&case, Some(PASSWORD)),
-        |event, control| {
-            if matches!(
-                event,
-                AcqEvent::Phase {
-                    phase: AcqPhase::Preparing
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(AcqPhase::Preparing),
     );
     let record = assert_final(
         &lab,
@@ -934,16 +925,12 @@ fn a_cancel_while_preparing_skips_the_device_changes() {
 fn a_cancel_while_validating_stops_the_seal() {
     let lab = Lab::new("success");
     let case = new_case(&lab);
-    let (outcome, events) = acquire(&lab, &case, request(&case, None), |event, control| {
-        if matches!(
-            event,
-            AcqEvent::Phase {
-                phase: AcqPhase::Validating
-            }
-        ) {
-            control.cancel();
-        }
-    });
+    let (outcome, events) = acquire(
+        &lab,
+        &case,
+        request(&case, None),
+        cancel_at(AcqPhase::Validating),
+    );
     let record = &outcome.record;
     assert_eq!(outcome.write_error, None);
     // The backup had finished: the status stands, only the seal stopped.

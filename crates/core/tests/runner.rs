@@ -495,6 +495,15 @@ fn cancel_on_first_log(event: &RunEvent, control: &RunControl) {
     }
 }
 
+/// Cancels on the `Phase` event of `phase`.
+fn cancel_at(phase: RunPhase) -> impl Fn(&RunEvent, &RunControl) {
+    move |event, control| {
+        if matches!(event, RunEvent::Phase { phase: p } if *p == phase) {
+            control.cancel();
+        }
+    }
+}
+
 #[test]
 fn slow_with_cancel() {
     let lab = Lab::new();
@@ -643,16 +652,7 @@ fn a_cancel_after_the_exit_only_stops_hashing() {
     let (outcome, events) = run(
         lab.context(ToolId::Ileapp, "success", &[("FAKE_LEAPP_LINES", "1")]),
         request,
-        |event, control| {
-            if matches!(
-                event,
-                RunEvent::Phase {
-                    phase: RunPhase::HashingInput
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(RunPhase::HashingInput),
     );
     let record = assert_final(
         &lab,
@@ -679,16 +679,7 @@ fn a_cancel_while_preparing_never_starts_leapp() {
     let (outcome, events) = run(
         lab.context(ToolId::Ileapp, "success", &[]),
         request,
-        |event, control| {
-            if matches!(
-                event,
-                RunEvent::Phase {
-                    phase: RunPhase::Preparing
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(RunPhase::Preparing),
     );
     let record = assert_final(
         &lab,
