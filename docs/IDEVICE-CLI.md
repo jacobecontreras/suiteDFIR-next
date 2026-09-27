@@ -4,11 +4,11 @@
 
 Facts about the libimobiledevice command-line tools that suiteDFIR uses for iOS backup acquisition (feature F11). Everything below was read from source at tag **libimobiledevice 1.4.0** (released 2025-10-10), including `tools/*.c`, `src/lockdown.c` and `common/userpref.c`, on 2026-09-24. Line numbers refer to `tools/idevicebackup2.c` unless another file is named.
 
-**Real-device checks so far:** only the pairing and lockdown SSL behavior in the §8 known-issue note (H4, one iPhone on macOS). Every numbered item in §8 must still be confirmed by human QA (H4/G2). Before relying on a message string, the X-track tasks must copy it verbatim from the pinned source.
+**Real-device checks so far:** only the pairing and lockdown SSL behavior in the §8 known-issue note (H4, one iPhone on macOS). Every numbered item in §8 must still be confirmed by human QA (H4/G2).
 
 ## 1. Pinned sources and licenses
 
-The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256 in `idevice-tools.json`. On 2026-09-25 every hash was checked against the GitHub release asset digest, except libplist's: its asset has no digest, and the computed hash matches the Homebrew formula's.
+The tools are built from upstream source tarballs, pinned by SHA-256 in `idevice-tools.json`. On 2026-09-25 every hash was checked against the GitHub release asset digest, except libplist's: its asset has no digest, and the computed hash matches the Homebrew formula's.
 
 | Project | Version | Asset |
 |---|---|---|
@@ -40,7 +40,7 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - The release tarball omits the `3rd_party/*/LICENSE` files (ed25519: zlib; libsrp6a-sha512: Stanford SRP, BSD-style). The build takes them from the `1.4.0` tag, pinned by SHA-256; they match that tag's blobs.
 - libplist compiles in MIT-licensed code (`src/jsmn.c`, `src/time64.c`). The bundles carry those notices in `libplist-embedded-notices.txt`.
 - The Windows tools link the MinGW-w64 runtime statically, and its license requires its notices in binary distributions: `mingw-w64/COPYING.MinGW-w64-runtime.txt` in the Windows bundle.
-- The source obligation is met by attaching the exact source tarballs, the patches and the build script to each app release (ROADMAP F1/F2). A link to upstream is not enough.
+- The source obligation is met by attaching the exact source tarballs, the patches and the build script to each app release. A link to upstream is not enough.
 
 **Runtime service (usbmuxd):**
 - **macOS:** built into the OS.
@@ -109,7 +109,7 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
   - `encryption on`: `Please confirm enabling the backup encryption by entering the passcode on the device.`
   - `encryption off`: `Please confirm disabling the backup encryption by entering the passcode on the device.`
   - (`changepw`, never run: `Please confirm changing the backup password by entering the passcode on the device.`)
-- **Buffering:** these lines are plain `printf` output. With stdout on a pipe, the C runtime buffers it fully, and only `print_progress` calls `fflush` (704). So an encryption prompt may reach suiteDFIR only when the command ends, and the backup prompt with the first file batch. The UI therefore also explains, for the whole encryption phase, that the app waits for the device (ROADMAP D5). To be confirmed on a device (§8 item 2).
+- **Buffering:** these lines are plain `printf` output. With stdout on a pipe, the C runtime buffers it fully, and only `print_progress` calls `fflush` (704). So an encryption prompt may reach suiteDFIR only when the command ends, and the backup prompt with the first file batch. The UI therefore also explains, for the whole encryption phase, that the app waits for the device. To be confirmed on a device (§8 item 2).
 - **Results of an encryption change** (2588-2599): `Backup encryption has been enabled successfully.` / `Could not enable backup encryption.`, and `Backup encryption has been disabled successfully.` / `Could not disable backup encryption.` suiteDFIR decides the outcome by re-reading `WillEncrypt`, not from these lines.
 
 **Final messages** (2569-2575):
