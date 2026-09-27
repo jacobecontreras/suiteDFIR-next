@@ -1292,10 +1292,10 @@ impl AcqJob {
             }
             Err(e) => {
                 record.output.seal = empty(SealStatus::Failed);
-                warnings.push(status::reason(
-                    "seal_failed",
-                    format!("backup.sha256 could not be written: {e}"),
-                ));
+                warnings.push(Reason {
+                    code: "seal_failed".to_owned(),
+                    message: format!("backup.sha256 could not be written: {e}"),
+                });
             }
         }
         warnings
