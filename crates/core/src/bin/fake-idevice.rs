@@ -819,14 +819,13 @@ impl Fake {
             snapshot: snapshot.to_owned(),
         };
         let interval = self.pacing.interval;
+        layout(self.scenario == Scenario::Incomplete, "new").write(&udid_dir)?;
         match self.scenario {
             scenario if scenario.slow_backup() => {
-                layout(false, "new").write(&udid_dir)?;
                 self.store.write_pid()?;
                 Ok(self.slow_backup(&udid_dir, encrypted))
             }
             Scenario::BackupFail | Scenario::BackupFailEncrypted => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 60, interval) {
                     return Ok(aborted(1));
                 }
@@ -839,7 +838,6 @@ impl Fake {
                 Ok(-105)
             }
             Scenario::Incomplete => {
-                layout(true, "new").write(&udid_dir)?;
                 if stream_progress(0, 100, interval) {
                     return Ok(aborted(3));
                 }
@@ -848,7 +846,6 @@ impl Fake {
                 Ok(0)
             }
             Scenario::CancelOnDevice => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 30, interval) {
                     return Ok(aborted(1));
                 }
@@ -858,7 +855,6 @@ impl Fake {
                 Ok(-1)
             }
             Scenario::Disconnect => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 40, interval) {
                     return Ok(aborted(1));
                 }
@@ -870,7 +866,6 @@ impl Fake {
                 Ok(-1)
             }
             _ => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 100, interval) {
                     return Ok(aborted(1));
                 }
