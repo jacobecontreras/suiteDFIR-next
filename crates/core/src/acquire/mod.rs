@@ -751,7 +751,7 @@ impl AcqJob {
         let seal_warnings = self.seal(&mut record, &mut events);
         record.status = status;
         record.status_reasons = reasons;
-        let warnings = status::warnings(
+        record.warnings = status::warnings(
             &record.encryption,
             &status::WarningFacts {
                 enable_outcome_unknown: record::enable_outcome_unknown(&record),
@@ -763,7 +763,6 @@ impl AcqJob {
                 seal: seal_warnings,
             },
         );
-        record.warnings = warnings;
 
         self.set_phase(AcqPhase::Finalizing, &mut events);
         if temp_ok && let Err(e) = process::remove_temp_dir(&self.app_cache, &self.acq_id) {
