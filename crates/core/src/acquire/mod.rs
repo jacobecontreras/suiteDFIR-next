@@ -9,13 +9,9 @@
 //!   prompts and abort causes (step 7); restore encryption (step 8); validation and status
 //!   ([`status`], step 9); the seal (step 10); finalize (step 11). `acquisition.json` is rewritten
 //!   atomically after every device-changing command.
-//! - [`AcqControl::cancel`] follows the cancel semantics by phase: during `enabling_encryption` the
-//!   command finishes and the backup is skipped; during `backing_up` the backup is stopped; during
-//!   `restoring_encryption` the cancel is ignored; during `validating` and `sealing` the seal stops.
-//!   Encryption is restored (when enabled and asked for) whatever the backup outcome.
+//! - [`AcqControl::cancel`] follows the cancel semantics by phase.
 //! - Discovery, listing and recovery on case open, and the `input.acquisition_id` helper: [`record`].
-//! - [`restore_later`]: `acq_restore_encryption`; each attempt writes its own read-only
-//!   `encryption-restore[-N].json`, and a failed attempt can be retried.
+//! - [`restore_later`] is `acq_restore_encryption`.
 //!
 //! The backup password lives in a [`Password`] from `acq_start` until the restore step (or the
 //! enable step when no restore follows), reaches the tool only through the environment, and is
@@ -53,10 +49,8 @@ use crate::idevice::{
 use crate::process::{self, SpawnSpec};
 
 pub use record::{
-    ACQ_FILE, ACQUISITIONS_DIR, AttemptSlot, BACKUP_DIR, BACKUP_MANIFEST, DEVICE_INFO_FILE,
-    DiscoveredAcq, RESTORE_FILE, RestoreAttempt, acquisition_id_for_input, discover, is_acq_id,
-    later_restore_succeeded, load, new_acq_id, recover_case, reserve_restore_attempt,
-    restore_attempt_number, restore_attempts, restore_file_name, summary, write_restore_attempt,
+    ACQ_FILE, ACQUISITIONS_DIR, BACKUP_DIR, BACKUP_MANIFEST, DEVICE_INFO_FILE, DiscoveredAcq,
+    acquisition_id_for_input, discover, load, recover_case, restore_attempts, summary,
 };
 
 /// Backup passwords are at least this many characters (ARCHITECTURE.md §6b step 4).
@@ -558,10 +552,8 @@ pub struct AcqOutcome {
 }
 
 /// What `finished` reports after the final write (ARCHITECTURE.md §6b step 11), and the write
-/// error for [`AcqOutcome::write_error`]: the record's status and reasons when it was written,
-/// also when it could not be made read-only ([`AcqError::NotReadOnly`]: the final record is on
-/// disk; logged); otherwise `failed` with `record_write_failed` (the record on disk stays
-/// `running` and becomes `interrupted` when the case is next opened).
+/// error for [`AcqOutcome::write_error`] (which says when there is one): the record's status and
+/// reasons when it was written, else `failed` with `record_write_failed`.
 fn finished_verdict(
     record: &AcquisitionRecord,
     write: Result<(), AcqError>,
@@ -582,13 +574,13 @@ fn finished_verdict(
             );
             (
                 AcqStatus::Failed,
-                vec![Reason {
-                    code: "record_write_failed".to_owned(),
-                    message: format!(
+                vec![status::reason(
+                    "record_write_failed",
+                    format!(
                         "The final acquisition.json could not be written ({e}); the \
                          acquisition will show as interrupted when the case is next opened"
                     ),
-                }],
+                )],
                 Some(e.to_string()),
             )
         }
@@ -759,7 +751,7 @@ impl AcqJob {
         let seal_warnings = self.seal(&mut record, &mut events);
         record.status = status;
         record.status_reasons = reasons;
-        let warnings = status::warnings(
+        record.warnings = status::warnings(
             &record.encryption,
             &status::WarningFacts {
                 enable_outcome_unknown: record::enable_outcome_unknown(&record),
@@ -771,7 +763,6 @@ impl AcqJob {
                 seal: seal_warnings,
             },
         );
-        record.warnings = warnings;
 
         self.set_phase(AcqPhase::Finalizing, &mut events);
         if temp_ok && let Err(e) = process::remove_temp_dir(&self.app_cache, &self.acq_id) {
@@ -873,7 +864,7 @@ impl AcqJob {
             .collect();
         let password_supplied = self.password.is_some();
         let record = AcquisitionRecord {
-            schema_version: record::SCHEMA_VERSION,
+            schema_version: AcquisitionRecord::SCHEMA_VERSION,
             acq_id: self.acq_id.clone(),
             label: self.label.clone(),
             status: AcqStatus::Running,
@@ -1292,11 +1283,10 @@ impl AcqJob {
             Ok(outcome) => {
                 record.output.seal = outcome.seal(BACKUP_MANIFEST);
                 if outcome.cancelled {
-                    warnings.push(Reason {
-                        code: "seal_cancelled".to_owned(),
-                        message: "Hashing the backup was cancelled; no backup.sha256 was written"
-                            .to_owned(),
-                    });
+                    warnings.push(status::reason(
+                        "seal_cancelled",
+                        "Hashing the backup was cancelled; no backup.sha256 was written",
+                    ));
                 }
                 warnings.extend(outcome.warnings("symlinks_in_backup"));
             }
@@ -1362,8 +1352,10 @@ struct BackupRun {
 /// recorded `restored: true` (otherwise `restore_not_applicable`); a failed attempt does not block
 /// a retry. The device must be connected and paired. Runs step 8 on its own in a fresh temp dir,
 /// prompt lines go to `on_line`, and each attempt's outcome is written to its own read-only file,
-/// `encryption-restore.json`, then `encryption-restore-2.json`, … ([`record::write_restore_record`]);
-/// `acquisition.json` is not modified. The one-active-job rule is the shell's.
+/// `encryption-restore.json`, then `encryption-restore-2.json`, … (reserved with
+/// [`record::reserve_restore_attempt`] before the device is touched, then written with
+/// [`record::write_restore_attempt`]); `acquisition.json` is not modified. The one-active-job rule
+/// is the shell's.
 pub fn restore_later(
     idevice: &Idevice,
     case_dir: &Path,
@@ -1376,7 +1368,7 @@ pub fn restore_later(
     let applicable = record
         .warnings
         .iter()
-        .any(|w| w.code == "encryption_left_enabled" || w.code == "encryption_state_unknown");
+        .any(|w| record::RESTORE_OFFER_CODES.contains(&w.code.as_str()));
     if !applicable {
         return Err(AcqError::RestoreNotApplicable(
             RestoreRefusal::NoEncryptionWarning,

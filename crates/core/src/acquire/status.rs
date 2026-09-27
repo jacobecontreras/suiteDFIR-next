@@ -13,7 +13,7 @@ use super::record::{LEFT_ENABLED_MESSAGE, STATE_UNKNOWN_MESSAGE};
 /// writes, IDEVICE-CLI.md §5).
 pub const DISK_NEARLY_FULL: u64 = 1 << 30;
 
-fn reason(code: &str, message: impl Into<String>) -> Reason {
+pub(super) fn reason(code: &str, message: impl Into<String>) -> Reason {
     Reason {
         code: code.to_owned(),
         message: message.into(),
@@ -542,19 +542,14 @@ mod tests {
         );
         fs::write(udid_dir.join("Manifest.db"), "x").unwrap();
         fs::write(udid_dir.join("Status.plist"), "garbage").unwrap();
-        let layout = inspect_layout(&udid_dir);
-        assert_eq!(layout.manifest_found.as_deref(), Some("Manifest.db"));
-        assert!(layout.status_plist_found);
-        assert_eq!(layout.snapshot_state, None, "unreadable");
-        // An unparsable Status.plist on disk fails the backup.
-        let facts = BackupFacts {
-            layout,
-            ..success()
-        };
-        let (status, reasons) = evaluate(None, Some(&facts));
+        // An unparsable Status.plist is unreadable: the layout of the "status_plist_unreadable"
+        // row of `contract_rows`, which fails the backup.
         assert_eq!(
-            (status, codes(&reasons)),
-            (AcqStatus::Failed, vec!["snapshot_not_finished"])
+            inspect_layout(&udid_dir),
+            Layout {
+                snapshot_state: None,
+                ..good_layout()
+            }
         );
     }
 
@@ -569,6 +564,21 @@ mod tests {
             will_encrypt_after_restore: Some(false),
             password_supplied: true,
             password_channel: Some(PasswordChannel::Env),
+        }
+    }
+
+    /// No encryption change was requested; `WillEncrypt` read false.
+    fn untouched() -> AcqEncryption {
+        AcqEncryption {
+            will_encrypt_before: Some(false),
+            enable_requested: false,
+            enabled_by_examiner: false,
+            will_encrypt_after_enable: None,
+            restore_requested: false,
+            restored_after: RestoreState::NotRequested,
+            will_encrypt_after_restore: None,
+            password_supplied: false,
+            password_channel: None,
         }
     }
 
@@ -630,14 +640,7 @@ mod tests {
         // already_encrypted, no change requested
         let preexisting = AcqEncryption {
             will_encrypt_before: Some(true),
-            enable_requested: false,
-            enabled_by_examiner: false,
-            will_encrypt_after_enable: None,
-            restore_requested: false,
-            restored_after: RestoreState::NotRequested,
-            will_encrypt_after_restore: None,
-            password_supplied: false,
-            password_channel: None,
+            ..untouched()
         };
         assert_eq!(
             codes(&warnings(&preexisting, &WarningFacts::default())),
@@ -653,17 +656,7 @@ mod tests {
             free_bytes_after: Some(DISK_NEARLY_FULL - 1),
             seal: vec![reason("symlinks_in_backup", "1 link")],
         };
-        let plain = AcqEncryption {
-            will_encrypt_before: Some(false),
-            enable_requested: false,
-            enabled_by_examiner: false,
-            will_encrypt_after_enable: None,
-            restore_requested: false,
-            restored_after: RestoreState::NotRequested,
-            will_encrypt_after_restore: None,
-            password_supplied: false,
-            password_channel: None,
-        };
+        let plain = untouched();
         assert_eq!(
             codes(&warnings(&plain, &facts)),
             [
