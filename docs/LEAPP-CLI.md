@@ -116,44 +116,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off chec
 **Procedure:**
 
 1. Create a temp dir containing:
-   - `probe_artifacts/suitedfir_probe.py` (embedded in `leapp::modules`). The dict keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function:
-     ```python
-     __artifacts_v2__ = {
-         "suitedfir_probe": {
-             "name": "suiteDFIR probe",
-             "description": "Lists the artifacts of this build for suiteDFIR",
-             "author": "suiteDFIR",
-             "creation_date": "2026-09-25",
-             "last_update_date": "2026-09-25",
-             "requirements": "none",
-             "category": "suiteDFIR",
-             "notes": "",
-             "paths": ("*/suitedfir_probe.marker",),
-             "output_types": [],
-             "artifact_icon": "list",
-             "function": "suitedfir_probe",
-         }
-     }
-
-
-     def suitedfir_probe(files_found, report_folder, seeker, wrap_text, *args):
-         import json, os
-         from scripts.plugin_loader import PluginLoader
-         out = {"plugins": [
-             {"name": p.name, "module_name": p.module_name, "category": p.category,
-              "display_name": (p.artifact_info or {}).get("name"),
-              "description": (p.artifact_info or {}).get("description")}
-             for p in PluginLoader().plugins]}
-         try:
-             import pytz
-             out["timezones"] = list(pytz.all_timezones)
-         except Exception:
-             out["timezones"] = None
-         path = os.environ["SUITEDFIR_PROBE_OUT"]
-         with open(path + ".partial", "w", encoding="utf-8") as f:
-             json.dump(out, f)
-         os.replace(path + ".partial", path)
-     ```
+   - `probe_artifacts/suitedfir_probe.py`: the `PROBE_SOURCE` constant in `crates/core/src/leapp/modules.rs`. Its `__artifacts_v2__` keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function; its `paths` match `*/suitedfir_probe.marker`. It writes every `PluginLoader().plugins` entry (name, module_name, category, and the `artifact_info` name and description) and `pytz.all_timezones` (or null) to `$SUITEDFIR_PROBE_OUT`, through a `.partial` file and a rename.
      `PluginLoader()` without arguments loads only the built-in artifacts, so the probe does not list itself.
    - `input/suitedfir_probe.marker` (non-empty dir, avoiding the exit-2 case).
    - An empty `out/`.
