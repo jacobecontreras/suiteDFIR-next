@@ -355,26 +355,23 @@ fn newline_style(run_dir: &Path) -> &'static str {
 fn assert_tail_reads(run_dir: &Path, events: &[RunEvent]) {
     let mut tail = tail::ScreenOutputTail::new(screen_output_path(run_dir));
     let lines = tail.finish().unwrap();
-    let streamed: Vec<&String> = events
-        .iter()
-        .flat_map(|e| match e {
-            RunEvent::Log { lines } => lines.iter().collect(),
-            _ => Vec::new(),
-        })
-        .collect();
+    let streamed = log_lines(events);
     assert_eq!(lines.len(), streamed.len(), "streamed vs parsed lines");
     assert!(lines.iter().all(|l| !l.contains("<br>")));
 }
 
-fn log_text(events: &[RunEvent]) -> String {
+fn log_lines(events: &[RunEvent]) -> Vec<String> {
     events
         .iter()
         .flat_map(|e| match e {
             RunEvent::Log { lines } => lines.clone(),
             _ => Vec::new(),
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
+}
+
+fn log_text(events: &[RunEvent]) -> String {
+    log_lines(events).join("\n")
 }
 
 /// Saves the lava data and `Screen_Output.html` of a fixture run, with paths replaced
