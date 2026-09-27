@@ -10,7 +10,7 @@
 //! - iLEAPP `-t itunes` on a folder that is not a backup → `failed` with `no_modules_ran`
 //!   (aLEAPP has no `itunes` type: the runner refuses it before anything is created);
 //! - iLEAPP `-t itunes` on a minimal legacy (`Manifest.mbdb`) backup: the iTunes always-run
-//!   artifacts run and `last_build` does not (LEAPP-CLI.md §5, §9 item 3);
+//!   artifacts run and `last_build` does not (LEAPP-CLI.md §5);
 //! - a cancel mid-run → `cancelled`, no process of the tree left, the per-run temp dir (which held
 //!   the onefile runtime `_MEI*`, so the bootloader honoured `TMPDIR`/`TEMP`) removed;
 //! - a profile with an unknown module name → `unknown_modules` before anything is created;
@@ -36,7 +36,6 @@
 //! Each test prints a summary to stderr directly, so it shows even though the test harness
 //! captures `println!`/`eprintln!` output of passing tests.
 
-use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -356,26 +355,23 @@ fn newline_style(run_dir: &Path) -> &'static str {
 fn assert_tail_reads(run_dir: &Path, events: &[RunEvent]) {
     let mut tail = tail::ScreenOutputTail::new(screen_output_path(run_dir));
     let lines = tail.finish().unwrap();
-    let streamed: Vec<&String> = events
-        .iter()
-        .flat_map(|e| match e {
-            RunEvent::Log { lines } => lines.iter().collect(),
-            _ => Vec::new(),
-        })
-        .collect();
+    let streamed = log_lines(events);
     assert_eq!(lines.len(), streamed.len(), "streamed vs parsed lines");
     assert!(lines.iter().all(|l| !l.contains("<br>")));
 }
 
-fn log_text(events: &[RunEvent]) -> String {
+fn log_lines(events: &[RunEvent]) -> Vec<String> {
     events
         .iter()
         .flat_map(|e| match e {
             RunEvent::Log { lines } => lines.clone(),
             _ => Vec::new(),
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
+}
+
+fn log_text(events: &[RunEvent]) -> String {
+    log_lines(events).join("\n")
 }
 
 /// Saves the lava data and `Screen_Output.html` of a fixture run, with paths replaced
@@ -567,7 +563,7 @@ fn fs_fixture_run(smoke: &Smoke, input: &Path, selected: &[&str]) -> (RunRecord,
             "{name} is not Complete: {lava:?}"
         );
     }
-    // The always-run artifact ran (LEAPP-CLI.md §5, §9 item 3).
+    // The always-run artifact ran (LEAPP-CLI.md §5).
     for name in &record.modules.always_run {
         assert!(
             lava.iter().any(|(n, _)| n == name),
@@ -824,7 +820,7 @@ fn aleapp_installs_introspects_and_runs() {
     cancel_mid_run(&smoke, &fs_input);
 }
 
-/// iLEAPP on an encrypted backup without a password asks for one (LEAPP-CLI.md Q5, §9 item 4).
+/// iLEAPP on an encrypted backup without a password asks for one (LEAPP-CLI.md Q5).
 /// The runner never starts it that way (`password_required`); this runs it directly, as a spawn
 /// does (own session or job, stdin null, no window), and records what the prompt does:
 /// - macOS and Linux: `getpass` has no terminal (new session) and reads stdin, which is null: EOF,
@@ -844,23 +840,18 @@ fn password_prompt_behaviour(smoke: &Smoke) {
         out.join("stdout.log"),
         out.join("stderr.log"),
     );
-    spec.args = [
-        "-t",
-        "itunes",
-        "-i",
-        "",
-        "-o",
-        "",
-        "--custom_output_folder",
-        "report",
-        "-tz",
-        "UTC",
-    ]
-    .iter()
-    .map(OsString::from)
-    .collect();
-    spec.args[3] = input.clone().into_os_string();
-    spec.args[5] = out.clone().into_os_string();
+    spec.args = vec![
+        "-t".into(),
+        "itunes".into(),
+        "-i".into(),
+        input.clone().into_os_string(),
+        "-o".into(),
+        out.clone().into_os_string(),
+        "--custom_output_folder".into(),
+        "report".into(),
+        "-tz".into(),
+        "UTC".into(),
+    ];
     spec.temp_dir = Some(temp);
     // Long enough for iLEAPP to start and reach the prompt (a few seconds) many times over.
     spec.timeout = Some(Duration::from_secs(if cfg!(windows) { 45 } else { 180 }));
