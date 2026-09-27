@@ -902,7 +902,13 @@ impl AcqJob {
             backup_result: None,
             output: AcqOutput {
                 backup_dir: BACKUP_DIR.to_owned(),
-                seal: empty_seal(SealStatus::Pending),
+                seal: Seal {
+                    status: SealStatus::Pending,
+                    manifest: None,
+                    manifest_sha256: None,
+                    file_count: None,
+                    total_bytes: None,
+                },
             },
             logs: AcqLogs {
                 stdout: record::STDOUT_LOG.to_owned(),
@@ -1249,8 +1255,15 @@ impl AcqJob {
     /// Returns the seal's warnings.
     fn seal(&self, record: &mut AcquisitionRecord, events: &mut Events<'_>) -> Vec<Reason> {
         let backup_dir = self.acq_dir.join(BACKUP_DIR);
+        let empty = |status| Seal {
+            status,
+            manifest: None,
+            manifest_sha256: None,
+            file_count: None,
+            total_bytes: None,
+        };
         if !backup_dir.is_dir() {
-            record.output.seal = empty_seal(SealStatus::SkippedNoOutput);
+            record.output.seal = empty(SealStatus::SkippedNoOutput);
             return Vec::new();
         }
         let cancel = Arc::clone(&lock(&self.control.state).seal_cancel);
@@ -1278,7 +1291,7 @@ impl AcqJob {
                 warnings.extend(outcome.warnings("symlinks_in_backup"));
             }
             Err(e) => {
-                record.output.seal = empty_seal(SealStatus::Failed);
+                record.output.seal = empty(SealStatus::Failed);
                 warnings.push(status::reason(
                     "seal_failed",
                     format!("backup.sha256 could not be written: {e}"),
@@ -1307,17 +1320,6 @@ fn deliver(events: &mut Events<'_>, parsed: Vec<output::Parsed>) {
     }
     events.flush_lines();
     events.flush_progress(false);
-}
-
-/// A seal with only its status: no manifest, nothing counted.
-fn empty_seal(status: SealStatus) -> Seal {
-    Seal {
-        status,
-        manifest: None,
-        manifest_sha256: None,
-        file_count: None,
-        total_bytes: None,
-    }
 }
 
 /// The recorded argv of `encryption on|off` (no password: it travels via env).
