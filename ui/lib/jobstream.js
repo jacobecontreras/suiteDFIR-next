@@ -15,7 +15,7 @@
  * the run folder (`report/_HTML/_Script_Logs/Screen_Output.html`) or the acquisition's stdout log.
  */
 
-import { setActiveJob } from "./jobs.js";
+import { activeJobId, setActiveJob } from "./jobs.js";
 
 /** @typedef {import("../types").AcqEvent} AcqEvent */
 /** @typedef {import("../types").ActiveJob} ActiveJob */
@@ -188,15 +188,6 @@ export function stepStates(order, s, optional = new Set()) {
 }
 
 /**
- * @param {ActiveJob | null | undefined} job
- * @returns {string | null}
- */
-export function activeJobId(job) {
-  if (!job) return null;
-  return job.kind === "run" ? job.run_id : job.acq_id;
-}
-
-/**
  * @typedef {object} Beginning
  * @property {(event: RunEvent | AcqEvent) => void} onEvent The channel callback for `run_start` / `acq_start`.
  * @property {(id: string) => void} bind Call with the returned `run_id` / `acq_id`.
@@ -270,9 +261,18 @@ export function createJobStreams(store, hooks = {}) {
     if (event.type === "finished") {
       store.set({ activeJob: null });
     } else if (event.type === "phase" && job.phase !== event.phase) {
-      if (job.kind === "run") store.set({ activeJob: { ...job, phase: /** @type {import("../types").RunPhase} */ (event.phase) } });
-      else store.set({ activeJob: { ...job, phase: /** @type {import("../types").AcqPhase} */ (event.phase) } });
+      setJobPhase(job, event.phase);
     }
+  }
+
+  /**
+   * Stores `job` with a new phase (one of its kind's phases).
+   * @param {ActiveJob} job
+   * @param {string} phase
+   */
+  function setJobPhase(job, phase) {
+    if (job.kind === "run") store.set({ activeJob: { ...job, phase: /** @type {import("../types").RunPhase} */ (phase) } });
+    else store.set({ activeJob: { ...job, phase: /** @type {import("../types").AcqPhase} */ (phase) } });
   }
 
   /**
@@ -297,10 +297,7 @@ export function createJobStreams(store, hooks = {}) {
           s.version += 1;
           // Events that arrived before the id was known could not update the active job.
           const job = store.get().activeJob;
-          if (job && activeJobId(job) === id && s.phase && job.phase !== s.phase) {
-            if (job.kind === "run") store.set({ activeJob: { ...job, phase: /** @type {import("../types").RunPhase} */ (s.phase) } });
-            else store.set({ activeJob: { ...job, phase: /** @type {import("../types").AcqPhase} */ (s.phase) } });
-          }
+          if (job && activeJobId(job) === id && s.phase && job.phase !== s.phase) setJobPhase(job, s.phase);
           notify(s);
         },
         abandon() {
