@@ -1360,8 +1360,10 @@ struct BackupRun {
 /// recorded `restored: true` (otherwise `restore_not_applicable`); a failed attempt does not block
 /// a retry. The device must be connected and paired. Runs step 8 on its own in a fresh temp dir,
 /// prompt lines go to `on_line`, and each attempt's outcome is written to its own read-only file,
-/// `encryption-restore.json`, then `encryption-restore-2.json`, … ([`record::write_restore_record`]);
-/// `acquisition.json` is not modified. The one-active-job rule is the shell's.
+/// `encryption-restore.json`, then `encryption-restore-2.json`, … (reserved with
+/// [`record::reserve_restore_attempt`] before the device is touched, then written with
+/// [`record::write_restore_attempt`]); `acquisition.json` is not modified. The one-active-job rule
+/// is the shell's.
 pub fn restore_later(
     idevice: &Idevice,
     case_dir: &Path,

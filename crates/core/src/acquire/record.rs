@@ -536,16 +536,6 @@ pub fn write_restore_attempt(
     Ok(file.clone())
 }
 
-/// [`reserve_restore_attempt`] then [`write_restore_attempt`].
-pub fn write_restore_record(
-    acq_dir: &Path,
-    record: &EncryptionRestoreRecord,
-) -> Result<PathBuf, AcqError> {
-    check_folder(acq_dir, &record.acq_id)?;
-    let slot = reserve_restore_attempt(acq_dir)?;
-    write_restore_attempt(acq_dir, &slot, record)
-}
-
 // ---- reading ----
 
 /// An acquisition found in a case folder.
@@ -1175,6 +1165,15 @@ mod tests {
         record.restored = restored;
         record.will_encrypt_after = Some(!restored);
         record
+    }
+
+    /// [`reserve_restore_attempt`] then [`write_restore_attempt`].
+    fn write_restore_record(
+        acq_dir: &Path,
+        record: &EncryptionRestoreRecord,
+    ) -> Result<PathBuf, AcqError> {
+        let slot = reserve_restore_attempt(acq_dir)?;
+        write_restore_attempt(acq_dir, &slot, record)
     }
 
     fn make_all_writable(dir: &Path) {
