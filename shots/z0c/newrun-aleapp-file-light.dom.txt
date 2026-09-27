@@ -1,0 +1,301 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+          <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+            "Operation Nightjar"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <h1 tabindex="-1">
+            "New run"
+          </h1>
+        </div>
+        <div class="stack">
+          <form class="form new-run-form" novalidate="">
+            <section class="card form-section" aria-labelledby="section-#1">
+              <h2 class="card-title" id="section-#1">
+                <span class="step" aria-hidden="true">
+                  "1"
+                </span>
+                "Tool"
+              </h2>
+              <div class="stack">
+                <fieldset class="choice-group">
+                  <legend class="visually-hidden">
+                    "Tool"
+                  </legend>
+                  <label class="choice">
+                    <input type="radio" name="tool" value="ileapp" style="">
+                    <span class="choice-text">
+                      <span class="choice-title">
+                        "iLEAPP"
+                      </span>
+                      <span class="muted small">
+                        "v2026.4.2 · verified · 1,300 modules"
+                      </span>
+                    </span>
+                  </label>
+                  <label class="choice">
+                    <input type="radio" name="tool" value="aleapp" style="">
+                    <span class="choice-text">
+                      <span class="choice-title">
+                        "aLEAPP"
+                      </span>
+                      <span class="muted small">
+                        "v2026.4.1 · verified before each run · 1,288 modules"
+                      </span>
+                    </span>
+                  </label>
+                </fieldset>
+                ""
+              </div>
+            </section>
+            <section class="card form-section" aria-labelledby="section-#2">
+              <h2 class="card-title" id="section-#2">
+                <span class="step" aria-hidden="true">
+                  "2"
+                </span>
+                "Input"
+              </h2>
+              <div class="stack">
+                <div class="inline-row">
+                  <button class="btn" type="button">
+                    "Choose file…"
+                  </button>
+                  <button class="btn" type="button">
+                    "Choose folder…"
+                  </button>
+                  <button class="btn" type="button" hidden="">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                      <circle cx="11" cy="11" r="7"></circle>
+                      <line x1="20" y1="20" x2="16.2" y2="16.2"></line>
+                    </svg>
+                    "Find iOS backups"
+                  </button>
+                  <span class="muted small">
+                    "suiteDFIR only opens inputs for reading; nothing stops the parser from writing to them."
+                  </span>
+                </div>
+                <section class="subpanel stack-sm backup-finder" aria-labelledby="backup-finder-#1" hidden="">
+                  <div class="card-head">
+                    <h3 id="backup-finder-#1" tabindex="-1">
+                      "iOS backups on this computer"
+                    </h3>
+                    <button class="btn btn-sm btn-plain" type="button">
+                      "Close"
+                    </button>
+                  </div>
+                  <p class="muted small" role="status"></p>
+                  <div class="stack-sm"></div>
+                </section>
+                <div class="stack-sm">
+                  <div class="stack-sm">
+                    <p class="mono break input-path">
+                      "/Volumes/Evidence/Pixel-7.tar"
+                    </p>
+                    <dl class="facts facts-compact">
+                      <dt>
+                        "Kind"
+                      </dt>
+                      <dd>
+                        "File"
+                      </dd>
+                      <dt>
+                        "Size"
+                      </dt>
+                      <dd>
+                        <span title="8,804,682,752 bytes">
+                          "8.2 GiB"
+                        </span>
+                      </dd>
+                      <dt>
+                        "Detected type"
+                      </dt>
+                      <dd>
+                        "tar archive (tar)"
+                      </dd>
+                    </dl>
+                    <div class="field">
+                      <label class="field-label" for="field-#1">
+                        "Input type"
+                      </label>
+                      <select class="input" name="input_type" id="field-#1" aria-describedby="field-#1-hint">
+                        <option value="tar">
+                          "tar archive (tar)"
+                        </option>
+                        <option value="zip">
+                          "zip archive (zip)"
+                        </option>
+                        <option value="gz">
+                          "gzip archive (gz)"
+                        </option>
+                        <option value="raw">
+                          "Disk image (raw)"
+                        </option>
+                      </select>
+                      <p class="field-hint" id="field-#1-hint">
+                        "Override the detected type only if you know it is wrong. Only types valid for this input and tool are offered."
+                      </p>
+                      <p class="field-error" id="field-#1-error" hidden=""></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="card form-section" aria-labelledby="section-#3">
+              <h2 class="card-title" id="section-#3">
+                <span class="step" aria-hidden="true">
+                  "3"
+                </span>
+                "Options"
+              </h2>
+              <div class="stack">
+                <p class="muted small">
+                  "aLEAPP has no timezone option; the run record notes this."
+                </p>
+                <div class="field">
+                  <label class="check">
+                    <input type="checkbox" name="hash_input" style="">
+                    <span>
+                      "Hash the input file (SHA-256)"
+                    </span>
+                  </label>
+                  <p class="field-hint">
+                    "Runs alongside the parser; the hash is recorded in run.json."
+                  </p>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="field-#2">
+                    "Label"
+                  </label>
+                  <input class="input" type="text" name="label" autocomplete="off" maxlength="200" id="field-#2" aria-describedby="field-#2-hint" style="">
+                  <p class="field-hint" id="field-#2-hint">
+                    "Optional. Shown in the runs table and recorded in run.json."
+                  </p>
+                  <p class="field-error" id="field-#2-error" hidden=""></p>
+                </div>
+              </div>
+            </section>
+            <section class="card form-section" aria-labelledby="section-#4">
+              <h2 class="card-title" id="section-#4">
+                <span class="step" aria-hidden="true">
+                  "4"
+                </span>
+                "Modules"
+              </h2>
+              <div class="error-slot"></div>
+              <p class="status-text" role="status"></p>
+              <div class="stack">
+                <fieldset class="choice-group choice-group-row">
+                  <legend class="visually-hidden">
+                    "Module selection"
+                  </legend>
+                  <label class="choice">
+                    <input type="radio" name="module_mode" value="all" style="">
+                    <span class="choice-text">
+                      <span class="choice-title">
+                        "All modules (1,288)"
+                      </span>
+                      <span class="muted small">
+                        "Runs every module of the installed version."
+                      </span>
+                    </span>
+                  </label>
+                  <label class="choice">
+                    <input type="radio" name="module_mode" value="profile" style="">
+                    <span class="choice-text">
+                      <span class="choice-title">
+                        "Saved profile"
+                      </span>
+                      <span class="muted small">
+                        "1 saved for aLEAPP."
+                      </span>
+                    </span>
+                  </label>
+                  <label class="choice">
+                    <input type="radio" name="module_mode" value="custom" style="">
+                    <span class="choice-text">
+                      <span class="choice-title">
+                        "Custom selection"
+                      </span>
+                      <span class="muted small">
+                        "Pick modules by category or search."
+                      </span>
+                    </span>
+                  </label>
+                </fieldset>
+                ""
+              </div>
+            </section>
+            <section class="card start-card" aria-label="Start">
+              <div class="start-reasons" id="start-reasons-#1">
+                <p class="ready-text">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  "Ready to start."
+                </p>
+              </div>
+              <div class="error-slot"></div>
+              <div class="form-actions">
+                <a class="btn" href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+                  "Cancel"
+                </a>
+                <button class="btn btn-primary btn-lg" type="button" aria-describedby="start-reasons-#1">
+                  "Start run"
+                </button>
+              </div>
+            </section>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

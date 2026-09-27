@@ -1,0 +1,500 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen acquire-screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+          <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+            "Operation Nightjar"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <div class="title-row">
+            <h1 tabindex="-1">
+              "Seized iPhone, item 7"
+            </h1>
+            <div class="run-status">
+              <span class="badge badge-succeeded">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                </svg>
+                "Succeeded"
+              </span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-danger" type="button" title="" hidden="">
+              "Cancel acquisition"
+            </button>
+          </div>
+        </div>
+        <div class="stack">
+          <dl class="facts run-facts">
+            <dt>
+              "Device"
+            </dt>
+            <dd>
+              "Alex's iPhone"
+            </dd>
+            <dt>
+              "Model"
+            </dt>
+            <dd>
+              "iPhone13,2"
+            </dd>
+            <dt>
+              "iOS"
+            </dt>
+            <dd>
+              "18.6"
+            </dd>
+            <dt>
+              "UDID"
+            </dt>
+            <dd>
+              <span class="mono break">
+                "00008101-000A1B2C3D4E001E"
+              </span>
+            </dd>
+            <dt>
+              "Label"
+            </dt>
+            <dd>
+              "Seized iPhone, item 7"
+            </dd>
+            <dt>
+              "Created"
+            </dt>
+            <dd>
+              <time class="time-local" datetime="<iso-now>" tabindex="0" data-utc="<utc-now> UTC">
+                "<local-now>"
+                <span class="visually-hidden">
+                  " (<utc-now> UTC)"
+                </span>
+              </time>
+            </dd>
+            <dt>
+              "Acquisition ID"
+            </dt>
+            <dd>
+              <span class="mono">
+                "<now>-ios-#1"
+              </span>
+            </dd>
+          </dl>
+          <div></div>
+          <section class="card" aria-labelledby="acq-progress-heading">
+            <div class="card-head">
+              <h2 id="acq-progress-heading">
+                "Progress"
+              </h2>
+              <span class="muted">
+                <span>
+                  "Duration"
+                </span>
+                " "
+                <span class="elapsed">
+                  "<masked>"
+                </span>
+              </span>
+            </div>
+            <div>
+              <ol class="phase-steps" aria-label="Acquisition phases">
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Preparing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Enabling encryption"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Backing up"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Restoring encryption"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Validating"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Sealing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Finalizing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+              </ol>
+            </div>
+            <div class="stack-sm progress-slot">
+              <div class="progress-block">
+                <div class="progress-head">
+                  <label class="progress-label" for="progress-#1">
+                    "Backup"
+                  </label>
+                  <span class="muted">
+                    "100%"
+                  </span>
+                </div>
+                <progress class="progress" id="progress-#1" max="100" value="100"></progress>
+              </div>
+              <div class="progress-block">
+                <div class="progress-head">
+                  <label class="progress-label" for="progress-#2">
+                    "Sealing the backup (backup.sha256)"
+                  </label>
+                  <span class="muted">
+                    "48,210 of 48,210 files (100%)"
+                  </span>
+                </div>
+                <progress class="progress" id="progress-#2" max="48210" value="48210"></progress>
+              </div>
+            </div>
+            <div class="error-slot"></div>
+          </section>
+          <section class="card result-card" aria-labelledby="acq-result-heading">
+            <div class="slot-contents">
+              <div class="card-head">
+                <h2 id="acq-result-heading">
+                  "Result"
+                </h2>
+                <span class="badge badge-succeeded">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  "Succeeded"
+                </span>
+              </div>
+              <p>
+                "The backup is complete and validated, and backup.sha256 seals it."
+              </p>
+            </div>
+            <div class="slot-contents"></div>
+            <div class="slot-contents">
+              <dl class="facts facts-compact">
+                <dt>
+                  "Backup"
+                </dt>
+                <dd>
+                  <span class="mono break">
+                    "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/acquisitions/<now>-ios-#1/backup/00008101-000A1B2C3D4E001E"
+                  </span>
+                </dd>
+                <dt>
+                  "Seal"
+                </dt>
+                <dd>
+                  "Sealed in backup.sha256: 48,210 files, 57.0 GiB"
+                </dd>
+                <dt>
+                  "Encryption"
+                </dt>
+                <dd>
+                  "Turned on for the backup, then off again"
+                </dd>
+                <dt>
+                  "Tool said"
+                </dt>
+                <dd>
+                  <span class="mono">
+                    "Backup Successful."
+                  </span>
+                </dd>
+              </dl>
+              <div class="actions">
+                <button class="btn btn-primary" type="button" title="Open New run with this backup as the input" data-focus-key="parse">
+                  "Parse with iLEAPP"
+                </button>
+                <button class="btn" type="button" data-focus-key="reveal">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  </svg>
+                  "Reveal folder"
+                </button>
+                <button class="btn" type="button" data-focus-key="json">
+                  "Open acquisition.json"
+                </button>
+                <button class="btn" type="button" data-focus-key="stdout">
+                  "Open log"
+                </button>
+                <button class="btn" type="button" data-focus-key="stderr">
+                  "Open error log"
+                </button>
+                <button class="btn btn-plain" type="button" data-focus-key="new">
+                  "New acquisition"
+                </button>
+              </div>
+              <p class="muted small">
+                "The backup password you set is kept in memory for “Parse with iLEAPP” until you leave this result."
+              </p>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="acq-log-heading">
+            <div class="card-head">
+              <h2 id="acq-log-heading">
+                "Log"
+              </h2>
+            </div>
+            <div class="log-view">
+              <div class="log-toolbar">
+                <label class="check" for="log-follow-#1">
+                  <input type="checkbox" id="log-follow-#1" style="">
+                  <span>
+                    "Auto-scroll"
+                  </span>
+                </label>
+                <button class="btn btn-sm" type="button">
+                  "Copy all"
+                </button>
+                <span class="log-copy-status muted" role="status"></span>
+                <span class="log-toolbar-spacer"></span>
+                <span class="log-count muted">
+                  "15 lines"
+                </span>
+              </div>
+              <div class="log-frame">
+                <div class="log-viewport" tabindex="0" role="region" aria-label="Backup log (scrollable)" data-count="15" style="--log-row: 20px;">
+                  <div class="log-spacer" style="height: 300px;">
+                    <div class="log-rows" style="transform: translateY(0px);">
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "1"
+                        </span>
+                        <span class="log-text">
+                          "Started \"com.apple.mobilebackup2\" service on port 49324."
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "2"
+                        </span>
+                        <span class="log-text">
+                          "Negotiated Protocol Version 2.1"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "3"
+                        </span>
+                        <span class="log-text">
+                          "Starting backup..."
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "4"
+                        </span>
+                        <span class="log-text">
+                          "[                    ] 0% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "5"
+                        </span>
+                        <span class="log-text">
+                          "[==                  ] 10% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "6"
+                        </span>
+                        <span class="log-text">
+                          "[====                ] 20% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "7"
+                        </span>
+                        <span class="log-text">
+                          "[======              ] 30% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "8"
+                        </span>
+                        <span class="log-text">
+                          "[========            ] 40% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "9"
+                        </span>
+                        <span class="log-text">
+                          "[==========          ] 50% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "10"
+                        </span>
+                        <span class="log-text">
+                          "[============        ] 60% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "11"
+                        </span>
+                        <span class="log-text">
+                          "[==============      ] 70% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "12"
+                        </span>
+                        <span class="log-text">
+                          "[================    ] 80% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "13"
+                        </span>
+                        <span class="log-text">
+                          "[==================  ] 90% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "14"
+                        </span>
+                        <span class="log-text">
+                          "[====================] 100% Finished"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "15"
+                        </span>
+                        <span class="log-text">
+                          "Backup Successful."
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p class="log-empty muted" hidden="">
+                  "No log lines yet."
+                </p>
+              </div>
+              <p class="visually-hidden" aria-live="polite">
+                "<masked>"
+              </p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

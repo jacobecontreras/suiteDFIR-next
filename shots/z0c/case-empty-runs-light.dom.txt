@@ -1,0 +1,186 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <h1 tabindex="-1">
+            "Harbor Lights"
+          </h1>
+          <div class="actions">
+            <button class="btn" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              </svg>
+              "Reveal folder"
+            </button>
+            <a class="btn" href="#/acquire?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FHarbor+Lights">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                <rect x="6" y="2" width="12" height="20" rx="2"></rect>
+                <line x1="11" y1="18" x2="13" y2="18"></line>
+              </svg>
+              "Acquire iOS backup"
+            </a>
+            <a class="btn btn-primary" href="#/new-run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FHarbor+Lights">
+              "New run"
+            </a>
+          </div>
+        </div>
+        <div class="stack">
+          <section class="card" aria-labelledby="case-details-heading">
+            <div class="card-head">
+              <h2 id="case-details-heading">
+                "Case details"
+              </h2>
+              <button class="btn btn-sm" type="button">
+                "Edit"
+              </button>
+            </div>
+            <dl class="facts">
+              <dt>
+                "Case number"
+              </dt>
+              <dd>
+                "2026-0198"
+              </dd>
+              <dt>
+                "Examiner"
+              </dt>
+              <dd>
+                "J. Doe"
+              </dd>
+              <dt>
+                "Agency"
+              </dt>
+              <dd>
+                "County Forensics Lab"
+              </dd>
+              <dt>
+                "Description"
+              </dt>
+              <dd>
+                <span class="prewrap">
+                  "Marina burglary series"
+                </span>
+              </dd>
+              <dt>
+                "Default timezone"
+              </dt>
+              <dd>
+                "App default (UTC)"
+              </dd>
+              <dt>
+                "Created"
+              </dt>
+              <dd>
+                <time class="time-local" datetime="2026-09-18T08:02:44Z" tabindex="0" data-utc="2026-09-18 08:02:44 UTC">
+                  "2026-09-18 01:02:44"
+                  <span class="visually-hidden">
+                    " (2026-09-18 08:02:44 UTC)"
+                  </span>
+                </time>
+              </dd>
+              <dt>
+                "Updated"
+              </dt>
+              <dd>
+                <time class="time-local" datetime="2026-09-18T08:02:44Z" tabindex="0" data-utc="2026-09-18 08:02:44 UTC">
+                  "2026-09-18 01:02:44"
+                  <span class="visually-hidden">
+                    " (2026-09-18 08:02:44 UTC)"
+                  </span>
+                </time>
+              </dd>
+              <dt>
+                "Folder"
+              </dt>
+              <dd>
+                <span class="mono break">
+                  "/Users/examiner/Documents/suiteDFIR Cases/Harbor Lights"
+                </span>
+              </dd>
+            </dl>
+          </section>
+          <section class="card" aria-labelledby="runs-heading">
+            <div class="card-head">
+              <h2 id="runs-heading">
+                "Runs"
+              </h2>
+              <span class="muted">
+                "0 runs"
+              </span>
+            </div>
+            <div class="error-slot"></div>
+            <p class="muted">
+              "No runs yet. "
+              <a href="#/new-run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FHarbor+Lights">
+                "Start a new run"
+              </a>
+              "."
+            </p>
+          </section>
+          <section class="card" aria-labelledby="acquisitions-heading">
+            <div class="card-head">
+              <h2 id="acquisitions-heading">
+                "Acquisitions"
+              </h2>
+              <span class="muted">
+                "0 acquisitions"
+              </span>
+            </div>
+            <div class="error-slot"></div>
+            <p class="muted">
+              "No acquisitions yet. "
+              <a href="#/acquire?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FHarbor+Lights">
+                "Acquire an iOS backup"
+              </a>
+              "."
+            </p>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

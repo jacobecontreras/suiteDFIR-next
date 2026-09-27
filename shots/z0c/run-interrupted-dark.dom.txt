@@ -1,0 +1,211 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen run-screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+          <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+            "Operation Nightjar"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <div class="title-row">
+            <h1 tabindex="-1">
+              "Before the power cut"
+            </h1>
+            <div class="run-status">
+              <span class="badge badge-interrupted">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="10" y1="15" x2="10" y2="9"></line>
+                  <line x1="14" y1="15" x2="14" y2="9"></line>
+                </svg>
+                "Interrupted"
+              </span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-danger" type="button" hidden="">
+              "Cancel run"
+            </button>
+          </div>
+        </div>
+        <div class="stack">
+          <dl class="facts run-facts">
+            <dt>
+              "Tool"
+            </dt>
+            <dd>
+              "iLEAPP v2026.4.2"
+            </dd>
+            <dt>
+              "Input"
+            </dt>
+            <dd>
+              <span class="cell-input">
+                <span class="tag" title="iTunes/Finder backup (itunes)">
+                  "itunes"
+                </span>
+                <span class="mono path-text">
+                  "/Volumes/Evidence/iPhone-11-backup"
+                </span>
+              </span>
+            </dd>
+            <dt>
+              "Label"
+            </dt>
+            <dd>
+              "Before the power cut"
+            </dd>
+            <dt>
+              "Created"
+            </dt>
+            <dd>
+              <time class="time-local" datetime="2026-09-21T09:00:00Z" tabindex="0" data-utc="2026-09-21 09:00:00 UTC">
+                "2026-09-21 02:00:00"
+                <span class="visually-hidden">
+                  " (2026-09-21 09:00:00 UTC)"
+                </span>
+              </time>
+            </dd>
+            <dt>
+              "Run ID"
+            </dt>
+            <dd>
+              <span class="mono">
+                "20260921-090000Z-ileapp-#1"
+              </span>
+            </dd>
+          </dl>
+          <section class="card result-card" aria-labelledby="run-result-heading">
+            <div class="card-head">
+              <h2 id="run-result-heading">
+                "Result"
+              </h2>
+              <span class="badge badge-interrupted">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="10" y1="15" x2="10" y2="9"></line>
+                  <line x1="14" y1="15" x2="14" y2="9"></line>
+                </svg>
+                "Interrupted"
+              </span>
+            </div>
+            <p>
+              "The app closed while this run was running. Its partial output is kept."
+            </p>
+            <div class="stack-sm reason-list reason-list-reasons">
+              <h3>
+                "Reasons"
+              </h3>
+              <ul class="list-compact">
+                <li>
+                  <code>
+                    "app_interrupted"
+                  </code>
+                  " "
+                  "The app closed while this job was running"
+                </li>
+              </ul>
+            </div>
+            <dl class="facts facts-compact">
+              <dt>
+                "Report"
+              </dt>
+              <dd>
+                "Seal interrupted"
+              </dd>
+            </dl>
+            <div class="stack-sm">
+              <h3>
+                "Parser output"
+              </h3>
+              <p class="muted small">
+                "LEAPP's stdout and stderr are shown here for runs that finish in this window. Open them with the buttons below."
+              </p>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" type="button" disabled="" title="This run has no report/index.html">
+                "Open report"
+              </button>
+              <button class="btn" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                </svg>
+                "Reveal folder"
+              </button>
+              <button class="btn" type="button">
+                "Open stdout"
+              </button>
+              <button class="btn" type="button">
+                "Open stderr"
+              </button>
+              <button class="btn" type="button">
+                "Open run.json"
+              </button>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="run-log-heading">
+            <div class="card-head">
+              <h2 id="run-log-heading">
+                "Log"
+              </h2>
+            </div>
+            <div class="stack-sm">
+              <p class="muted">
+                "The live log is shown while a run is in progress. The complete log is "
+                <span class="mono">
+                  "report/_HTML/_Script_Logs/Screen_Output.html"
+                </span>
+                " in the run folder."
+              </p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

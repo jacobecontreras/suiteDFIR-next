@@ -1,0 +1,35 @@
+<div id="app">
+  <main class="content">
+    <section class="screen">
+      <h1>
+        "suiteDFIR"
+      </h1>
+      <div class="app-error" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon app-error-icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="15" y1="9" x2="9" y2="15"></line>
+          <line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+        <div class="app-error-body">
+          <p class="app-error-message">
+            "This page must run inside the suiteDFIR app."
+          </p>
+          <p class="app-error-code">
+            "Error code: "
+            <code>
+              "internal"
+            </code>
+          </p>
+          <details class="app-error-detail">
+            <summary>
+              "Details"
+            </summary>
+            <pre class="pre">
+              "The app API (window.__TAURI__) is not available. For UI development, serve the UI with scripts/serve-ui.mjs and open it with ?mock for the browser mock."
+            </pre>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>

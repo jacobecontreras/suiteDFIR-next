@@ -1,0 +1,93 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <h1 tabindex="-1">
+            "Riverside 2025"
+          </h1>
+          <div class="actions"></div>
+        </div>
+        <div class="stack">
+          <div class="app-error" role="alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon app-error-icon">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="15" y1="9" x2="9" y2="15"></line>
+              <line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+            <div class="app-error-body">
+              <p class="app-error-title">
+                "The case could not be opened."
+              </p>
+              <p class="app-error-message">
+                "The case folder does not exist."
+              </p>
+              <p class="app-error-code">
+                "Error code: "
+                <code>
+                  "case_not_found"
+                </code>
+              </p>
+              <details class="app-error-detail" open="">
+                <summary>
+                  "Details"
+                </summary>
+                <pre class="pre">
+                  "/Volumes/Archive/suiteDFIR Cases/Riverside 2025: No such file or directory (os error 2)"
+                </pre>
+              </details>
+            </div>
+          </div>
+          <p>
+            <a href="#/cases">
+              "Back to Cases"
+            </a>
+          </p>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

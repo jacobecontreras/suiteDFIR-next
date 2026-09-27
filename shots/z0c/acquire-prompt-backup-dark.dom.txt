@@ -1,0 +1,314 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        <a class="job-indicator" href="#/acquire?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar" title="Show the active job">
+          <span class="pulse" aria-hidden="true"></span>
+          <span>
+            "Acquisition in progress"
+          </span>
+          <span class="job-phase">
+            "Backing up"
+          </span>
+        </a>
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen acquire-screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+          <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+            "Operation Nightjar"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <div class="title-row">
+            <h1 tabindex="-1">
+              "Seized iPhone, item 7"
+            </h1>
+            <div class="run-status">
+              <span class="badge badge-running">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                </svg>
+                "Running"
+              </span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-danger" type="button" title="">
+              "Cancel acquisition"
+            </button>
+          </div>
+        </div>
+        <div class="stack">
+          <dl class="facts run-facts">
+            <dt>
+              "Device"
+            </dt>
+            <dd>
+              "Alex's iPhone"
+            </dd>
+            <dt>
+              "Model"
+            </dt>
+            <dd>
+              "iPhone13,2"
+            </dd>
+            <dt>
+              "iOS"
+            </dt>
+            <dd>
+              "18.6"
+            </dd>
+            <dt>
+              "UDID"
+            </dt>
+            <dd>
+              <span class="mono break">
+                "00008101-000A1B2C3D4E001E"
+              </span>
+            </dd>
+            <dt>
+              "Label"
+            </dt>
+            <dd>
+              "Seized iPhone, item 7"
+            </dd>
+            <dt>
+              "Created"
+            </dt>
+            <dd>
+              <time class="time-local" datetime="<iso-now>" tabindex="0" data-utc="<utc-now> UTC">
+                "<local-now>"
+                <span class="visually-hidden">
+                  " (<utc-now> UTC)"
+                </span>
+              </time>
+            </dd>
+            <dt>
+              "Acquisition ID"
+            </dt>
+            <dd>
+              <span class="mono">
+                "<now>-ios-#1"
+              </span>
+            </dd>
+          </dl>
+          <div>
+            <div class="banner banner-prompt" role="alert">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon icon-prompt">
+                <rect x="6" y="2" width="12" height="20" rx="2"></rect>
+                <line x1="11" y1="18" x2="13" y2="18"></line>
+              </svg>
+              <div class="stack-sm">
+                <strong class="prompt-title">
+                  "Enter the passcode on the device"
+                </strong>
+                <p>
+                  "The backup starts after the passcode is entered on the device."
+                </p>
+                <p class="mono small">
+                  "*** Waiting for passcode to be entered on the device ***"
+                </p>
+                <p class="small">
+                  "The app waits for the device without a time limit."
+                </p>
+              </div>
+            </div>
+          </div>
+          <section class="card" aria-labelledby="acq-progress-heading">
+            <div class="card-head">
+              <h2 id="acq-progress-heading">
+                "Progress"
+              </h2>
+              <span class="muted">
+                <span>
+                  "Elapsed"
+                </span>
+                " "
+                <span class="elapsed">
+                  "<masked>"
+                </span>
+              </span>
+            </div>
+            <div>
+              <ol class="phase-steps" aria-label="Acquisition phases">
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Preparing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-current" aria-current="step">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                  </svg>
+                  <span>
+                    "Backing up"
+                  </span>
+                  <span class="visually-hidden">
+                    " (in progress)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-pending">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="9"></circle>
+                  </svg>
+                  <span>
+                    "Validating"
+                  </span>
+                  <span class="visually-hidden">
+                    " (not started)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-pending">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="9"></circle>
+                  </svg>
+                  <span>
+                    "Sealing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (not started)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-pending">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="9"></circle>
+                  </svg>
+                  <span>
+                    "Finalizing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (not started)"
+                  </span>
+                </li>
+              </ol>
+            </div>
+            <div class="stack-sm progress-slot">
+              <p class="muted small">
+                "The backup's overall progress shows here once the device sends data."
+              </p>
+            </div>
+            <div class="error-slot"></div>
+          </section>
+          <section class="card result-card" aria-labelledby="acq-result-heading" hidden="">
+            <div class="slot-contents"></div>
+            <div class="slot-contents"></div>
+            <div class="slot-contents"></div>
+          </section>
+          <section class="card" aria-labelledby="acq-log-heading">
+            <div class="card-head">
+              <h2 id="acq-log-heading">
+                "Log"
+              </h2>
+            </div>
+            <div class="log-view">
+              <div class="log-toolbar">
+                <label class="check" for="log-follow-#1">
+                  <input type="checkbox" id="log-follow-#1" style="">
+                  <span>
+                    "Auto-scroll"
+                  </span>
+                </label>
+                <button class="btn btn-sm" type="button">
+                  "Copy all"
+                </button>
+                <span class="log-copy-status muted" role="status"></span>
+                <span class="log-toolbar-spacer"></span>
+                <span class="log-count muted">
+                  "3 lines"
+                </span>
+              </div>
+              <div class="log-frame">
+                <div class="log-viewport" tabindex="0" role="region" aria-label="Backup log (scrollable)" data-count="3" style="--log-row: 20px;">
+                  <div class="log-spacer" style="height: 60px;">
+                    <div class="log-rows" style="transform: translateY(0px);">
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "1"
+                        </span>
+                        <span class="log-text">
+                          "Started \"com.apple.mobilebackup2\" service on port 49324."
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "2"
+                        </span>
+                        <span class="log-text">
+                          "Negotiated Protocol Version 2.1"
+                        </span>
+                      </div>
+                      <div class="log-row">
+                        <span class="log-no" aria-hidden="true">
+                          "3"
+                        </span>
+                        <span class="log-text">
+                          "Starting backup..."
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p class="log-empty muted" hidden="">
+                  "No log lines yet."
+                </p>
+              </div>
+              <p class="visually-hidden" aria-live="polite">
+                "<masked>"
+              </p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

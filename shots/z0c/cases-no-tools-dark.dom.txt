@@ -1,0 +1,176 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen">
+        <div class="screen-head">
+          <h1 tabindex="-1">
+            "Cases"
+          </h1>
+          <div class="actions">
+            <button class="btn" type="button">
+              "Open case folder…"
+            </button>
+            <button class="btn btn-primary" type="button">
+              "New case"
+            </button>
+          </div>
+        </div>
+        <div>
+          <div class="banner banner-warn" role="status">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <div>
+              <strong>
+                "No parser is installed. "
+              </strong>
+              "Install iLEAPP or aLEAPP in "
+              <a href="#/settings">
+                "Settings"
+              </a>
+              " before starting a run."
+            </div>
+          </div>
+        </div>
+        <div class="error-slot"></div>
+        <div class="stack">
+          <section class="stack" aria-labelledby="recent-heading">
+            <h2 class="section-title" id="recent-heading">
+              "Recent cases"
+            </h2>
+            <ul class="case-list">
+              <li class="case-item">
+                <div class="case-main">
+                  <h3 class="case-name">
+                    <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+                      "Operation Nightjar"
+                    </a>
+                  </h3>
+                  <p class="case-meta">
+                    "Case 2026-0142 · J. Doe · County Forensics Lab"
+                  </p>
+                  <p class="case-path mono">
+                    "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar"
+                  </p>
+                </div>
+                <div class="case-stats">
+                  <span>
+                    "7 runs"
+                  </span>
+                  <span class="muted">
+                    "Last run "
+                    <time class="time-local" datetime="2026-09-24T18:30:05Z" tabindex="0" data-utc="2026-09-24 18:30:05 UTC">
+                      "2026-09-24 11:30:05"
+                      <span class="visually-hidden">
+                        " (2026-09-24 18:30:05 UTC)"
+                      </span>
+                    </time>
+                  </span>
+                </div>
+                <div class="case-actions">
+                  <a class="btn btn-sm" href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+                    "Open"
+                  </a>
+                  <button class="btn btn-sm btn-plain" type="button" title="Remove from this list. The folder is not changed.">
+                    "Forget"
+                  </button>
+                </div>
+              </li>
+              <li class="case-item">
+                <div class="case-main">
+                  <h3 class="case-name">
+                    <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FHarbor+Lights">
+                      "Harbor Lights"
+                    </a>
+                  </h3>
+                  <p class="case-meta">
+                    "Case 2026-0198 · J. Doe · County Forensics Lab"
+                  </p>
+                  <p class="case-path mono">
+                    "/Users/examiner/Documents/suiteDFIR Cases/Harbor Lights"
+                  </p>
+                </div>
+                <div class="case-stats">
+                  <span>
+                    "0 runs"
+                  </span>
+                </div>
+                <div class="case-actions">
+                  <a class="btn btn-sm" href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FHarbor+Lights">
+                    "Open"
+                  </a>
+                  <button class="btn btn-sm btn-plain" type="button" title="Remove from this list. The folder is not changed.">
+                    "Forget"
+                  </button>
+                </div>
+              </li>
+              <li class="case-item case-item-missing">
+                <div class="case-main">
+                  <h3 class="case-name">
+                    "Riverside 2025"
+                    <span class="badge badge-missing">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                      </svg>
+                      "Folder not found"
+                    </span>
+                  </h3>
+                  <p class="case-path mono">
+                    "/Volumes/Archive/suiteDFIR Cases/Riverside 2025"
+                  </p>
+                  <p class="muted small">
+                    "The folder was moved or renamed, or its drive is not connected. Reconnect it, or forget this entry."
+                  </p>
+                </div>
+                <div class="case-actions">
+                  <button class="btn btn-sm btn-plain" type="button" title="Remove from this list. The folder is not changed.">
+                    "Forget"
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
