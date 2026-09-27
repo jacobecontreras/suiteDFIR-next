@@ -236,7 +236,7 @@ A contract change updates all of these in one PR:
 
 **Unit tests:**
 - Every function in `crates/core` with logic has unit tests.
-- Status rules have table-driven tests, including every row of CONTRACTS.md §7.4, over synthetic outputs and (from E3) the captured fixtures in `fixtures/leapp/`.
+- Status rules have table-driven tests, including every row of CONTRACTS.md §7.4, over synthetic outputs and the captured fixtures in `fixtures/leapp/`.
 
 **fake-leapp** (`crates/core/src/bin/fake-leapp.rs`) mimics a LEAPP onefile binary:
 - **CLI:** accepts LEAPP's flags; writes the LEAPP output layout.
@@ -250,7 +250,7 @@ A contract change updates all of these in one PR:
   - Writes `_lava_data.lava` at the end.
 - **Module list:** `--list-modules-json <tool>` prints a small module list as a `ToolModules` JSON object with version `dev-override` (for the dev override).
 - **Probe copies:** a copy named `fake-leapp-probe[.exe]` also answers module introspection (LEAPP-CLI.md §5): its always-run artifacts, catalog and 500 filler plugins (plus iLEAPP's timezones). The E2 replay installs such a copy as aLEAPP through the real install pipeline. Plain `fake-leapp` never answers the probe.
-- **Scenarios** (`FAKE_LEAPP_SCENARIO`): `success`, `artifact_error`, `invalid_input`, `early_exit`, `argparse_error`, `crash`, `prompt` (opens `/dev/tty` if possible, then reads stdin; EOF → traceback, exit 1), `slow`, `ignore_term` (ignores SIGTERM). Expected outcomes are in CONTRACTS.md §7.4. One more, `glibc_too_old`, prints the dynamic loader's `version 'GLIBC_2.43' not found` line from the bootloader and exits 255 before creating anything, like a pinned Linux build on a too-old glibc (LEAPP-CLI.md §2); the runner records it as `spawn_failed` with the glibc message.
+- **Scenarios** (`FAKE_LEAPP_SCENARIO`): the rows of CONTRACTS.md §7.4. `prompt` opens `/dev/tty` if possible, then reads stdin (EOF → traceback, exit 1); `ignore_term` ignores SIGTERM. One more, `glibc_too_old`, prints the dynamic loader's `version 'GLIBC_2.43' not found` line from the bootloader and exits 255 before creating anything, like a pinned Linux build on a too-old glibc (LEAPP-CLI.md §2); the runner records it as `spawn_failed` with the glibc message.
 
 **Process tests (all three OSes):**
 - Log lines arrive incrementally.
@@ -263,7 +263,7 @@ A contract change updates all of these in one PR:
 - **Output formats:** follow docs/IDEVICE-CLI.md: XML plists for `-x`, `idevicepair` message lines, and `\r[==  ] NN% (x/y)` progress with explicit flush.
 - **Backup layout:** writes a valid tiny layout (`Info.plist`, `Manifest.plist`, `Manifest.db`, `Status.plist` with `SnapshotState`).
 - **Signals:** handles SIGTERM like the real tool.
-- **Pairing semantics:** mirrors the real tools. `hostid` prints `(null)` without a host record, and `validate` without a record behaves like `pair` (it starts pairing), so tests can prove that polling never pairs.
+- **Pairing semantics:** as CONTRACTS.md §13.4 (`hostid` prints `(null)` without a host record; `validate` without one starts pairing), so tests can prove that polling never pairs.
 - **Password handling:** reads passwords only from `BACKUP_PASSWORD_NEW`/`BACKUP_PASSWORD`, and fails if a password appears in argv.
 - **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`. Two more cover device behavior the §13.4 rows do not:
   - `will_encrypt_absent`: the backup domain has no `WillEncrypt` key, which the tool treats as false.
