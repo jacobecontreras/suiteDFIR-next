@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use super::AcqError;
 use crate::contracts::{
     AcqStatus, AcqSummary, AcquisitionRecord, EncryptionRestoreRecord, Reason, SealStatus,
-    Timestamp, VersionedFile, parse_versioned,
+    Timestamp, parse_versioned,
 };
 use crate::fsutil;
 
@@ -37,11 +37,6 @@ const ACQ_ID_ATTEMPTS: u32 = 16;
 
 // ---- ids and folders ----
 
-/// A new acquisition id, `YYYYMMDD-HHMMSSZ-ios-<6 lowercase hex>` (UTC).
-pub fn new_acq_id(created_at: Timestamp) -> io::Result<String> {
-    crate::idevice::new_ios_id(created_at)
-}
-
 /// Whether `id` has the acquisition id format with a real date and time. Commands check this
 /// before using an id as a folder name (ARCHITECTURE.md §9).
 pub fn is_acq_id(id: &str) -> bool {
@@ -67,7 +62,7 @@ pub fn create_acq_dir(
     let root = case_dir.join(ACQUISITIONS_DIR);
     fs::create_dir_all(&root).map_err(|e| AcqError::io(&root, e))?;
     for _ in 0..ACQ_ID_ATTEMPTS {
-        let acq_id = new_acq_id(created_at).map_err(|e| AcqError::io(&root, e))?;
+        let acq_id = crate::idevice::new_ios_id(created_at).map_err(|e| AcqError::io(&root, e))?;
         let dir = root.join(&acq_id);
         match fs::create_dir(&dir) {
             Ok(()) => return Ok((acq_id, dir)),
@@ -407,7 +402,6 @@ pub fn restore_attempt_number(name: &str) -> Option<u32> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RestoreAttempt {
     pub number: u32,
-    pub file: PathBuf,
     pub record: EncryptionRestoreRecord,
 }
 
@@ -442,11 +436,9 @@ pub fn restore_attempts(acq_dir: &Path, acq_id: &str) -> Result<Vec<RestoreAttem
                 parse_versioned::<EncryptionRestoreRecord>(&bytes).map_err(|e| e.to_string())
             });
         match parsed {
-            Ok(record) if record.acq_id == acq_id => attempts.push(RestoreAttempt {
-                number,
-                file,
-                record,
-            }),
+            Ok(record) if record.acq_id == acq_id => {
+                attempts.push(RestoreAttempt { number, record })
+            }
             Ok(record) => log::warn!(
                 "ignoring {}: it names acquisition {:?}",
                 file.display(),
@@ -717,9 +709,6 @@ pub fn acquisition_id_for_input<P: AsRef<Path>>(
     Ok(None)
 }
 
-/// The `schema_version` written in new records.
-pub(crate) const SCHEMA_VERSION: u32 = AcquisitionRecord::SCHEMA_VERSION;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,7 +765,7 @@ mod tests {
 
     #[test]
     fn acq_ids_have_the_contract_format() {
-        let id = new_acq_id(at("2026-09-24T17:12:00Z")).unwrap();
+        let id = crate::idevice::new_ios_id(at("2026-09-24T17:12:00Z")).unwrap();
         assert!(id.starts_with("20260924-171200Z-ios-"), "{id}");
         assert_eq!(id.len(), ACQ_ID.len());
         assert!(is_acq_id(&id));

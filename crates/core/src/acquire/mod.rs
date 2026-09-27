@@ -53,10 +53,8 @@ use crate::idevice::{
 use crate::process::{self, SpawnSpec};
 
 pub use record::{
-    ACQ_FILE, ACQUISITIONS_DIR, AttemptSlot, BACKUP_DIR, BACKUP_MANIFEST, DEVICE_INFO_FILE,
-    DiscoveredAcq, RESTORE_FILE, RestoreAttempt, acquisition_id_for_input, discover, is_acq_id,
-    later_restore_succeeded, load, new_acq_id, recover_case, reserve_restore_attempt,
-    restore_attempt_number, restore_attempts, restore_file_name, summary, write_restore_attempt,
+    ACQ_FILE, ACQUISITIONS_DIR, BACKUP_DIR, BACKUP_MANIFEST, DEVICE_INFO_FILE, DiscoveredAcq,
+    acquisition_id_for_input, discover, load, recover_case, restore_attempts, summary,
 };
 
 /// Backup passwords are at least this many characters (ARCHITECTURE.md §6b step 4).
@@ -873,7 +871,7 @@ impl AcqJob {
             .collect();
         let password_supplied = self.password.is_some();
         let record = AcquisitionRecord {
-            schema_version: record::SCHEMA_VERSION,
+            schema_version: AcquisitionRecord::SCHEMA_VERSION,
             acq_id: self.acq_id.clone(),
             label: self.label.clone(),
             status: AcqStatus::Running,
