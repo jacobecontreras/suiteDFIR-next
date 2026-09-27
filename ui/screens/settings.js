@@ -11,7 +11,7 @@
  * Installs keep running (and their progress stays in the store) when the examiner leaves the screen.
  */
 import { appError, errorSlot } from "../components/app-error.js";
-import { percentOf, progressMeter, stepList } from "../components/progress.js";
+import { percentSuffix, progressMeter, stepList } from "../components/progress.js";
 import { fill, h, keyedSlot, setText } from "../lib/dom.js";
 import { toAppError } from "../lib/errors.js";
 import { field, selectInput, textInput } from "../lib/form.js";
@@ -20,7 +20,7 @@ import { TOOL_STATES, applyInstallEvent, finishInstall, installSteps, stageLabel
 import { jobKey } from "../lib/jobs.js";
 import { watch } from "../lib/store.js";
 import { loadTimezones } from "../lib/timezones.js";
-import { icon, uid } from "../lib/view.js";
+import { dash, icon, uid } from "../lib/view.js";
 
 /** @typedef {import("../types").InstallEvent} InstallEvent */
 /** @typedef {import("../types").ToolId} ToolId */
@@ -213,7 +213,7 @@ export function settingsScreen(ctx) {
                   label: `Downloading ${t.display_name} ${t.pinned_version}`,
                   done: p.download.done,
                   total: p.download.total,
-                  detail: `${formatBytes(p.download.done)} of ${formatBytes(p.download.total)}${pct(p.download.done, p.download.total)}`,
+                  detail: `${formatBytes(p.download.done)} of ${formatBytes(p.download.total)}${percentSuffix(p.download.done, p.download.total)}`,
                 }
               : { label: `${what} ${t.display_name}`, done: null, total: null, detail: stageLabel(stage) },
           );
@@ -597,19 +597,6 @@ export function settingsScreen(ctx) {
       for (const fn of cleanups) fn();
     },
   };
-}
-
-function dash() {
-  return h("span", { class: "muted" }, "—");
-}
-
-/**
- * @param {number} done
- * @param {number} total
- */
-function pct(done, total) {
-  const p = percentOf(done, total);
-  return p === null ? "" : ` (${p}%)`;
 }
 
 /** @param {ToolStatus["install_source"]} source */

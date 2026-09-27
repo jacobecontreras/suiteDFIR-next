@@ -361,7 +361,13 @@ code,
   }
 }
 
-.banners:empty {
+.banners:empty,
+.status-text:empty,
+.error-slot:empty,
+.progress-slot:empty,
+.log-copy-status:empty,
+.log-search-status:empty,
+.restore-result:empty {
   display: none;
 }
 
@@ -772,10 +778,6 @@ input[type="radio"] {
   font-weight: 600;
 }
 
-.status-text:empty {
-  display: none;
-}
-
 .status-text {
   color: var(--ok);
   font-weight: 500;
@@ -804,25 +806,30 @@ input[type="radio"] {
   vertical-align: 0;
 }
 
-.badge-succeeded {
+.badge-succeeded,
+.badge-tone-ok {
   background: var(--ok-bg);
   border-color: var(--ok-border);
   color: var(--ok);
 }
 
-.badge-completed_with_errors {
+.badge-completed_with_errors,
+.badge-missing,
+.badge-tone-warn {
   background: var(--warn-bg);
   border-color: var(--warn-border);
   color: var(--warn);
 }
 
-.badge-failed {
+.badge-failed,
+.badge-tone-danger {
   background: var(--danger-bg);
   border-color: var(--danger-border);
   color: var(--danger);
 }
 
-.badge-running {
+.badge-running,
+.badge-tone-info {
   background: var(--info-bg);
   border-color: var(--info-border);
   color: var(--info);
@@ -836,9 +843,6 @@ input[type="radio"] {
 
 .badge-missing {
   margin-left: 8px;
-  background: var(--warn-bg);
-  border-color: var(--warn-border);
-  color: var(--warn);
 }
 
 .tag {
@@ -895,10 +899,6 @@ input[type="radio"] {
   cursor: pointer;
   color: var(--accent);
   font-size: 13px;
-}
-
-.error-slot:empty {
-  display: none;
 }
 
 .pre {
@@ -1218,7 +1218,8 @@ input[type="radio"] {
   border-bottom: 1px solid var(--border);
 }
 
-.raw-json summary {
+.raw-json summary,
+.licenses summary {
   cursor: pointer;
   color: var(--accent);
   font-weight: 500;
@@ -1241,7 +1242,8 @@ input[type="radio"] {
   gap: 10px;
 }
 
-.start-reasons {
+.start-reasons,
+.progress-block {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1286,7 +1288,8 @@ input[type="radio"] {
   gap: 5px;
 }
 
-.encryption-on .icon {
+.encryption-on .icon,
+.cell-warn .icon {
   width: 13px;
   height: 13px;
 }
@@ -1311,14 +1314,16 @@ input[type="radio"] {
   flex: 1 1 260px;
 }
 
-.picker-search > .icon {
+.picker-search > .icon,
+.log-search-field > .icon {
   position: absolute;
   left: 9px;
   top: 8px;
   color: var(--muted);
 }
 
-.picker-search-input {
+.picker-search-input,
+.log-search-input {
   padding-left: 30px;
 }
 
@@ -1431,12 +1436,6 @@ input[type="radio"] {
 }
 
 /* ---- Progress, steps (Run, Acquire, Settings) ---- */
-
-.progress-block {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
 .progress-head {
   display: flex;
@@ -1569,10 +1568,6 @@ input[type="radio"] {
   font-weight: 500;
 }
 
-.progress-slot:empty {
-  display: none;
-}
-
 .result-card h3 {
   font-size: 13px;
 }
@@ -1620,10 +1615,6 @@ input[type="radio"] {
 .log-count {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
-}
-
-.log-copy-status:empty {
-  display: none;
 }
 
 .log-frame {
@@ -1696,24 +1687,9 @@ input[type="radio"] {
   min-width: 200px;
 }
 
-.log-search-field > .icon {
-  position: absolute;
-  left: 9px;
-  top: 8px;
-  color: var(--muted);
-}
-
-.log-search-input {
-  padding-left: 30px;
-}
-
 .log-search-status {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
-}
-
-.log-search-status:empty {
-  display: none;
 }
 
 .log-text mark {
@@ -1752,7 +1728,8 @@ input[type="radio"] {
   background: var(--surface);
 }
 
-.tool-card-head {
+.tool-card-head,
+.device-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1761,30 +1738,6 @@ input[type="radio"] {
 
 .tool-card-head h3 {
   font-size: 15px;
-}
-
-.badge-tone-ok {
-  background: var(--ok-bg);
-  border-color: var(--ok-border);
-  color: var(--ok);
-}
-
-.badge-tone-info {
-  background: var(--info-bg);
-  border-color: var(--info-border);
-  color: var(--info);
-}
-
-.badge-tone-warn {
-  background: var(--warn-bg);
-  border-color: var(--warn-border);
-  color: var(--warn);
-}
-
-.badge-tone-danger {
-  background: var(--danger-bg);
-  border-color: var(--danger-border);
-  color: var(--danger);
 }
 
 .banner-danger {
@@ -1821,12 +1774,6 @@ input[type="radio"] {
   background: var(--surface);
 }
 
-.licenses summary {
-  cursor: pointer;
-  color: var(--accent);
-  font-weight: 500;
-}
-
 .licenses-text {
   max-height: 420px;
   white-space: pre;
@@ -1860,13 +1807,6 @@ input[type="radio"] {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
   background: var(--card);
-}
-
-.device-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 .device-title {
@@ -1922,11 +1862,6 @@ label.device-title {
   font-weight: 500;
 }
 
-.cell-warn .icon {
-  width: 13px;
-  height: 13px;
-}
-
 .cell-actions-wrap {
   white-space: normal;
   min-width: 280px;
@@ -1936,17 +1871,9 @@ label.device-title {
   margin: 2px 0 2px 4px;
 }
 
-.cell-actions-wrap .btn + .btn {
-  margin-left: 4px;
-}
-
 .btn-warn {
   border-color: var(--warn);
   color: var(--warn);
-}
-
-.restore-result:empty {
-  display: none;
 }
 
 .clipboard-helper {

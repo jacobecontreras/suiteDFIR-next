@@ -59,19 +59,6 @@ export function isAtBottom(v) {
 }
 
 /**
- * How many row elements the view needs at most: a full viewport plus a partial row at each edge,
- * plus the overscan on both sides. Independent of the number of lines.
- * @param {number} viewportHeight
- * @param {number} rowHeight
- * @param {number} overscan
- * @returns {number}
- */
-export function poolSize(viewportHeight, rowHeight, overscan) {
-  if (rowHeight <= 0) return 0;
-  return Math.ceil(Math.max(0, viewportHeight) / rowHeight) + 1 + 2 * overscan;
-}
-
-/**
  * @param {number} value
  * @param {number} min
  * @param {number} max
