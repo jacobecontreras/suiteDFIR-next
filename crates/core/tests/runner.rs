@@ -564,6 +564,20 @@ fn file_input(lab: &Lab, len: u64) -> PathBuf {
 /// (NTFS allocates the extended size; that CPU hashes more slowly than the fastest Macs).
 const LONG_HASH_BYTES: u64 = if cfg!(windows) { 2 << 30 } else { 4 << 30 };
 
+/// The `(bytes_done, bytes_total)` of every hash progress event.
+fn hash_progress<'a>(events: impl IntoIterator<Item = &'a RunEvent>) -> Vec<(u64, u64)> {
+    events
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::HashProgress {
+                bytes_done,
+                bytes_total,
+            } => Some((*bytes_done, *bytes_total)),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn the_input_is_hashed_concurrently_with_leapp() {
     let lab = Lab::new();
@@ -612,32 +626,14 @@ fn the_input_is_hashed_concurrently_with_leapp() {
             .iter()
             .position(|e| matches!(e, RunEvent::Log { .. }))
             .expect("LEAPP logged after the first hash progress");
-    let progress_while_running: Vec<(u64, u64)> = running[log_after..]
-        .iter()
-        .filter_map(|e| match e {
-            RunEvent::HashProgress {
-                bytes_done,
-                bytes_total,
-            } => Some((*bytes_done, *bytes_total)),
-            _ => None,
-        })
-        .collect();
+    let progress_while_running = hash_progress(running[log_after..].iter().copied());
     assert!(
         progress_while_running
             .iter()
             .any(|(done, total)| done < total),
         "no hash progress between LEAPP's log batches: {progress_while_running:?}"
     );
-    let progress: Vec<(u64, u64)> = events
-        .iter()
-        .filter_map(|e| match e {
-            RunEvent::HashProgress {
-                bytes_done,
-                bytes_total,
-            } => Some((*bytes_done, *bytes_total)),
-            _ => None,
-        })
-        .collect();
+    let progress = hash_progress(&events);
     assert_eq!(progress.last(), Some(&(LONG_HASH_BYTES, LONG_HASH_BYTES)));
     assert_eq!(record.input.size_bytes, Some(LONG_HASH_BYTES));
 }
