@@ -8,8 +8,7 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. This file covers how to
 
 | Tool | Version policy |
 |---|---|
-| Rust | Pinned in `rust-toolchain.toml` to a specific stable release (≥ 1.89 for `File::try_lock`; 1.98.x at planning time) with `components = ["rustfmt", "clippy"]`. On a new machine, first run `rustup toolchain install <pin> -c rustfmt,clippy`. |
-| Tauri | `tauri` 2.11.x, `tauri-build` 2.6.x, `tauri-plugin-dialog` 2.x. Exact versions come from `Cargo.lock`. |
+| Rust | Pinned in `rust-toolchain.toml` to a specific stable release (≥ 1.89 for `File::try_lock`) with `components = ["rustfmt", "clippy"]`. On a new machine, first run `rustup toolchain install <pin> -c rustfmt,clippy`. |
 | Tauri CLI | Exactly **2.11.5**: `cargo install tauri-cli --version "=2.11.5" --locked`. `release.yml` pins the same version (`TAURI_CLI_VERSION`; the only workflow that installs it); bump both deliberately. |
 | Node.js | Dev-only (`tsc`, `node --test`, `scripts/serve-ui.mjs`). `.node-version` = 22 (the lowest in use), `engines.node` = `>=22`. |
 | TypeScript | Exact version in `package.json` `devDependencies` (7.0.x), installed with `npm ci`. |
