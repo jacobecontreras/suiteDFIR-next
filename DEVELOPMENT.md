@@ -232,19 +232,9 @@ A contract change updates all of these in one PR:
 - Every function in `crates/core` with logic has unit tests.
 - Status rules have table-driven tests, including every row of CONTRACTS.md §7.4, over synthetic outputs and the captured fixtures in `fixtures/leapp/`.
 
-**fake-leapp** (`crates/core/src/bin/fake-leapp.rs`) mimics a LEAPP onefile binary:
-- **CLI:** accepts LEAPP's flags; writes the LEAPP output layout.
-- **Process shape:**
-  - The parent re-execs itself as `--fake-worker` and forwards SIGTERM (Unix).
-  - Writes its own and the worker's PIDs to `FAKE_LEAPP_PIDFILE` if set (`parent <pid>` and `worker <pid>` lines, written atomically).
-- **Output behavior:**
-  - The worker appends `Screen_Output.html` records at `FAKE_LEAPP_INTERVAL_MS` (default 100) for `FAKE_LEAPP_LINES` (default 50) lines.
-  - stdout is fully buffered until exit.
-  - Creates `$TMPDIR/_MEIfake<pid>` and removes it on graceful exit.
-  - Writes `_lava_data.lava` at the end.
-- **Module list:** `--list-modules-json <tool>` prints a small module list as a `ToolModules` JSON object with version `dev-override` (for the dev override).
-- **Probe copies:** a copy named `fake-leapp-probe[.exe]` also answers module introspection (LEAPP-CLI.md §5): its always-run artifacts, catalog and 500 filler plugins (plus iLEAPP's timezones). The E2 replay installs such a copy as aLEAPP through the real install pipeline. Plain `fake-leapp` never answers the probe.
-- **Scenarios** (`FAKE_LEAPP_SCENARIO`): the rows of CONTRACTS.md §7.4. `prompt` opens `/dev/tty` if possible, then reads stdin (EOF → traceback, exit 1); `ignore_term` ignores SIGTERM. One more, `glibc_too_old`, prints the dynamic loader's `version 'GLIBC_2.43' not found` line from the bootloader and exits 255 before creating anything, like a pinned Linux build on a too-old glibc (LEAPP-CLI.md §2); the runner records it as `spawn_failed` with the glibc message.
+**fake-leapp** (`crates/core/src/bin/fake-leapp.rs`) mimics a LEAPP onefile binary: a bootloader that re-executes itself as a worker, LEAPP's flags and output layout, and `FAKE_LEAPP_*` variables for the PIDs and the pacing. Its module docs describe it in full. For the tests:
+- **Scenarios** (`FAKE_LEAPP_SCENARIO`): the rows of CONTRACTS.md §7.4, plus `glibc_too_old` (the loader failure of a pinned Linux build on a too-old glibc, LEAPP-CLI.md §2), which the runner records as `spawn_failed` with the glibc message.
+- **Probe copies:** a copy named `fake-leapp-probe[.exe]` also answers module introspection (LEAPP-CLI.md §5). The E2 replay installs such a copy as aLEAPP through the real install pipeline. Plain `fake-leapp` never answers the probe.
 
 **Process tests (all three OSes):**
 - Log lines arrive incrementally.
@@ -252,22 +242,11 @@ A contract change updates all of these in one PR:
 - The per-run temp dir is gone.
 - `prompt` exits within 5 s.
 
-**fake-idevice** (`crates/core/src/bin/fake-idevice.rs`) emulates `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2`:
-- **Selection:** by `argv[0]` file stem (tests create **copies** named after the tools) or by the first argument (`fake-idevice idevicebackup2 …`).
-- **Output formats:** follow docs/IDEVICE-CLI.md: XML plists for `-x`, `idevicepair` message lines, and `\r[==  ] NN% (x/y)` progress with explicit flush.
-- **Backup layout:** writes a valid tiny layout (`Info.plist`, `Manifest.plist`, `Manifest.db`, `Status.plist` with `SnapshotState`).
-- **Signals:** handles SIGTERM like the real tool.
+**fake-idevice** (`crates/core/src/bin/fake-idevice.rs`) emulates `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2` with the output of docs/IDEVICE-CLI.md, so no test needs a real device. Its module docs describe the tool selection, output, signals, pacing variables and every scenario. For the tests:
+- **Tool names:** tests create **copies** of the binary named after the tools, never symlinks.
 - **Pairing semantics:** as CONTRACTS.md §13.4 (`hostid` prints `(null)` without a host record; `validate` without one starts pairing), so tests can prove that polling never pairs.
 - **Password handling:** reads passwords only from `BACKUP_PASSWORD_NEW`/`BACKUP_PASSWORD`, and fails if a password appears in argv.
-- **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`. Two more cover device behavior the §13.4 rows do not:
-  - `will_encrypt_absent`: the backup domain has no `WillEncrypt` key, which the tool treats as false.
-  - `enable_unconfirmed`: `encryption on` succeeds, but the next `WillEncrypt` read still returns false.
-- **Pacing:**
-  - `FAKE_IDEVICE_INTERVAL_MS`: the gap between progress records.
-  - `FAKE_IDEVICE_PROMPT_MS`: the wait after an encryption prompt.
-  - `FAKE_IDEVICE_DATA_USED`: the device's used bytes.
-  - `FAKE_IDEVICE_HOLD=<path>`: `idevice_id -l` waits until that file exists (at most 15 s), so a test can keep a poll in flight.
-  - See the binary's module docs.
+- **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4, plus `will_encrypt_absent` and `enable_unconfirmed` for device behavior the §13.4 rows do not cover; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`.
 
 **Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow. With `SUITEDFIR_SMOKE_CAPTURE=<dir>` they save the fixture runs' `_lava_data.lava` and `Screen_Output.html` (paths replaced by `<RUN_DIR>`, `<INPUT>`, `<LAB>`) with an `outcome.json`; `fixtures/leapp/<tool>/<version>/` holds such captures from macOS arm64, and the `run::status` tests check them. Re-capture them when the pinned versions change.
 
