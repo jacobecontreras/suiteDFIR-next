@@ -10,7 +10,7 @@
 //! - iLEAPP `-t itunes` on a folder that is not a backup → `failed` with `no_modules_ran`
 //!   (aLEAPP has no `itunes` type: the runner refuses it before anything is created);
 //! - iLEAPP `-t itunes` on a minimal legacy (`Manifest.mbdb`) backup: the iTunes always-run
-//!   artifacts run and `last_build` does not (LEAPP-CLI.md §5, §9 item 3);
+//!   artifacts run and `last_build` does not (LEAPP-CLI.md §5);
 //! - a cancel mid-run → `cancelled`, no process of the tree left, the per-run temp dir (which held
 //!   the onefile runtime `_MEI*`, so the bootloader honoured `TMPDIR`/`TEMP`) removed;
 //! - a profile with an unknown module name → `unknown_modules` before anything is created;
@@ -563,7 +563,7 @@ fn fs_fixture_run(smoke: &Smoke, input: &Path, selected: &[&str]) -> (RunRecord,
             "{name} is not Complete: {lava:?}"
         );
     }
-    // The always-run artifact ran (LEAPP-CLI.md §5, §9 item 3).
+    // The always-run artifact ran (LEAPP-CLI.md §5).
     for name in &record.modules.always_run {
         assert!(
             lava.iter().any(|(n, _)| n == name),
@@ -820,7 +820,7 @@ fn aleapp_installs_introspects_and_runs() {
     cancel_mid_run(&smoke, &fs_input);
 }
 
-/// iLEAPP on an encrypted backup without a password asks for one (LEAPP-CLI.md Q5, §9 item 4).
+/// iLEAPP on an encrypted backup without a password asks for one (LEAPP-CLI.md Q5).
 /// The runner never starts it that way (`password_required`); this runs it directly, as a spawn
 /// does (own session or job, stdin null, no window), and records what the prompt does:
 /// - macOS and Linux: `getpass` has no terminal (new session) and reads stdin, which is null: EOF,
