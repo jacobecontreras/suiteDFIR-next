@@ -471,3 +471,101 @@ mod tests {
         assert!(error.detail.unwrap().contains('x'));
     }
 }
+
+/// Z0 characterization (simplification pass, candidate I4): pins what `host_platform` and
+/// `platform_for` return today. Frozen: later bundles do not edit this module.
+#[cfg(test)]
+mod z0 {
+    use super::*;
+
+    /// This host's `std::env::consts::{OS, ARCH}` and its expected platform, per compile target.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    const HOST: (&str, &str, Option<PlatformKey>) =
+        ("macos", "aarch64", Some(PlatformKey::MacosAarch64));
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    const HOST: (&str, &str, Option<PlatformKey>) =
+        ("macos", "x86_64", Some(PlatformKey::MacosX86_64));
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    const HOST: (&str, &str, Option<PlatformKey>) =
+        ("windows", "x86_64", Some(PlatformKey::WindowsX86_64));
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    const HOST: (&str, &str, Option<PlatformKey>) =
+        ("windows", "aarch64", Some(PlatformKey::WindowsAarch64));
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    const HOST: (&str, &str, Option<PlatformKey>) =
+        ("linux", "x86_64", Some(PlatformKey::LinuxX86_64));
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    const HOST: (&str, &str, Option<PlatformKey>) =
+        ("linux", "aarch64", Some(PlatformKey::LinuxAarch64));
+    /// Any other target has no pinned builds.
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "linux", target_arch = "aarch64"),
+    )))]
+    const HOST: (&str, &str, Option<PlatformKey>) =
+        (std::env::consts::OS, std::env::consts::ARCH, None);
+
+    #[test]
+    fn host_platform_is_platform_for_the_std_consts() {
+        let (os, arch, platform) = HOST;
+        assert_eq!((std::env::consts::OS, std::env::consts::ARCH), (os, arch));
+        assert_eq!(host_platform(), platform);
+        assert_eq!(
+            host_platform(),
+            platform_for(std::env::consts::OS, std::env::consts::ARCH)
+        );
+    }
+
+    #[test]
+    fn platform_for_maps_exactly_six_pairs() {
+        let mapped = [
+            ("macos", "aarch64", PlatformKey::MacosAarch64),
+            ("macos", "x86_64", PlatformKey::MacosX86_64),
+            ("windows", "x86_64", PlatformKey::WindowsX86_64),
+            ("windows", "aarch64", PlatformKey::WindowsAarch64),
+            ("linux", "x86_64", PlatformKey::LinuxX86_64),
+            ("linux", "aarch64", PlatformKey::LinuxAarch64),
+        ];
+        let oses = [
+            "macos", "windows", "linux", "ios", "android", "freebsd", "netbsd", "openbsd",
+            "solaris", "Macos", "MACOS", "Windows", "Linux", "darwin", "win32", "",
+        ];
+        let arches = [
+            "aarch64",
+            "x86_64",
+            "x86",
+            "arm",
+            "riscv64",
+            "powerpc",
+            "powerpc64",
+            "s390x",
+            "loongarch64",
+            "wasm32",
+            "arm64",
+            "amd64",
+            "x64",
+            "AARCH64",
+            "X86_64",
+            "",
+        ];
+        let mut hits = 0;
+        for os in oses {
+            for arch in arches {
+                let expected = mapped
+                    .iter()
+                    .find(|(o, a, _)| *o == os && *a == arch)
+                    .map(|(_, _, platform)| *platform);
+                hits += usize::from(expected.is_some());
+                assert_eq!(platform_for(os, arch), expected, "{os:?} {arch:?}");
+            }
+        }
+        assert_eq!(hits, 6);
+        // Every platform key comes from exactly one (os, arch) pair.
+        let keys: Vec<PlatformKey> = mapped.iter().map(|(_, _, platform)| *platform).collect();
+        assert_eq!(keys, PlatformKey::ALL);
+    }
+}
