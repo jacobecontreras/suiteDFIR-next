@@ -292,7 +292,7 @@ fn success() {
             .unwrap()
             .contains("Backup Successful.")
     );
-    assert_eq!(record.seal_file_count(), 6);
+    assert_eq!(record.output.seal.file_count, Some(6));
     // Progress: overall only, increasing, ending at 100, at most 4 per second.
     let progress: Vec<u8> = events
         .iter()
@@ -329,17 +329,6 @@ fn success() {
             .as_deref(),
         Some(record.acq_id.as_str())
     );
-}
-
-/// `seal.file_count`, for brevity.
-trait SealCount {
-    fn seal_file_count(&self) -> u64;
-}
-
-impl SealCount for AcquisitionRecord {
-    fn seal_file_count(&self) -> u64 {
-        self.output.seal.file_count.unwrap()
-    }
 }
 
 #[test]
@@ -466,7 +455,11 @@ fn sync_lock() {
         ],
         &[],
     );
-    assert_eq!(record.seal_file_count(), 0, "backup/ exists but is empty");
+    assert_eq!(
+        record.output.seal.file_count,
+        Some(0),
+        "backup/ exists but is empty"
+    );
     assert!(
         log_lines(&events)
             .iter()
