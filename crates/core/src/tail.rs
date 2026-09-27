@@ -1,5 +1,5 @@
-//! Poll-based tail of LEAPP's `Screen_Output.html`, producing plain-text line batches, and the
-//! streaming loop that follows a spawned process (ARCHITECTURE.md D7, §6 steps 5–6).
+//! Poll-based tail of LEAPP's `Screen_Output.html`, producing plain-text line batches
+//! (ARCHITECTURE.md D7, §6 steps 5–6).
 //!
 //! LEAPP appends one record per message: `message<br>` plus a newline (`\n`, or `\r\n` on
 //! Windows), opening and closing the file each time (LEAPP-CLI.md Q8). Messages are not
@@ -12,15 +12,13 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::process::{ExitInfo, Handle};
-
 /// How often a run's `Screen_Output.html` is polled (ARCHITECTURE.md §6 step 5).
 pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// The longest line emitted, in bytes (including the `…` of a truncated line).
 pub const MAX_LINE_BYTES: usize = 8 * 1024;
 /// The most lines in one batch (`RunEvent::Log`, CONTRACTS.md §11).
 pub const MAX_BATCH_LINES: usize = 500;
-/// How many stdout/stderr lines `follow` returns (`RunEvent::StdioTail`).
+/// How many stdout/stderr lines a `RunEvent::StdioTail` holds.
 pub const STDIO_TAIL_LINES: usize = 200;
 
 /// The record separator; a newline must follow it.
@@ -58,7 +56,7 @@ impl ScreenOutputTail {
     /// The lines of the records completed since the last poll. A file that does not exist (yet)
     /// yields no lines.
     pub fn poll(&mut self) -> io::Result<Vec<String>> {
-        let (bytes, _) = self.read_new(MAX_READ_PER_POLL)?;
+        let (bytes, _) = self.read_new()?;
         Ok(self.consume(&bytes))
     }
 
@@ -66,7 +64,7 @@ impl ScreenOutputTail {
     /// without a separator. If more than that is left (a writer far ahead of the polls), the rest
     /// is skipped and a last line says how many bytes were not shown.
     pub fn finish(&mut self) -> io::Result<Vec<String>> {
-        let (bytes, unread) = self.read_new(MAX_READ_PER_POLL)?;
+        let (bytes, unread) = self.read_new()?;
         let mut lines = self.consume(&bytes);
         if !self.pending.is_empty() {
             push_record(&self.pending, &mut lines);
@@ -83,8 +81,8 @@ impl ScreenOutputTail {
         Ok(lines)
     }
 
-    /// Up to `limit` new bytes, and how many more the file had when it was read.
-    fn read_new(&mut self, limit: u64) -> io::Result<(Vec<u8>, u64)> {
+    /// Up to `MAX_READ_PER_POLL` new bytes, and how many more the file had when it was read.
+    fn read_new(&mut self) -> io::Result<(Vec<u8>, u64)> {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), 0)),
@@ -98,7 +96,7 @@ impl ScreenOutputTail {
         }
         file.seek(SeekFrom::Start(self.offset))?;
         let mut bytes = Vec::new();
-        file.take(limit).read_to_end(&mut bytes)?;
+        file.take(MAX_READ_PER_POLL).read_to_end(&mut bytes)?;
         self.offset += bytes.len() as u64;
         Ok((bytes, len.saturating_sub(self.offset)))
     }
@@ -222,67 +220,6 @@ pub fn last_lines(path: &Path, count: usize) -> io::Result<Vec<String>> {
         .iter()
         .map(|line| truncate_line(line.strip_suffix('\r').unwrap_or(line)))
         .collect())
-}
-
-/// How a followed process ended, with the tails of its stdout and stderr logs.
-#[derive(Clone, Debug)]
-pub struct StreamEnd {
-    pub exit: ExitInfo,
-    /// The last 200 lines of stdout (`RunEvent::StdioTail`); empty if the log was unreadable.
-    pub stdout_tail: Vec<String>,
-    /// The last 200 lines of stderr; empty if the log was unreadable.
-    pub stderr_tail: Vec<String>,
-}
-
-/// Streams `tail` while `handle` runs: every `interval` the new lines go to `on_lines` in batches
-/// of at most 500. After the exit it drains the tail (including a last unterminated record) and
-/// reads the last 200 lines of the stdout and stderr logs. Tail read errors are logged and retried
-/// on the next poll; they never end the stream.
-pub fn follow(
-    handle: &Handle,
-    tail: &mut ScreenOutputTail,
-    interval: Duration,
-    mut on_lines: impl FnMut(Vec<String>),
-) -> io::Result<StreamEnd> {
-    let mut warned = false;
-    let exit = loop {
-        let exit = handle.wait_timeout(interval)?;
-        let lines = if exit.is_some() {
-            tail.finish()
-        } else {
-            tail.poll()
-        };
-        match lines {
-            Ok(lines) => emit_batches(lines, &mut on_lines),
-            Err(e) if !warned => {
-                log::warn!("cannot read {}: {e}", tail.path().display());
-                warned = true;
-            }
-            Err(_) => {}
-        }
-        if let Some(exit) = exit {
-            break exit;
-        }
-    };
-    Ok(StreamEnd {
-        exit,
-        stdout_tail: stdio_tail(handle.stdout_log()),
-        stderr_tail: stdio_tail(handle.stderr_log()),
-    })
-}
-
-fn stdio_tail(path: &Path) -> Vec<String> {
-    last_lines(path, STDIO_TAIL_LINES).unwrap_or_else(|e| {
-        log::warn!("cannot read {}: {e}", path.display());
-        Vec::new()
-    })
-}
-
-fn emit_batches(lines: Vec<String>, on_lines: &mut impl FnMut(Vec<String>)) {
-    let mut lines = lines.into_iter().peekable();
-    while lines.peek().is_some() {
-        on_lines(lines.by_ref().take(MAX_BATCH_LINES).collect());
-    }
 }
 
 #[cfg(test)]
@@ -502,14 +439,5 @@ mod tests {
         text.push_str("\nend 1\nend 2\n");
         fs::write(&path, text).unwrap();
         assert_eq!(last_lines(&path, 200).unwrap(), ["end 1", "end 2"]);
-    }
-
-    #[test]
-    fn batches_hold_at_most_500_lines() {
-        let mut sizes = Vec::new();
-        let lines: Vec<String> = (0..1200).map(|i| i.to_string()).collect();
-        emit_batches(lines, &mut |batch: Vec<String>| sizes.push(batch.len()));
-        assert_eq!(sizes, [500, 500, 200]);
-        emit_batches(Vec::new(), &mut |_: Vec<String>| panic!("no empty batches"));
     }
 }

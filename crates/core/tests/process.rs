@@ -440,12 +440,27 @@ fn streams_screen_output_lines_before_exit() {
     let handle = process::spawn(spec).unwrap();
     let mut tail = ScreenOutputTail::new(fixture.screen_output());
     let mut batches: Vec<(Instant, Vec<String>)> = Vec::new();
-    let end = tail::follow(&handle, &mut tail, tail::POLL_INTERVAL, |lines| {
-        batches.push((Instant::now(), lines));
-    })
-    .unwrap();
+    // Like the runner's loop: a read error is skipped and the next poll retries.
+    let exit = loop {
+        let exit = handle.wait_timeout(tail::POLL_INTERVAL).unwrap();
+        let read = if exit.is_some() {
+            tail.finish()
+        } else {
+            tail.poll()
+        };
+        if let Ok(lines) = read
+            && !lines.is_empty()
+        {
+            batches.push((Instant::now(), lines));
+        }
+        if let Some(exit) = exit {
+            break exit;
+        }
+    };
+    let stdout_tail = tail::last_lines(handle.stdout_log(), tail::STDIO_TAIL_LINES).unwrap();
+    let stderr_tail = tail::last_lines(handle.stderr_log(), tail::STDIO_TAIL_LINES).unwrap();
 
-    assert_eq!(end.exit.exit_code, Some(0));
+    assert_eq!(exit.exit_code, Some(0));
     let lines: Vec<&String> = batches.iter().flat_map(|(_, lines)| lines).collect();
     assert_eq!(lines.len(), 50);
     assert_eq!(
@@ -456,20 +471,20 @@ fn streams_screen_output_lines_before_exit() {
     assert_eq!(lines[1], "iLEAPP v0.0.0-fake (fake-leapp test double)");
     let before_exit: usize = batches
         .iter()
-        .filter(|(at, _)| *at < end.exit.exit_instant)
+        .filter(|(at, _)| *at < exit.exit_instant)
         .map(|(_, lines)| lines.len())
         .sum();
     assert!(
         before_exit >= 40,
         "only {before_exit} of 50 lines arrived before the exit"
     );
-    // stdout arrives only at exit (fully buffered); its tail comes with the end of the stream.
-    assert_eq!(end.stdout_tail.len(), 50);
+    // stdout arrives only at exit (fully buffered); its tail is read after the exit.
+    assert_eq!(stdout_tail.len(), 50);
     assert_eq!(
-        end.stdout_tail[1],
+        stdout_tail[1],
         "<b>iLEAPP v0.0.0-fake</b> (fake-leapp test double)"
     );
-    assert!(end.stderr_tail.is_empty());
+    assert!(stderr_tail.is_empty());
 }
 
 /// Signals a single process through `sh`, which has `kill` built in.
