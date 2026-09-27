@@ -13,7 +13,7 @@ use super::record::{LEFT_ENABLED_MESSAGE, STATE_UNKNOWN_MESSAGE};
 /// writes, IDEVICE-CLI.md §5).
 pub const DISK_NEARLY_FULL: u64 = 1 << 30;
 
-fn reason(code: &str, message: impl Into<String>) -> Reason {
+pub(super) fn reason(code: &str, message: impl Into<String>) -> Reason {
     Reason {
         code: code.to_owned(),
         message: message.into(),

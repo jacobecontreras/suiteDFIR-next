@@ -580,13 +580,13 @@ fn finished_verdict(
             );
             (
                 AcqStatus::Failed,
-                vec![Reason {
-                    code: "record_write_failed".to_owned(),
-                    message: format!(
+                vec![status::reason(
+                    "record_write_failed",
+                    format!(
                         "The final acquisition.json could not be written ({e}); the \
                          acquisition will show as interrupted when the case is next opened"
                     ),
-                }],
+                )],
                 Some(e.to_string()),
             )
         }
@@ -1290,20 +1290,19 @@ impl AcqJob {
             Ok(outcome) => {
                 record.output.seal = outcome.seal(BACKUP_MANIFEST);
                 if outcome.cancelled {
-                    warnings.push(Reason {
-                        code: "seal_cancelled".to_owned(),
-                        message: "Hashing the backup was cancelled; no backup.sha256 was written"
-                            .to_owned(),
-                    });
+                    warnings.push(status::reason(
+                        "seal_cancelled",
+                        "Hashing the backup was cancelled; no backup.sha256 was written",
+                    ));
                 }
                 warnings.extend(outcome.warnings("symlinks_in_backup"));
             }
             Err(e) => {
                 record.output.seal = empty(SealStatus::Failed);
-                warnings.push(Reason {
-                    code: "seal_failed".to_owned(),
-                    message: format!("backup.sha256 could not be written: {e}"),
-                });
+                warnings.push(status::reason(
+                    "seal_failed",
+                    format!("backup.sha256 could not be written: {e}"),
+                ));
             }
         }
         warnings
