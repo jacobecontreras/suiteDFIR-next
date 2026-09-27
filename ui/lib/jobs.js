@@ -28,6 +28,18 @@ export function setActiveJob(store, job) {
 }
 
 /**
+ * Reads `job_active` once in the background (right after a job started); a failure changes nothing.
+ * @param {{ job_active: () => Promise<ActiveJob | null> }} api
+ * @param {import("./store.js").Store<AppState>} store
+ */
+export function refreshActiveJob(api, store) {
+  api
+    .job_active()
+    .then((job) => setActiveJob(store, job))
+    .catch(() => {});
+}
+
+/**
  * Keeps `activeJob` current: polls `job_active` every `intervalMs` while a job is active, and stops
  * when it ends. Returns a function that stops polling.
  * @param {{ job_active: () => Promise<ActiveJob | null> }} api

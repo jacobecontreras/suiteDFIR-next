@@ -46,7 +46,7 @@ import { field, textInput } from "../lib/form.js";
 import { elapsedSince, formatBytes, formatElapsed, plural } from "../lib/format.js";
 import { handoff } from "../lib/handoff.js";
 import { ACQ_PHASES, stepStates } from "../lib/jobstream.js";
-import { jobKey, setActiveJob } from "../lib/jobs.js";
+import { jobKey, refreshActiveJob } from "../lib/jobs.js";
 import { createPoller } from "../lib/poll.js";
 import { routeHref } from "../lib/router.js";
 import { watch } from "../lib/store.js";
@@ -724,10 +724,7 @@ export function acquireScreen(ctx) {
       if (keep && req.encryption_password) handoff.hold(started.acq_id, req.encryption_password);
       else handoff.drop();
       clearPasswords();
-      api
-        .job_active()
-        .then((job) => setActiveJob(store, job))
-        .catch(() => {});
+      refreshActiveJob(api, store);
       if (disposed) return;
       const s = jobs.find("acquisition", started.acq_id);
       if (s) showJob(s);

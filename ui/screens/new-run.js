@@ -20,7 +20,7 @@ import { formatCount, plural } from "../lib/format.js";
 import { handoff } from "../lib/handoff.js";
 import { buildRunRequest, canHash, initialInputType, needsPassword, passwordHint, passwordReason, startBlockers } from "../lib/newrun.js";
 import { routeHref } from "../lib/router.js";
-import { jobKey, setActiveJob } from "../lib/jobs.js";
+import { jobKey, refreshActiveJob } from "../lib/jobs.js";
 import { unknownNames } from "../lib/selection.js";
 import { watch } from "../lib/store.js";
 import { pickTimezone, rememberToolTimezones, timezoneList } from "../lib/timezones.js";
@@ -896,10 +896,7 @@ export function newRunScreen(ctx) {
       const started = await api.run_start(req, stream.onEvent);
       stream.bind(started.run_id);
       clearPassword();
-      api
-        .job_active()
-        .then((job) => setActiveJob(store, job))
-        .catch(() => {});
+      refreshActiveJob(api, store);
       navigate(routeHref("run", { case: casePath, id: started.run_id }));
     } catch (err) {
       stream.abandon();
