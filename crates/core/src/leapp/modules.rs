@@ -1173,3 +1173,199 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::IntrospectionFailed);
     }
 }
+
+/// Z0 characterization (simplification pass, candidates I2 and I3). Frozen: later bundles do not
+/// edit this module.
+///
+/// - I2: the `AppError` an introspection failure becomes on the live path,
+///   `AppError::from(InstallError::from(IntrospectionError { .. }))`, never through a direct
+///   `IntrospectionError` to `AppError` conversion.
+/// - I3: the name of introspection's per-job temp dir, observed through [`introspect`] (not
+///   through the private `job_id`, which I3 may remove): a tool script prints its `TMPDIR`/`TEMP`,
+///   and the name is compared with `run::record::new_run_id` for the same time and tool. The
+///   getrandom failure text (`cannot get random bytes: …`) is not reachable from a test.
+#[cfg(test)]
+mod z0 {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::thread;
+    use std::time::Duration;
+
+    use super::{IntrospectionError, introspect};
+    use crate::contracts::{AppError, ErrorCode, ModulesFile, Timestamp, ToolId};
+    use crate::leapp::install::InstallError;
+    use crate::manifest;
+    use crate::process;
+    use crate::run::record::new_run_id;
+
+    fn app_error(error: IntrospectionError) -> AppError {
+        AppError::from(InstallError::from(error))
+    }
+
+    #[test]
+    fn z0_introspection_errors_reach_the_ui_through_install_errors() {
+        let cases = [
+            ("only 12 modules", Some("stderr tail")),
+            ("m", None),
+            (
+                "the pinned Linux iLEAPP build needs glibc 2.38 or newer; this system's glibc is \
+                 too old",
+                Some("loader line\nexit code 255\n--- stdout (end) ---\n\n--- stderr (end) ---\n"),
+            ),
+        ];
+        for (message, detail) in cases {
+            let error = IntrospectionError {
+                message: message.to_owned(),
+                detail: detail.map(str::to_owned),
+            };
+            let install = InstallError::from(error.clone());
+            assert_eq!(install.code(), ErrorCode::IntrospectionFailed);
+            assert_eq!(
+                install.to_string(),
+                format!("module introspection failed: {message}")
+            );
+            assert_eq!(
+                app_error(error),
+                AppError {
+                    code: ErrorCode::IntrospectionFailed,
+                    message: format!("module introspection failed: {message}"),
+                    detail: detail.map(str::to_owned),
+                }
+            );
+        }
+    }
+
+    /// A tool that prints its temp dir and exits 0 without running the probe.
+    fn temp_printing_tool(dir: &Path) -> PathBuf {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let script = dir.join("prints-tmpdir");
+            fs::write(&script, "#!/bin/sh\nprintf '%s\\n' \"$TMPDIR\"\n").unwrap();
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+            script
+        }
+        #[cfg(windows)]
+        {
+            let script = dir.join("prints-temp.cmd");
+            fs::write(&script, "@echo off\r\necho %TEMP%\r\n").unwrap();
+            script
+        }
+    }
+
+    /// Runs `introspect`, retrying only a start that failed with ETXTBSY (Unix, `os error 26`):
+    /// another test's child still held the just-written script open.
+    fn introspect_script(
+        script: &Path,
+        tool: ToolId,
+        cache: &Path,
+    ) -> Result<ModulesFile, IntrospectionError> {
+        let manifest = &manifest::embedded().unwrap().tools[&tool];
+        let mut attempts = 0;
+        loop {
+            let result = introspect(script, tool, manifest, cache);
+            match &result {
+                Err(e)
+                    if cfg!(unix)
+                        && e.message.starts_with("cannot start ")
+                        && e.message.contains("os error 26")
+                        && attempts < 50 =>
+                {
+                    eprintln!("retrying introspection: {e}");
+                    attempts += 1;
+                    thread::sleep(Duration::from_millis(50));
+                }
+                _ => return result,
+            }
+        }
+    }
+
+    #[test]
+    fn z0_introspection_temp_dirs_are_named_like_run_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = temp_printing_tool(dir.path());
+        let cache = dir.path().join("cache");
+        for tool in ToolId::ALL {
+            let before = Timestamp::now();
+            let error = introspect_script(&script, *tool, &cache).unwrap_err();
+            let after = Timestamp::now();
+
+            // The tool's temp dir, as it printed it.
+            let detail = error.detail.clone().unwrap();
+            let printed = detail
+                .strip_prefix("exit code 0\n--- stdout (end) ---\n")
+                .and_then(|rest| rest.strip_suffix("\n--- stderr (end) ---\n"))
+                .unwrap_or_else(|| panic!("{detail:?}"));
+            let temp_dir = PathBuf::from(printed);
+            assert_eq!(temp_dir.parent(), Some(cache.join("tmp").as_path()));
+            let id = temp_dir.file_name().unwrap().to_str().unwrap().to_owned();
+
+            // The whole error, and what the UI gets for it.
+            assert_eq!(
+                error,
+                IntrospectionError {
+                    message: format!("{tool} exited (exit code 0) without running the probe"),
+                    detail: Some(format!(
+                        "exit code 0\n--- stdout (end) ---\n{}\n--- stderr (end) ---\n",
+                        temp_dir.display()
+                    )),
+                }
+            );
+            assert_eq!(
+                app_error(error.clone()),
+                AppError {
+                    code: ErrorCode::IntrospectionFailed,
+                    message: format!(
+                        "module introspection failed: {tool} exited (exit code 0) without \
+                         running the probe"
+                    ),
+                    detail: error.detail.clone(),
+                }
+            );
+
+            // `YYYYMMDD-HHMMSSZ-<tool>-<6 lowercase hex>`, stamped with the time of the call.
+            let prefix_len = "YYYYMMDD-HHMMSSZ-".len() + tool.as_str().len() + 1;
+            assert_eq!(id.len(), prefix_len + 6, "{id}");
+            let (prefix, suffix) = id.split_at(prefix_len);
+            assert!(prefix.ends_with(&format!("Z-{tool}-")), "{id}");
+            assert!(
+                suffix
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                "{id}"
+            );
+            let stamp = Timestamp::parse(&format!(
+                "{}-{}-{}T{}:{}:{}Z",
+                &id[0..4],
+                &id[4..6],
+                &id[6..8],
+                &id[9..11],
+                &id[11..13],
+                &id[13..15]
+            ))
+            .unwrap();
+            assert!(before <= stamp && stamp <= after, "{id}");
+
+            // The same shape as a run id for that time and tool.
+            let run_id = new_run_id(*tool, stamp).unwrap();
+            assert_eq!(run_id.len(), id.len(), "{run_id} {id}");
+            assert_eq!(&run_id[..prefix_len], prefix, "{run_id} {id}");
+            assert!(
+                run_id[prefix_len..]
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                "{run_id}"
+            );
+
+            // Both are valid job ids (`process::temp_dir_path` checks `is_job_id`).
+            for name in [&id, &run_id] {
+                assert_eq!(
+                    process::temp_dir_path(&cache, name).unwrap(),
+                    cache.join("tmp").join(name)
+                );
+            }
+            // The temp dir is gone afterwards.
+            assert!(fs::read_dir(cache.join("tmp")).unwrap().next().is_none());
+        }
+    }
+}
