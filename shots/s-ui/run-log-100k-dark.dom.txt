@@ -1,0 +1,604 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        <a class="job-indicator" href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=<now>-ileapp-#1" title="Show the active job">
+          <span class="pulse" aria-hidden="true"></span>
+          <span>
+            "Run in progress: iLEAPP"
+          </span>
+          <span class="job-phase">
+            "Running"
+          </span>
+        </a>
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen run-screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+          <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+            "Operation Nightjar"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <div class="title-row">
+            <h1 tabindex="-1">
+              "Run"
+            </h1>
+            <div class="run-status">
+              <span class="badge badge-running">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                </svg>
+                "Running"
+              </span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-danger" type="button">
+              "Cancel run"
+            </button>
+          </div>
+        </div>
+        <div class="stack">
+          <dl class="facts run-facts">
+            <dt>
+              "Tool"
+            </dt>
+            <dd>
+              "iLEAPP v2026.4.2"
+            </dd>
+            <dt>
+              "Input"
+            </dt>
+            <dd>
+              <span class="cell-input">
+                <span class="tag" title="File system folder (fs)">
+                  "fs"
+                </span>
+                <span class="mono path-text">
+                  "/Volumes/Evidence/flood"
+                </span>
+              </span>
+            </dd>
+            <dt>
+              "Label"
+            </dt>
+            <dd>
+              <span class="muted">
+                "—"
+              </span>
+            </dd>
+            <dt>
+              "Created"
+            </dt>
+            <dd>
+              <time class="time-local" datetime="<iso-now>" tabindex="0" data-utc="<utc-now> UTC">
+                "<local-now>"
+                <span class="visually-hidden">
+                  " (<utc-now> UTC)"
+                </span>
+              </time>
+            </dd>
+            <dt>
+              "Run ID"
+            </dt>
+            <dd>
+              <span class="mono">
+                "<now>-ileapp-#1"
+              </span>
+            </dd>
+          </dl>
+          <section class="card" aria-labelledby="run-progress-heading">
+            <div class="card-head">
+              <h2 id="run-progress-heading">
+                "Progress"
+              </h2>
+              <span class="muted">
+                <span>
+                  "Elapsed"
+                </span>
+                " "
+                <span class="elapsed">
+                  "<masked>"
+                </span>
+              </span>
+            </div>
+            <div class="phase-slot">
+              <ol class="phase-steps" aria-label="Run phases">
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Preparing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-current" aria-current="step">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                  </svg>
+                  <span>
+                    "Running"
+                  </span>
+                  <span class="visually-hidden">
+                    " (in progress)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-pending">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="9"></circle>
+                  </svg>
+                  <span>
+                    "Analyzing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (not started)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-pending">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="9"></circle>
+                  </svg>
+                  <span>
+                    "Sealing report"
+                  </span>
+                  <span class="visually-hidden">
+                    " (not started)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-pending">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="9"></circle>
+                  </svg>
+                  <span>
+                    "Finalizing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (not started)"
+                  </span>
+                </li>
+              </ol>
+            </div>
+            <div class="stack-sm progress-slot">
+              <p class="muted small">
+                "Input hashing and report sealing show their progress here when they run."
+              </p>
+            </div>
+            <div class="error-slot"></div>
+          </section>
+          <section class="card result-card" aria-labelledby="run-result-heading" hidden=""></section>
+          <section class="card" aria-labelledby="run-log-heading">
+            <div class="card-head">
+              <h2 id="run-log-heading">
+                "Log"
+              </h2>
+            </div>
+            <div class="stack-sm">
+              <div class="log-view">
+                <div class="log-toolbar">
+                  <label class="check" for="log-follow-#1">
+                    <input type="checkbox" id="log-follow-#1" style="">
+                    <span>
+                      "Auto-scroll"
+                    </span>
+                  </label>
+                  <button class="btn btn-sm" type="button">
+                    "Copy all"
+                  </button>
+                  <span class="log-copy-status muted" role="status"></span>
+                  <span class="log-toolbar-spacer"></span>
+                  <span class="log-count muted">
+                    "100,010 lines"
+                  </span>
+                </div>
+                <div class="log-search" role="search" aria-label="Run log search">
+                  <div class="log-search-field">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                      <circle cx="11" cy="11" r="7"></circle>
+                      <line x1="20" y1="20" x2="16.2" y2="16.2"></line>
+                    </svg>
+                    <label class="visually-hidden" for="log-search-#1">
+                      "Search the log"
+                    </label>
+                    <input class="input log-search-input" type="search" id="log-search-#1" placeholder="Search the log" autocomplete="off" spellcheck="false" maxlength="256" aria-describedby="log-search-#1-status" style="">
+                  </div>
+                  <button class="btn btn-sm" type="button" title="Previous matching line (Shift+Enter)" disabled="">
+                    "Previous"
+                    <span class="visually-hidden">
+                      " match"
+                    </span>
+                  </button>
+                  <button class="btn btn-sm" type="button" title="Next matching line (Enter)" disabled="">
+                    "Next"
+                    <span class="visually-hidden">
+                      " match"
+                    </span>
+                  </button>
+                  <label class="check" for="log-search-#1-only">
+                    <input type="checkbox" id="log-search-#1-only" style="">
+                    <span>
+                      "Only matching lines"
+                    </span>
+                  </label>
+                  <span class="log-search-status muted" id="log-search-#1-status"></span>
+                </div>
+                <div class="log-frame">
+                  <div class="log-viewport" tabindex="0" role="region" aria-label="Run log (scrollable)" data-count="100010" style="--log-row: 20px;">
+                    <div class="log-spacer" style="height: 2.0002e+06px;">
+                      <div class="log-rows" style="transform: translateY(999700px);">
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49986"
+                          </span>
+                          <span class="log-text">
+                            "[049982] homeAccounts: parsed 26 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeAccounts.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49987"
+                          </span>
+                          <span class="log-text">
+                            "[049983] homeAccounts2: parsed 27 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeAccounts2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49988"
+                          </span>
+                          <span class="log-text">
+                            "[049984] homeAttachments: parsed 28 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeAttachments.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49989"
+                          </span>
+                          <span class="log-text">
+                            "[049985] homeAttachments2: parsed 29 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeAttachments2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49990"
+                          </span>
+                          <span class="log-text">
+                            "[049986] homeCache: parsed 30 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeCache.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49991"
+                          </span>
+                          <span class="log-text">
+                            "[049987] homeCache2: parsed 31 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeCache2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49992"
+                          </span>
+                          <span class="log-text">
+                            "[049988] homeCallRecords: parsed 32 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeCallRecords.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49993"
+                          </span>
+                          <span class="log-text">
+                            "[049989] homeCallRecords2: parsed 33 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeCallRecords2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49994"
+                          </span>
+                          <span class="log-text">
+                            "[049990] homeContacts: parsed 34 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeContacts.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49995"
+                          </span>
+                          <span class="log-text">
+                            "[049991] homeContacts2: parsed 35 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeContacts2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49996"
+                          </span>
+                          <span class="log-text">
+                            "[049992] homeCookies: parsed 36 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeCookies.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49997"
+                          </span>
+                          <span class="log-text">
+                            "[049993] homeCookies2: parsed 37 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeCookies2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49998"
+                          </span>
+                          <span class="log-text">
+                            "[049994] homeDatabases: parsed 38 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeDatabases.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "49999"
+                          </span>
+                          <span class="log-text">
+                            "[049995] homeDatabases2: parsed 39 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeDatabases2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50000"
+                          </span>
+                          <span class="log-text">
+                            "[049996] homeDeviceInfo: parsed 40 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeDeviceInfo.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50001"
+                          </span>
+                          <span class="log-text">
+                            "[049997] homeDeviceInfo2: parsed 41 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeDeviceInfo2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50002"
+                          </span>
+                          <span class="log-text">
+                            "[049998] homeDownloads: parsed 42 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeDownloads.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50003"
+                          </span>
+                          <span class="log-text">
+                            "[049999] homeDownloads2: parsed 43 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeDownloads2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50004"
+                          </span>
+                          <span class="log-text">
+                            "[050000] homeEvents: parsed 44 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeEvents.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50005"
+                          </span>
+                          <span class="log-text">
+                            "[050001] homeEvents2: parsed 45 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeEvents2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50006"
+                          </span>
+                          <span class="log-text">
+                            "[050002] homeFavorites: parsed 46 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeFavorites.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50007"
+                          </span>
+                          <span class="log-text">
+                            "[050003] homeFavorites2: parsed 47 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeFavorites2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50008"
+                          </span>
+                          <span class="log-text">
+                            "[050004] homeFiles: parsed 48 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeFiles.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50009"
+                          </span>
+                          <span class="log-text">
+                            "[050005] homeFiles2: parsed 49 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeFiles2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50010"
+                          </span>
+                          <span class="log-text">
+                            "[050006] homeHistory: parsed 50 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeHistory.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50011"
+                          </span>
+                          <span class="log-text">
+                            "[050007] homeHistory2: parsed 51 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeHistory2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50012"
+                          </span>
+                          <span class="log-text">
+                            "[050008] homeLocations: parsed 52 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeLocations.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50013"
+                          </span>
+                          <span class="log-text">
+                            "[050009] homeLocations2: parsed 53 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeLocations2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50014"
+                          </span>
+                          <span class="log-text">
+                            "[050010] homeLogs: parsed 54 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeLogs.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50015"
+                          </span>
+                          <span class="log-text">
+                            "[050011] homeLogs2: parsed 55 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeLogs2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50016"
+                          </span>
+                          <span class="log-text">
+                            "[050012] homeMedia: parsed 56 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeMedia.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50017"
+                          </span>
+                          <span class="log-text">
+                            "[050013] homeMedia2: parsed 57 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeMedia2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50018"
+                          </span>
+                          <span class="log-text">
+                            "[050014] homeMessages: parsed 58 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeMessages.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50019"
+                          </span>
+                          <span class="log-text">
+                            "[050015] homeMessages2: parsed 59 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeMessages2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50020"
+                          </span>
+                          <span class="log-text">
+                            "[050016] homeNotifications: parsed 60 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeNotifications.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50021"
+                          </span>
+                          <span class="log-text">
+                            "[050017] homeNotifications2: parsed 61 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeNotifications2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50022"
+                          </span>
+                          <span class="log-text">
+                            "[050018] homePreferences: parsed 62 records from /Volumes/Evidence/flood/private/var/mobile/Library/homePreferences.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50023"
+                          </span>
+                          <span class="log-text">
+                            "[050019] homePreferences2: parsed 63 records from /Volumes/Evidence/flood/private/var/mobile/Library/homePreferences2.db"
+                          </span>
+                        </div>
+                        <div class="log-row">
+                          <span class="log-no" aria-hidden="true">
+                            "50024"
+                          </span>
+                          <span class="log-text">
+                            "[050020] homeSearches: parsed 64 records from /Volumes/Evidence/flood/private/var/mobile/Library/homeSearches.db"
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="log-empty muted" hidden="">
+                    "No log lines yet."
+                  </p>
+                </div>
+                <p class="visually-hidden" aria-live="polite">
+                  "<masked>"
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

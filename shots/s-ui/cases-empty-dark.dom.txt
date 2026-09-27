@@ -1,0 +1,81 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen">
+        <div class="screen-head">
+          <h1 tabindex="-1">
+            "Cases"
+          </h1>
+          <div class="actions">
+            <button class="btn" type="button">
+              "Open case folder…"
+            </button>
+            <button class="btn btn-primary" type="button">
+              "New case"
+            </button>
+          </div>
+        </div>
+        <div>
+          ""
+        </div>
+        <div class="error-slot"></div>
+        <div class="stack">
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon icon-xl">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            </svg>
+            <h2>
+              "No cases yet"
+            </h2>
+            <p>
+              "A case is a folder that holds your runs and acquisitions. Create one, or open an existing case folder."
+            </p>
+            <div class="actions">
+              <button class="btn" type="button">
+                "Open case folder…"
+              </button>
+              <button class="btn btn-primary" type="button">
+                "New case"
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

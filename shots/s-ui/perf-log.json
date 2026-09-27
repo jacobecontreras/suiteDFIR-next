@@ -1,0 +1,198 @@
+{
+  "budget_ms": 100,
+  "lines": 100076,
+  "row_elements": 40,
+  "stream_ms": 1555,
+  "stream_long_tasks": {
+    "count": 0,
+    "max_ms": 0
+  },
+  "jump_ms": {
+    "runs": 50,
+    "median": 33.2,
+    "max": 35
+  },
+  "jump_wrong_rows": 0,
+  "scroll_frame_ms": {
+    "frames": 120,
+    "median": 16.6,
+    "max": 18.8
+  },
+  "scroll_long_tasks": {
+    "count": 0,
+    "max_ms": 0
+  },
+  "search": {
+    "lines": 100090,
+    "row_elements": 40,
+    "query_ms": [
+      {
+        "query": "s",
+        "status": "100,085 matching lines",
+        "runs": 5,
+        "median": 33.2,
+        "max": 33.5,
+        "work": {
+          "runs": 5,
+          "median": 2.7,
+          "max": 3.2
+        }
+      },
+      {
+        "query": "sa",
+        "status": "18,166 matching lines",
+        "runs": 5,
+        "median": 33.2,
+        "max": 34.2,
+        "work": {
+          "runs": 5,
+          "median": 6.4,
+          "max": 8
+        }
+      },
+      {
+        "query": "saf",
+        "status": "3,003 matching lines",
+        "runs": 5,
+        "median": 33.4,
+        "max": 34.1,
+        "work": {
+          "runs": 5,
+          "median": 6.4,
+          "max": 7.1
+        }
+      },
+      {
+        "query": "safa",
+        "status": "3,003 matching lines",
+        "runs": 5,
+        "median": 33,
+        "max": 33.2,
+        "work": {
+          "runs": 5,
+          "median": 4.9,
+          "max": 5.3
+        }
+      },
+      {
+        "query": "safar",
+        "status": "3,003 matching lines",
+        "runs": 5,
+        "median": 32.1,
+        "max": 33.5,
+        "work": {
+          "runs": 5,
+          "median": 4.6,
+          "max": 4.8
+        }
+      },
+      {
+        "query": "safari",
+        "status": "3,003 matching lines",
+        "runs": 5,
+        "median": 33.5,
+        "max": 34.1,
+        "work": {
+          "runs": 5,
+          "median": 4.9,
+          "max": 5.1
+        }
+      },
+      {
+        "query": "SAFARI",
+        "status": "3,003 matching lines",
+        "runs": 5,
+        "median": 33,
+        "max": 34,
+        "work": {
+          "runs": 5,
+          "median": 5,
+          "max": 5.2
+        }
+      },
+      {
+        "query": "parsed 42 records",
+        "status": "1,031 matching lines",
+        "runs": 5,
+        "median": 32.9,
+        "max": 34,
+        "work": {
+          "runs": 5,
+          "median": 3.6,
+          "max": 3.9
+        }
+      },
+      {
+        "query": "a",
+        "status": "100,088 matching lines",
+        "runs": 5,
+        "median": 33.7,
+        "max": 34.9,
+        "work": {
+          "runs": 5,
+          "median": 2.6,
+          "max": 2.7
+        }
+      },
+      {
+        "query": "Traceback",
+        "status": "No matching lines",
+        "runs": 5,
+        "median": 33.5,
+        "max": 34.1,
+        "work": {
+          "runs": 5,
+          "median": 3.6,
+          "max": 3.7
+        }
+      }
+    ],
+    "next_ms": {
+      "runs": 30,
+      "median": 33.4,
+      "max": 34.8,
+      "status": "147 of 3,003 matching lines",
+      "missing_current_rows": 0
+    },
+    "only_matching": [
+      {
+        "query": "a",
+        "status": "100,088 matching lines",
+        "rows": 100088,
+        "toggle_ms": 33.1,
+        "jump_ms": {
+          "runs": 50,
+          "median": 33.2,
+          "max": 34.8
+        },
+        "scroll_frame_ms": {
+          "runs": 120,
+          "median": 16.7,
+          "max": 20.8
+        },
+        "wrong_rows": 0
+      },
+      {
+        "query": "SAFARI",
+        "status": "3,003 matching lines",
+        "rows": 3003,
+        "toggle_ms": 33.3,
+        "jump_ms": {
+          "runs": 50,
+          "median": 33.3,
+          "max": 35.2
+        },
+        "scroll_frame_ms": {
+          "runs": 120,
+          "median": 16.6,
+          "max": 18.4
+        },
+        "wrong_rows": 0
+      }
+    ],
+    "long_tasks": {
+      "count": 0,
+      "max_ms": 0
+    }
+  }
+}

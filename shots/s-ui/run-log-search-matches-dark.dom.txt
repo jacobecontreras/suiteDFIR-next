@@ -1,0 +1,372 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen run-screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+          <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+            "Operation Nightjar"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <div class="title-row">
+            <h1 tabindex="-1">
+              "Run"
+            </h1>
+            <div class="run-status">
+              <span class="badge badge-succeeded">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                </svg>
+                "Succeeded"
+              </span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-danger" type="button" hidden="">
+              "Cancel run"
+            </button>
+          </div>
+        </div>
+        <div class="stack">
+          <dl class="facts run-facts">
+            <dt>
+              "Tool"
+            </dt>
+            <dd>
+              "iLEAPP v2026.4.2"
+            </dd>
+            <dt>
+              "Input"
+            </dt>
+            <dd>
+              <span class="cell-input">
+                <span class="tag" title="File system folder (fs)">
+                  "fs"
+                </span>
+                <span class="mono path-text">
+                  "/Volumes/Evidence/flood"
+                </span>
+              </span>
+            </dd>
+            <dt>
+              "Label"
+            </dt>
+            <dd>
+              <span class="muted">
+                "—"
+              </span>
+            </dd>
+            <dt>
+              "Created"
+            </dt>
+            <dd>
+              <time class="time-local" datetime="<iso-now>" tabindex="0" data-utc="<utc-now> UTC">
+                "<local-now>"
+                <span class="visually-hidden">
+                  " (<utc-now> UTC)"
+                </span>
+              </time>
+            </dd>
+            <dt>
+              "Run ID"
+            </dt>
+            <dd>
+              <span class="mono">
+                "<now>-ileapp-#1"
+              </span>
+            </dd>
+          </dl>
+          <section class="card" aria-labelledby="run-progress-heading">
+            <div class="card-head">
+              <h2 id="run-progress-heading">
+                "Progress"
+              </h2>
+              <span class="muted">
+                <span>
+                  "Duration"
+                </span>
+                " "
+                <span class="elapsed">
+                  "<masked>"
+                </span>
+              </span>
+            </div>
+            <div class="phase-slot">
+              <ol class="phase-steps" aria-label="Run phases">
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Preparing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Running"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Analyzing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Sealing report"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+                <li class="phase-step phase-step-done">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon phase-step-icon">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                  </svg>
+                  <span>
+                    "Finalizing"
+                  </span>
+                  <span class="visually-hidden">
+                    " (done)"
+                  </span>
+                </li>
+              </ol>
+            </div>
+            <div class="stack-sm progress-slot">
+              <div class="progress-block">
+                <div class="progress-head">
+                  <label class="progress-label" for="progress-#1">
+                    "Sealing the report (report.sha256)"
+                  </label>
+                  <span class="muted">
+                    "5,321 of 5,321 files (100%)"
+                  </span>
+                </div>
+                <progress class="progress" id="progress-#1" max="5321" value="5321"></progress>
+              </div>
+            </div>
+            <div class="error-slot"></div>
+          </section>
+          <section class="card result-card" aria-labelledby="run-result-heading">
+            <div class="card-head">
+              <h2 id="run-result-heading">
+                "Result"
+              </h2>
+              <span class="badge badge-succeeded">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                </svg>
+                "Succeeded"
+              </span>
+            </div>
+            <p>
+              "LEAPP completed and no module reported an error."
+            </p>
+            <dl class="facts facts-compact">
+              <dt>
+                "Modules"
+              </dt>
+              <dd>
+                "118 complete, 0 error, 1,058 no files found, 0 other"
+              </dd>
+              <dt>
+                "Report"
+              </dt>
+              <dd>
+                "Sealed in report.sha256: 5,321 files, 118 MiB"
+              </dd>
+            </dl>
+            <div class="stack-sm">
+              <h3>
+                "Parser output"
+              </h3>
+              <details class="parser-output" open="">
+                <summary>
+                  "stdout "
+                  <span class="muted">
+                    "(last 3 lines)"
+                  </span>
+                </summary>
+                <pre class="pre">
+                  "iLEAPP: iOS/Android Logs, Events, and Plists Parser\n"
+                  + "Objects will be written to /Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/<now>-ileapp-#1/report\n"
+                  + "Processes completed."
+                </pre>
+              </details>
+              <details class="parser-output">
+                <summary>
+                  "stderr "
+                  <span class="muted">
+                    "(empty)"
+                  </span>
+                </summary>
+              </details>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" type="button" title="Open report/index.html in the default browser">
+                "Open report"
+              </button>
+              <button class="btn" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                </svg>
+                "Reveal folder"
+              </button>
+              <button class="btn" type="button">
+                "Open stdout"
+              </button>
+              <button class="btn" type="button">
+                "Open stderr"
+              </button>
+              <button class="btn" type="button">
+                "Open run.json"
+              </button>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="run-log-heading">
+            <div class="card-head">
+              <h2 id="run-log-heading">
+                "Log"
+              </h2>
+            </div>
+            <div class="stack-sm">
+              <div class="log-view">
+                <div class="log-toolbar">
+                  <label class="check" for="log-follow-#1">
+                    <input type="checkbox" id="log-follow-#1" style="">
+                    <span>
+                      "Auto-scroll"
+                    </span>
+                  </label>
+                  <button class="btn btn-sm" type="button">
+                    "Copy all"
+                  </button>
+                  <span class="log-copy-status muted" role="status"></span>
+                  <span class="log-toolbar-spacer"></span>
+                  <span class="log-count muted">
+                    "100,090 lines"
+                  </span>
+                </div>
+                <div class="log-search" role="search" aria-label="Run log search">
+                  <div class="log-search-field">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                      <circle cx="11" cy="11" r="7"></circle>
+                      <line x1="20" y1="20" x2="16.2" y2="16.2"></line>
+                    </svg>
+                    <label class="visually-hidden" for="log-search-#1">
+                      "Search the log"
+                    </label>
+                    <input class="input log-search-input" type="search" id="log-search-#1" placeholder="Search the log" autocomplete="off" spellcheck="false" maxlength="256" aria-describedby="log-search-#1-status" style="">
+                  </div>
+                  <button class="btn btn-sm" type="button" title="Previous matching line (Shift+Enter)">
+                    "Previous"
+                    <span class="visually-hidden">
+                      " match"
+                    </span>
+                  </button>
+                  <button class="btn btn-sm" type="button" title="Next matching line (Enter)">
+                    "Next"
+                    <span class="visually-hidden">
+                      " match"
+                    </span>
+                  </button>
+                  <label class="check" for="log-search-#1-only">
+                    <input type="checkbox" id="log-search-#1-only" style="">
+                    <span>
+                      "Only matching lines"
+                    </span>
+                  </label>
+                  <span class="log-search-status muted" id="log-search-#1-status">
+                    "3 of 3,003 matching lines"
+                  </span>
+                </div>
+                <div class="log-frame">
+                  <div class="log-viewport" tabindex="0" role="region" aria-label="Run log (scrollable)" data-count="100090" style="--log-row: 20px;">
+                    <div class="log-spacer" style="height: 2.0018e+06px;">
+                      <div><!-- live: masked --></div>
+                    </div>
+                  </div>
+                  <p class="log-empty muted" hidden="">
+                    "No log lines yet."
+                  </p>
+                </div>
+                <p class="visually-hidden" aria-live="polite">
+                  "<masked>"
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

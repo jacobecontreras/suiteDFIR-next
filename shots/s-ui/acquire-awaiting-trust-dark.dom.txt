@@ -1,0 +1,288 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen acquire-screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+          <a href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+            "Operation Nightjar"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <div class="title-row">
+            <h1 tabindex="-1">
+              "Acquire iOS backup"
+            </h1>
+            <div class="run-status"></div>
+          </div>
+          <div class="actions"></div>
+        </div>
+        <div class="stack">
+          <div>
+            ""
+          </div>
+          <div>
+            ""
+          </div>
+          <section class="card" aria-labelledby="acq-devices-heading">
+            <div class="card-head">
+              <h2 id="acq-devices-heading">
+                "Devices"
+              </h2>
+              <span class="muted small" role="status">
+                "Checked every 2 s"
+              </span>
+            </div>
+            <div class="stack">
+              <fieldset class="device-list">
+                <legend class="visually-hidden">
+                  "Device to back up"
+                </legend>
+                <article class="device-card is-selected" aria-labelledby="device-#1">
+                  <div class="device-card-head">
+                    <label class="device-title" id="device-#1">
+                      <input type="radio" name="device" value="00008101-000A1B2C3D4E001E" data-focus-key="device:00008101-000A1B2C3D4E001E" style="">
+                      <span>
+                        "Alex's iPhone"
+                      </span>
+                    </label>
+                    <span class="badge badge-tone-ok">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                      </svg>
+                      "Paired"
+                    </span>
+                  </div>
+                  <dl class="facts facts-compact">
+                    <dt>
+                      "Model"
+                    </dt>
+                    <dd>
+                      "iPhone13,2"
+                    </dd>
+                    <dt>
+                      "iOS"
+                    </dt>
+                    <dd>
+                      "18.6"
+                    </dd>
+                    <dt>
+                      "Serial"
+                    </dt>
+                    <dd>
+                      "F2LXXXXXXX"
+                    </dd>
+                    <dt>
+                      "UDID"
+                    </dt>
+                    <dd>
+                      <span class="mono break">
+                        "00008101-000A1B2C3D4E001E"
+                      </span>
+                    </dd>
+                    <dt>
+                      "Backup encryption"
+                    </dt>
+                    <dd>
+                      "Off"
+                    </dd>
+                    <dt>
+                      "Data"
+                    </dt>
+                    <dd>
+                      "57.0 GiB of 110 GiB"
+                    </dd>
+                  </dl>
+                </article>
+                <article class="device-card" aria-labelledby="device-#2">
+                  <div class="device-card-head">
+                    <h3 class="device-title" id="device-#2">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                        <rect x="6" y="2" width="12" height="20" rx="2"></rect>
+                        <line x1="11" y1="18" x2="13" y2="18"></line>
+                      </svg>
+                      <span>
+                        "Name shown after pairing"
+                      </span>
+                    </h3>
+                    <span class="badge badge-tone-info">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                      </svg>
+                      "Waiting for Trust"
+                    </span>
+                  </div>
+                  <dl class="facts facts-compact">
+                    <dt>
+                      "Model"
+                    </dt>
+                    <dd>
+                      "iPad13,4"
+                    </dd>
+                    <dt>
+                      "iOS"
+                    </dt>
+                    <dd>
+                      "17.5.1"
+                    </dd>
+                    <dt>
+                      "Serial"
+                    </dt>
+                    <dd>
+                      <span class="muted">
+                        "Shown after pairing"
+                      </span>
+                    </dd>
+                    <dt>
+                      "UDID"
+                    </dt>
+                    <dd>
+                      <span class="mono break">
+                        "4e1c2b3a5d6f708192a3b4c5d6e7f8091a2b3c4d"
+                      </span>
+                    </dd>
+                    <dt>
+                      "Backup encryption"
+                    </dt>
+                    <dd>
+                      <span class="muted">
+                        "Shown after pairing"
+                      </span>
+                    </dd>
+                  </dl>
+                  <p class="device-guidance">
+                    "Unlock the device and tap Trust, then press Retry."
+                  </p>
+                  <p class="muted small">
+                    "The tool said: "
+                    <span class="break">
+                      "ERROR: Please accept the trust dialog on the screen of device 4e1c2b3a5d6f708192a3b4c5d6e7f8091a2b3c4d, then attempt to pair again."
+                    </span>
+                  </p>
+                  <div class="actions">
+                    <button class="btn btn-sm" type="button" data-focus-key="pair:4e1c2b3a5d6f708192a3b4c5d6e7f8091a2b3c4d">
+                      "Retry pairing"
+                    </button>
+                  </div>
+                </article>
+              </fieldset>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="acq-options-heading">
+            <h2 id="acq-options-heading">
+              "Options"
+            </h2>
+            <div class="stack">
+              <div class="banner banner-ok preflight preflight-ok" role="status">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                </svg>
+                <div class="stack-sm">
+                  <strong>
+                    "Enough free space."
+                  </strong>
+                  <p>
+                    "384 GiB free in the case folder; the device holds 57.0 GiB of data."
+                  </p>
+                </div>
+              </div>
+              <div class="field">
+                <label class="field-label" for="field-#1">
+                  "Label"
+                </label>
+                <input class="input" type="text" name="label" autocomplete="off" maxlength="200" id="field-#1" aria-describedby="field-#1-hint" style="">
+                <p class="field-hint" id="field-#1-hint">
+                  "Optional, e.g. the exhibit number. Shown in the case and recorded in acquisition.json."
+                </p>
+                <p class="field-error" id="field-#1-error" hidden=""></p>
+              </div>
+              <div class="stack-sm encryption-options" role="group" aria-labelledby="enc-#1">
+                <h3 id="enc-#1">
+                  "Backup encryption"
+                </h3>
+                <div class="field">
+                  <label class="check">
+                    <input type="checkbox" name="enable_encryption" style="">
+                    <span>
+                      "Enable backup encryption (recommended)"
+                    </span>
+                  </label>
+                  <p class="field-hint">
+                    "Encrypted backups contain more data (for example saved passwords, Health and Wi-Fi settings). This changes a setting on the device: it turns backup encryption on with a password you choose. The change is recorded in acquisition.json."
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="card start-card" aria-label="Start">
+            <div class="start-reasons" id="acq-reasons-#1">
+              <p class="ready-text">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                </svg>
+                "Ready to back up."
+              </p>
+            </div>
+            <div class="error-slot"></div>
+            <div class="form-actions">
+              <a class="btn" href="#/case?path=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+                "Cancel"
+              </a>
+              <button class="btn btn-primary btn-lg" type="button" aria-describedby="acq-reasons-#1">
+                "Start acquisition"
+              </button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>

@@ -1,0 +1,767 @@
+<div id="app">
+  <div class="shell">
+    <a class="skip-link" href="#main">
+      "Skip to content"
+    </a>
+    <header class="topbar">
+      <a class="app-name" href="#/cases">
+        "suiteDFIR"
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" href="#/cases" aria-current="page">
+          "Cases"
+        </a>
+        <a class="nav-link" href="#/settings">
+          "Settings"
+        </a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="job-indicator-slot" aria-live="polite">
+        ""
+      </div>
+    </header>
+    <div class="banners">
+      <div class="banner banner-mock" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <strong>
+          "MOCK DATA"
+        </strong>
+        <span>
+          "Development mock: nothing here is real, and no parser or device is used."
+        </span>
+      </div>
+    </div>
+    <main class="content" id="main" tabindex="-1">
+      <section class="screen">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="#/cases">
+            "Cases"
+          </a>
+          <span aria-hidden="true">
+            " / "
+          </span>
+        </nav>
+        <div class="screen-head">
+          <h1 tabindex="-1">
+            "Operation Nightjar"
+          </h1>
+          <div class="actions">
+            <button class="btn" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              </svg>
+              "Reveal folder"
+            </button>
+            <a class="btn" href="#/acquire?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                <rect x="6" y="2" width="12" height="20" rx="2"></rect>
+                <line x1="11" y1="18" x2="13" y2="18"></line>
+              </svg>
+              "Acquire iOS backup"
+            </a>
+            <a class="btn btn-primary" href="#/new-run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar">
+              "New run"
+            </a>
+          </div>
+        </div>
+        <div class="stack">
+          <section class="card" aria-labelledby="case-details-heading">
+            <div class="card-head">
+              <h2 id="case-details-heading">
+                "Case details"
+              </h2>
+              <button class="btn btn-sm" type="button">
+                "Edit"
+              </button>
+            </div>
+            <dl class="facts">
+              <dt>
+                "Case number"
+              </dt>
+              <dd>
+                "2026-0142"
+              </dd>
+              <dt>
+                "Examiner"
+              </dt>
+              <dd>
+                "J. Doe"
+              </dd>
+              <dt>
+                "Agency"
+              </dt>
+              <dd>
+                "County Forensics Lab"
+              </dd>
+              <dt>
+                "Description"
+              </dt>
+              <dd>
+                <span class="muted">
+                  "—"
+                </span>
+              </dd>
+              <dt>
+                "Default timezone"
+              </dt>
+              <dd>
+                "America/Chicago"
+              </dd>
+              <dt>
+                "Created"
+              </dt>
+              <dd>
+                <time class="time-local" datetime="2026-09-24T18:10:00Z" tabindex="0" data-utc="2026-09-24 18:10:00 UTC">
+                  "2026-09-24 11:10:00"
+                  <span class="visually-hidden">
+                    " (2026-09-24 18:10:00 UTC)"
+                  </span>
+                </time>
+              </dd>
+              <dt>
+                "Updated"
+              </dt>
+              <dd>
+                <time class="time-local" datetime="2026-09-24T18:10:00Z" tabindex="0" data-utc="2026-09-24 18:10:00 UTC">
+                  "2026-09-24 11:10:00"
+                  <span class="visually-hidden">
+                    " (2026-09-24 18:10:00 UTC)"
+                  </span>
+                </time>
+              </dd>
+              <dt>
+                "Folder"
+              </dt>
+              <dd>
+                <span class="mono break">
+                  "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar"
+                </span>
+              </dd>
+            </dl>
+          </section>
+          <section class="card" aria-labelledby="runs-heading">
+            <div class="card-head">
+              <h2 id="runs-heading">
+                "Runs"
+              </h2>
+              <span class="muted">
+                "7 runs"
+              </span>
+            </div>
+            <div class="error-slot"></div>
+            <div class="table-wrap">
+              <table class="table runs-table">
+                <caption class="visually-hidden">
+                  "Runs in this case. Column headers sort the table."
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">
+                      <button class="th-sort" type="button">
+                        "Status"
+                        <span class="sort-mark sort-mark-idle" data-sort-key="status" aria-hidden="true">
+                          "↕"
+                        </span>
+                      </button>
+                    </th>
+                    <th scope="col">
+                      <button class="th-sort" type="button">
+                        "Label"
+                        <span class="sort-mark sort-mark-idle" data-sort-key="label" aria-hidden="true">
+                          "↕"
+                        </span>
+                      </button>
+                    </th>
+                    <th scope="col">
+                      <button class="th-sort" type="button">
+                        "Tool"
+                        <span class="sort-mark sort-mark-idle" data-sort-key="tool" aria-hidden="true">
+                          "↕"
+                        </span>
+                      </button>
+                    </th>
+                    <th scope="col">
+                      <button class="th-sort" type="button">
+                        "Input"
+                        <span class="sort-mark sort-mark-idle" data-sort-key="input" aria-hidden="true">
+                          "↕"
+                        </span>
+                      </button>
+                    </th>
+                    <th scope="col" aria-sort="descending">
+                      <button class="th-sort" type="button">
+                        "Created"
+                        <span class="sort-mark" data-sort-key="created_at" aria-hidden="true">
+                          "▼"
+                        </span>
+                      </button>
+                    </th>
+                    <th scope="col">
+                      <button class="th-sort" type="button">
+                        "Duration"
+                        <span class="sort-mark sort-mark-idle" data-sort-key="duration" aria-hidden="true">
+                          "↕"
+                        </span>
+                      </button>
+                    </th>
+                    <th scope="col">
+                      <span class="visually-hidden">
+                        "Actions"
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <span class="badge badge-completed_with_errors">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path>
+                          <line x1="12" y1="9" x2="12" y2="13"></line>
+                          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                        "Completed with errors"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260924-183005Z-ileapp-3f9a1c" title="Show the run's result">
+                        "iPhone 12 Finder backup"
+                      </a>
+                    </td>
+                    <td class="nowrap">
+                      "iLEAPP"
+                      <span class="muted cell-sub">
+                        "v2026.4.2"
+                      </span>
+                    </td>
+                    <td class="cell-input">
+                      <span class="tag" title="iTunes/Finder backup (itunes)">
+                        "itunes"
+                      </span>
+                      <span class="mono path-text" title="/Volumes/Evidence/00008101-000A1B2C3D4E">
+                        <span aria-hidden="true">
+                          "/Volumes/Evid…0008101-000A1B2C3D4E"
+                        </span>
+                        <span class="visually-hidden">
+                          "/Volumes/Evidence/00008101-000A1B2C3D4E"
+                        </span>
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-24T18:30:05Z" tabindex="0" data-utc="2026-09-24 18:30:05 UTC">
+                        "2026-09-24 11:30:05"
+                        <span class="visually-hidden">
+                          " (2026-09-24 18:30:05 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="nowrap">
+                      "22 min 36 s"
+                    </td>
+                    <td class="cell-actions">
+                      <button class="btn btn-sm" type="button" title="Open report/index.html in the default browser">
+                        "Report"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the run folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="badge badge-succeeded">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                        </svg>
+                        "Succeeded"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260923-140211Z-ileapp-#1" title="Show the run's result">
+                        "Full file system"
+                      </a>
+                    </td>
+                    <td class="nowrap">
+                      "iLEAPP"
+                      <span class="muted cell-sub">
+                        "v2026.4.2"
+                      </span>
+                    </td>
+                    <td class="cell-input">
+                      <span class="tag" title="zip archive (zip)">
+                        "zip"
+                      </span>
+                      <span class="mono path-text" title="/Volumes/Evidence/iPhone-12-FFS.zip">
+                        <span aria-hidden="true">
+                          "/Volumes/Evid…ce/iPhone-12-FFS.zip"
+                        </span>
+                        <span class="visually-hidden">
+                          "/Volumes/Evidence/iPhone-12-FFS.zip"
+                        </span>
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-23T14:02:11Z" tabindex="0" data-utc="2026-09-23 14:02:11 UTC">
+                        "2026-09-23 07:02:11"
+                        <span class="visually-hidden">
+                          " (2026-09-23 14:02:11 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="nowrap">
+                      "41 min 0 s"
+                    </td>
+                    <td class="cell-actions">
+                      <button class="btn btn-sm" type="button" title="Open report/index.html in the default browser">
+                        "Report"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the run folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="badge badge-failed">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="15" y1="9" x2="9" y2="15"></line>
+                          <line x1="9" y1="9" x2="15" y2="15"></line>
+                        </svg>
+                        "Failed"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260923-134000Z-ileapp-#2" title="Show the run's result">
+                        "Wrong backup password"
+                      </a>
+                    </td>
+                    <td class="nowrap">
+                      "iLEAPP"
+                      <span class="muted cell-sub">
+                        "v2026.4.2"
+                      </span>
+                    </td>
+                    <td class="cell-input">
+                      <span class="tag" title="iTunes/Finder backup (itunes)">
+                        "itunes"
+                      </span>
+                      <span class="mono path-text" title="/Volumes/Evidence/00008101-000A1B2C3D4E">
+                        <span aria-hidden="true">
+                          "/Volumes/Evid…0008101-000A1B2C3D4E"
+                        </span>
+                        <span class="visually-hidden">
+                          "/Volumes/Evidence/00008101-000A1B2C3D4E"
+                        </span>
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-23T13:40:00Z" tabindex="0" data-utc="2026-09-23 13:40:00 UTC">
+                        "2026-09-23 06:40:00"
+                        <span class="visually-hidden">
+                          " (2026-09-23 13:40:00 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="nowrap">
+                      "3 min 0 s"
+                    </td>
+                    <td class="cell-actions">
+                      <button class="btn btn-sm" type="button" disabled="" title="This run has no report">
+                        "Report"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the run folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="badge badge-cancelled">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="4.9" y1="4.9" x2="19.1" y2="19.1"></line>
+                        </svg>
+                        "Cancelled"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260922-101530Z-aleapp-#3" title="Show the run's result">
+                        <span class="untitled">
+                          "Unlabeled run"
+                        </span>
+                      </a>
+                    </td>
+                    <td class="nowrap">
+                      "aLEAPP"
+                      <span class="muted cell-sub">
+                        "v2026.4.1"
+                      </span>
+                    </td>
+                    <td class="cell-input">
+                      <span class="tag" title="tar archive (tar)">
+                        "tar"
+                      </span>
+                      <span class="mono path-text">
+                        "/Volumes/Evidence/Pixel-7.tar"
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-22T10:15:30Z" tabindex="0" data-utc="2026-09-22 10:15:30 UTC">
+                        "2026-09-22 03:15:30"
+                        <span class="visually-hidden">
+                          " (2026-09-22 10:15:30 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="nowrap">
+                      "7 min 0 s"
+                    </td>
+                    <td class="cell-actions">
+                      <button class="btn btn-sm" type="button" disabled="" title="This run has no report">
+                        "Report"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the run folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="badge badge-interrupted">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="10" y1="15" x2="10" y2="9"></line>
+                          <line x1="14" y1="15" x2="14" y2="9"></line>
+                        </svg>
+                        "Interrupted"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260921-090000Z-ileapp-#4" title="Show the run's result">
+                        "Before the power cut"
+                      </a>
+                    </td>
+                    <td class="nowrap">
+                      "iLEAPP"
+                      <span class="muted cell-sub">
+                        "v2026.4.2"
+                      </span>
+                    </td>
+                    <td class="cell-input">
+                      <span class="tag" title="iTunes/Finder backup (itunes)">
+                        "itunes"
+                      </span>
+                      <span class="mono path-text">
+                        "/Volumes/Evidence/iPhone-11-backup"
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-21T09:00:00Z" tabindex="0" data-utc="2026-09-21 09:00:00 UTC">
+                        "2026-09-21 02:00:00"
+                        <span class="visually-hidden">
+                          " (2026-09-21 09:00:00 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="nowrap">
+                      <span class="muted">
+                        "—"
+                      </span>
+                    </td>
+                    <td class="cell-actions">
+                      <button class="btn btn-sm" type="button" disabled="" title="This run has no report">
+                        "Report"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the run folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="badge badge-succeeded">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                        </svg>
+                        "Succeeded"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260920-164510Z-aleapp-#5" title="Show the run's result">
+                        "Pixel 7 logical"
+                      </a>
+                    </td>
+                    <td class="nowrap">
+                      "aLEAPP"
+                      <span class="muted cell-sub">
+                        "v2026.4.1"
+                      </span>
+                    </td>
+                    <td class="cell-input">
+                      <span class="tag" title="File system folder (fs)">
+                        "fs"
+                      </span>
+                      <span class="mono path-text" title="/Volumes/Evidence/Pixel-7-extraction">
+                        <span aria-hidden="true">
+                          "/Volumes/Evid…e/Pixel-7-extraction"
+                        </span>
+                        <span class="visually-hidden">
+                          "/Volumes/Evidence/Pixel-7-extraction"
+                        </span>
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-20T16:45:10Z" tabindex="0" data-utc="2026-09-20 16:45:10 UTC">
+                        "2026-09-20 09:45:10"
+                        <span class="visually-hidden">
+                          " (2026-09-20 16:45:10 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="nowrap">
+                      "18 min 0 s"
+                    </td>
+                    <td class="cell-actions">
+                      <button class="btn btn-sm" type="button" title="Open report/index.html in the default browser">
+                        "Report"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the run folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="badge badge-failed">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="15" y1="9" x2="9" y2="15"></line>
+                          <line x1="9" y1="9" x2="15" y2="15"></line>
+                        </svg>
+                        "Failed"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260919-110500Z-ileapp-#6" title="Show the run's result">
+                        "Argument check"
+                      </a>
+                    </td>
+                    <td class="nowrap">
+                      "iLEAPP"
+                      <span class="muted cell-sub">
+                        "v2026.4.2"
+                      </span>
+                    </td>
+                    <td class="cell-input">
+                      <span class="tag" title="Disk image (raw)">
+                        "raw"
+                      </span>
+                      <span class="mono path-text">
+                        "/Volumes/Evidence/Galaxy-S21.E01"
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-19T11:05:00Z" tabindex="0" data-utc="2026-09-19 11:05:00 UTC">
+                        "2026-09-19 04:05:00"
+                        <span class="visually-hidden">
+                          " (2026-09-19 11:05:00 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="nowrap">
+                      "1 min 0 s"
+                    </td>
+                    <td class="cell-actions">
+                      <button class="btn btn-sm" type="button" disabled="" title="This run has no report">
+                        "Report"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the run folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="acquisitions-heading">
+            <div class="card-head">
+              <h2 id="acquisitions-heading">
+                "Acquisitions"
+              </h2>
+              <span class="muted">
+                "2 acquisitions"
+              </span>
+            </div>
+            <div class="error-slot"></div>
+            <div class="table-wrap">
+              <table class="table acq-table">
+                <caption class="visually-hidden">
+                  "iOS backups acquired into this case, newest first."
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">
+                      "Status"
+                    </th>
+                    <th scope="col">
+                      "Label"
+                    </th>
+                    <th scope="col">
+                      "Device"
+                    </th>
+                    <th scope="col">
+                      "iOS"
+                    </th>
+                    <th scope="col">
+                      "Created"
+                    </th>
+                    <th scope="col">
+                      <span class="visually-hidden">
+                        "Actions"
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <span class="badge badge-succeeded">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                        </svg>
+                        "Succeeded"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      "Suspect iPhone 12"
+                    </td>
+                    <td>
+                      "Alex's iPhone"
+                      <span class="muted cell-sub mono" title="00008101-000A1B2C3D4E001E">
+                        "000081…B2C3D4E001E"
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      "18.6"
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-24T17:12:00Z" tabindex="0" data-utc="2026-09-24 17:12:00 UTC">
+                        "2026-09-24 10:12:00"
+                        <span class="visually-hidden">
+                          " (2026-09-24 17:12:00 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="cell-actions cell-actions-wrap">
+                      <button class="btn btn-sm" type="button" title="Open New run with this backup as the input">
+                        "Parse with iLEAPP"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the acquisition folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Open idevicebackup2.stdout.log">
+                        "Log"
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="badge badge-succeeded">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <polyline points="8 12.5 11 15.5 16.5 9"></polyline>
+                        </svg>
+                        "Succeeded"
+                      </span>
+                      <span class="cell-sub cell-warn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <rect x="4" y="11" width="16" height="10" rx="2"></rect>
+                          <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+                        </svg>
+                        " Encryption may still be on"
+                      </span>
+                    </td>
+                    <td class="cell-label">
+                      "Second handset"
+                    </td>
+                    <td>
+                      "Alex's iPhone"
+                      <span class="muted cell-sub mono" title="00008101-000A1B2C3D4E001E">
+                        "000081…B2C3D4E001E"
+                      </span>
+                    </td>
+                    <td class="nowrap">
+                      "18.6"
+                    </td>
+                    <td class="nowrap">
+                      <time class="time-local" datetime="2026-09-23T10:15:00Z" tabindex="0" data-utc="2026-09-23 10:15:00 UTC">
+                        "2026-09-23 03:15:00"
+                        <span class="visually-hidden">
+                          " (2026-09-23 10:15:00 UTC)"
+                        </span>
+                      </time>
+                    </td>
+                    <td class="cell-actions cell-actions-wrap">
+                      <button class="btn btn-sm" type="button" title="Open New run with this backup as the input">
+                        "Parse with iLEAPP"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Reveal the acquisition folder">
+                        "Folder"
+                      </button>
+                      <button class="btn btn-sm" type="button">
+                        "Details"
+                      </button>
+                      <button class="btn btn-sm" type="button" title="Open idevicebackup2.stdout.log">
+                        "Log"
+                      </button>
+                      <button class="btn btn-sm btn-warn" type="button">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" class="icon">
+                          <rect x="4" y="11" width="16" height="10" rx="2"></rect>
+                          <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+                        </svg>
+                        "Turn backup encryption off"
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
