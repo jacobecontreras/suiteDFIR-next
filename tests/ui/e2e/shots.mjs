@@ -14,7 +14,8 @@
 // (see `domSnapshot`), with only what differs between runs masked: content that moves with time
 // (`DOM_TEXT_MASKS`, `Screen.live`) and run-specific values (`normalizeDom`).
 // Two runs of the same code give byte-identical files, so a diff against a baseline run shows DOM
-// changes that pixels miss (attributes, roles, hidden text).
+// changes that pixels miss (attributes, roles, hidden text). Local times follow the host's time
+// zone, which `--dom` prints (`dom time zone: …`); compare only runs made in the same zone.
 //
 // It also runs behavior checks (`check-*`, no screenshot), e.g. that Enter in a New run field never
 // starts a run and that cancelling needs a confirmation. It fails (exit 1) on a failed check, on any
@@ -2155,22 +2156,56 @@ const UID_PREFIXES = [
 ];
 
 /**
+ * `--dom`: the mock's fixed ids, which `normalizeDom` keeps exact: the job ids and case ids of the
+ * seeded cases that two fresh loads of `<root>/ui-dev/mock.js` (in Node, no scenario flags) give
+ * alike. The fixture ids (e.g. Operation Nightjar's case id, `…-ileapp-3f9a1c`) and the mock's
+ * literal ones are the same on every load; ids made with random hex differ (for a job id, a 1 in
+ * 16,777,216 chance of matching).
+ * @param {string} root
+ * @returns {Promise<Set<string>>}
+ */
+async function stableMockIds(root) {
+  const file = path.join(root, "ui-dev", "mock.js").replaceAll("\\", "/");
+  /** @param {number} n */
+  const load = async (n) => {
+    const mock = await import(new URL(`file://${file.startsWith("/") ? "" : "/"}${file}?z0dom=${n}`).href);
+    /** @type {string[]} */
+    const ids = [];
+    for (const summary of await mock.cases_list()) {
+      if (!summary.exists) continue;
+      const detail = await mock.case_open({ path: summary.path });
+      ids.push(detail.case.case_id);
+      for (const run of detail.runs) ids.push(run.run_id);
+      for (const acq of detail.acquisitions) ids.push(acq.acq_id);
+    }
+    return ids;
+  };
+  const a = await load(1);
+  const b = await load(2);
+  if (a.length !== b.length) throw new Error(`the mock's seeded ids differ in number between two loads (${a.length}, ${b.length})`);
+  return new Set(a.filter((id, i) => id === b[i]));
+}
+
+/**
  * `--dom`: masks the values of a `domSnapshot` that differ between two runs of the same code, and
  * nothing else:
  * - `uid()` ids (`picker-17`): numbered per prefix in order of first appearance (`picker-#1`), so
  *   the links between ids and `for` / `aria-*` stay visible. Only in tags, not in text.
- * - Job ids (`YYYYMMDD-HHMMSSZ-<kind>-<6 hex>`, the hex is random in the mock): the hex is numbered
- *   in order of first appearance (`#1`); the time part is masked only when it is from this run.
- * - The mock's other random hex: 32-digit case ids, the 8 digits of the install failure's
- *   "got …" detail; numbered likewise.
+ * - Job ids (`YYYYMMDD-HHMMSSZ-<kind>-<6 hex>`) that the mock generates at load or run time, whose
+ *   hex is random: the hex is numbered in order of first appearance (`#1`); the time part is
+ *   masked only when it is from this run.
+ * - The mock's other random hex: 32-digit case ids made at load or run time, the 8 digits of the
+ *   install failure's "got …" detail; numbered likewise.
+ * - Ids in `stable` (the fixed fixture and mock ids, see `stableMockIds`) stay exact.
  * - Timestamps made during this run (between `window.from` and `window.to`), RFC 3339 (`<iso-now>`,
  *   also inside Raw JSON <pre> text), `YYYY-MM-DD HH:MM:SS UTC` (`<utc-now> UTC`) and local
  *   `YYYY-MM-DD HH:MM:SS` (`<local-now>`); fixed seed and fixture times stay as they are.
  * @param {string} text
  * @param {{ from: number, to: number }} window The run's time span, in ms since the epoch.
+ * @param {ReadonlySet<string>} stable Job ids and case ids that are the same on every mock load.
  * @returns {string}
  */
-function normalizeDom(text, window) {
+function normalizeDom(text, window, stable) {
   /** @param {number} ms */
   const inRun = (ms) => ms >= window.from && ms <= window.to;
   /** @type {Map<string, Map<string, number>>} */
@@ -2191,10 +2226,11 @@ function normalizeDom(text, window) {
   const mask = (s) =>
     s
       .replace(/\b(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})Z-(ileapp|aleapp|ios)-([0-9a-f]{6})\b/g, (m, y, mo, d, h, mi, sec, kind, hex) => {
+        if (stable.has(m)) return m;
         const stamp = inRun(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec)) ? "<now>" : `${y}${mo}${d}-${h}${mi}${sec}Z`;
         return `${stamp}-${kind}-${ordinal("job", hex)}`;
       })
-      .replace(/\b[0-9a-f]{32}\b/g, (m) => `<hex32-${ordinal("hex32", m)}>`)
+      .replace(/\b[0-9a-f]{32}\b/g, (m) => (stable.has(m) ? m : `<hex32-${ordinal("hex32", m)}>`))
       .replace(/\bgot ([0-9a-f]{8})…/g, (m, hex) => `got <hex8-${ordinal("hex8", hex)}>…`)
       .replace(/\b(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z/g, (m, y, mo, d, h, mi, sec) =>
         inRun(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec)) ? "<iso-now>" : m,
@@ -2555,6 +2591,14 @@ async function main() {
     if (unknown.length) throw new Error(`unknown screens: ${unknown.join(", ")}`);
   }
   await mkdir(opts.out, { recursive: true });
+  /** `--dom`: the ids `normalizeDom` keeps exact. */
+  const stableIds = opts.dom ? await stableMockIds(opts.root) : new Set();
+  if (opts.dom) {
+    // Local times in the DOM files are in the host's time zone (the browser context sets none).
+    process.stdout.write(`dom time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}\n`);
+    process.stdout.write(`dom fixed ids: ${[...stableIds].join(" ")}\n`);
+  }
+  let pageZoneLogged = false;
 
   /** @type {string[]} */
   const problems = [];
@@ -2583,7 +2627,11 @@ async function main() {
           if (opts.dom) {
             const domFile = path.join(opts.out, `${screen.name}-${scheme}.dom.txt`);
             const dom = await page.evaluate(domSnapshot, { text: DOM_TEXT_MASKS, live: screen.live ?? [] });
-            await writeFile(domFile, normalizeDom(dom, { from: startedMs - TIME_SLACK_MS, to: Date.now() + TIME_SLACK_MS }));
+            if (!pageZoneLogged) {
+              pageZoneLogged = true;
+              process.stdout.write(`dom page time zone: ${await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)}\n`);
+            }
+            await writeFile(domFile, normalizeDom(dom, { from: startedMs - TIME_SLACK_MS, to: Date.now() + TIME_SLACK_MS }, stableIds));
             process.stdout.write(`dom ${domFile}\n`);
           }
         } catch (err) {
