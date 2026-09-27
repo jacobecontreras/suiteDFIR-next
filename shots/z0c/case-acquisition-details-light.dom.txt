@@ -228,7 +228,7 @@
                       </span>
                     </td>
                     <td class="cell-label">
-                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260924-183005Z-ileapp-#1" title="Show the run's result">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260924-183005Z-ileapp-3f9a1c" title="Show the run's result">
                         "iPhone 12 Finder backup"
                       </a>
                     </td>
@@ -285,7 +285,7 @@
                       </span>
                     </td>
                     <td class="cell-label">
-                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260923-140211Z-ileapp-#2" title="Show the run's result">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260923-140211Z-ileapp-#1" title="Show the run's result">
                         "Full file system"
                       </a>
                     </td>
@@ -343,7 +343,7 @@
                       </span>
                     </td>
                     <td class="cell-label">
-                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260923-134000Z-ileapp-#3" title="Show the run's result">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260923-134000Z-ileapp-#2" title="Show the run's result">
                         "Wrong backup password"
                       </a>
                     </td>
@@ -400,7 +400,7 @@
                       </span>
                     </td>
                     <td class="cell-label">
-                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260922-101530Z-aleapp-#4" title="Show the run's result">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260922-101530Z-aleapp-#3" title="Show the run's result">
                         <span class="untitled">
                           "Unlabeled run"
                         </span>
@@ -455,7 +455,7 @@
                       </span>
                     </td>
                     <td class="cell-label">
-                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260921-090000Z-ileapp-#5" title="Show the run's result">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260921-090000Z-ileapp-#4" title="Show the run's result">
                         "Before the power cut"
                       </a>
                     </td>
@@ -509,7 +509,7 @@
                       </span>
                     </td>
                     <td class="cell-label">
-                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260920-164510Z-aleapp-#6" title="Show the run's result">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260920-164510Z-aleapp-#5" title="Show the run's result">
                         "Pixel 7 logical"
                       </a>
                     </td>
@@ -567,7 +567,7 @@
                       </span>
                     </td>
                     <td class="cell-label">
-                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260919-110500Z-ileapp-#7" title="Show the run's result">
+                      <a href="#/run?case=%2FUsers%2Fexaminer%2FDocuments%2FsuiteDFIR+Cases%2FOperation+Nightjar&amp;id=20260919-110500Z-ileapp-#6" title="Show the run's result">
                         "Argument check"
                       </a>
                     </td>
@@ -812,7 +812,7 @@
               </dt>
               <dd>
                 <span class="mono">
-                  "20260924-171200Z-ios-#8"
+                  "20260924-171200Z-ios-9c01de"
                 </span>
               </dd>
               <dt>
@@ -1085,7 +1085,7 @@
           <pre class="pre">
             "{\n"
             + "  \"schema_version\": 1,\n"
-            + "  \"acq_id\": \"20260924-171200Z-ios-#8\",\n"
+            + "  \"acq_id\": \"20260924-171200Z-ios-9c01de\",\n"
             + "  \"label\": \"Suspect iPhone 12\",\n"
             + "  \"status\": \"succeeded\",\n"
             + "  \"status_reasons\": [],\n"
@@ -1106,7 +1106,7 @@
             + "    \"hostname\": \"LAB-MAC-01\"\n"
             + "  },\n"
             + "  \"case_snapshot\": {\n"
-            + "    \"case_id\": \"<hex32-#1>\",\n"
+            + "    \"case_id\": \"5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c\",\n"
             + "    \"name\": \"Operation Nightjar\",\n"
             + "    \"case_number\": \"2026-0142\",\n"
             + "    \"examiner\": \"J. Doe\",\n"
@@ -1210,7 +1210,7 @@
             + "        \"00008101-000A1B2C3D4E001E\",\n"
             + "        \"backup\",\n"
             + "        \"--full\",\n"
-            + "        \"/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/acquisitions/20260924-171200Z-ios-#8/backup\"\n"
+            + "        \"/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/acquisitions/20260924-171200Z-ios-9c01de/backup\"\n"
             + "      ],\n"
             + "      \"exit_code\": 0,\n"
             + "      \"started_at\": \"2026-09-24T17:12:09Z\",\n"

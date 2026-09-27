@@ -5,19 +5,19 @@
       "query": "history",
       "modules": 1300,
       "runs": 7,
-      "render_ms_median": 11,
-      "filter_ms_median": 4,
-      "total_ms_median": 15.1,
-      "total_ms_max": 32.1
+      "render_ms_median": 11.9,
+      "filter_ms_median": 4.2,
+      "total_ms_median": 16,
+      "total_ms_max": 31.8
     },
     {
       "query": "a",
       "modules": 1300,
       "runs": 7,
-      "render_ms_median": 10.5,
-      "filter_ms_median": 18.3,
-      "total_ms_median": 28.8,
-      "total_ms_max": 34.5
+      "render_ms_median": 10.9,
+      "filter_ms_median": 19.2,
+      "total_ms_median": 30.6,
+      "total_ms_max": 37.7
     }
   ]
 }
