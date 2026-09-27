@@ -316,6 +316,13 @@ fn scenario_row(
     (lab, record, events)
 }
 
+/// Runs `request` in the `success` scenario to the end and checks that it succeeded cleanly.
+fn run_success(lab: &Lab, tool: ToolId, request: RunRequest) -> (RunOutcome, RunRecord) {
+    let (outcome, events) = run(lab.context(tool, "success", &[]), request, |_, _| {});
+    let record = assert_final(lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    (outcome, record)
+}
+
 // ---- CONTRACTS.md §7.4, one test per row ----
 
 #[test]
@@ -726,12 +733,7 @@ fn custom_and_profile_modules_write_the_run_profile() {
     request.modules = ModuleSelection::Custom {
         modules: vec!["sms".to_owned(), "callHistory".to_owned(), "sms".to_owned()],
     };
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (outcome, record) = run_success(&lab, ToolId::Ileapp, request);
     assert_eq!(record.modules.mode, ModuleMode::Custom);
     assert_eq!(record.modules.resolved, ["sms", "callHistory"]);
     let dir = run_dir(&outcome);
@@ -789,12 +791,7 @@ fn an_explicit_timezone_and_a_keychain() {
     let mut request = lab.fs_request(ToolId::Ileapp);
     request.timezone = Some("Europe/Berlin".to_owned());
     request.keychain_path = Some(keychain.to_string_lossy().into_owned());
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert_eq!(record.options.timezone.as_deref(), Some("Europe/Berlin"));
     assert_eq!(
         record.options.keychain_path.as_deref(),
@@ -824,12 +821,7 @@ fn an_input_inside_the_cases_acquisitions_records_its_id() {
     let backup = acq.join("backup").join("00008101-000A1B2C3D4E001E");
     lab.itunes_backup(&backup, false);
     let request = lab.request(ToolId::Ileapp, &backup, InputType::Itunes);
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert_eq!(record.input.acquisition_id.as_deref(), Some(ACQ_ID));
     assert_eq!(record.input.itunes_encrypted, Some(false));
     assert_eq!(record.input.type_detected, Some(InputType::Itunes));
@@ -1200,22 +1192,12 @@ fn a_backup_with_unknown_encryption_needs_a_password() {
     // With a password, it runs (and the record keeps the unknown state).
     let mut request = lab.request(ToolId::Ileapp, &no_key, InputType::Itunes);
     request.itunes_password = Some(PASSWORD.to_owned());
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert!(record.options.password_supplied);
     assert_eq!(record.input.itunes_encrypted, None);
     // Read as a plain folder, the same backup needs no password.
     let request = lab.request(ToolId::Ileapp, &no_key, InputType::Fs);
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert!(!record.options.password_supplied);
 }
 
@@ -1228,12 +1210,7 @@ fn an_unencrypted_backup_or_a_non_backup_needs_no_password() {
     lab.itunes_backup(&backup, false);
     for input in [&backup, &lab.input] {
         let request = lab.request(ToolId::Ileapp, input, InputType::Itunes);
-        let (outcome, events) = run(
-            lab.context(ToolId::Ileapp, "success", &[]),
-            request,
-            |_, _| {},
-        );
-        let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+        let (_, record) = run_success(&lab, ToolId::Ileapp, request);
         assert!(!record.options.password_supplied);
         assert_eq!(
             record.input.itunes_encrypted,
