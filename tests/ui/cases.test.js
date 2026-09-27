@@ -4,17 +4,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { editableFields, folderLabel, updatedRunSummary, validateCaseFields } from "../../ui/lib/cases.js";
-import { createStore } from "../../ui/lib/store.js";
 import { FALLBACK_TIMEZONES, loadTimezones, pickTimezone, timezoneList } from "../../ui/lib/timezones.js";
 import { installedTools } from "../../ui/lib/tools.js";
 import { CaseFile, RunRecord, RunSummary, ToolModules, ToolStatus } from "../../ui-dev/fixtures/contracts/index.js";
-
-/** @typedef {import("../../ui/lib/context").AppState} AppState */
-/** @typedef {import("../../ui/types").ToolStatus} Status */
-
-/** @param {Status[]} tools */
-const tzStore = (tools) =>
-  createStore(/** @type {AppState} */ ({ mode: "mock", appInfo: null, settings: null, tools, activeJob: null, timezones: null }));
+import { appStore } from "./helpers.js";
 
 /**
  * A fake API whose tool_modules fails while `state.fail` is set; counts its calls.
@@ -30,7 +23,7 @@ const tzApi = (state) => ({
 });
 
 test("loadTimezones without iLEAPP uses the fallback and does not cache it", async () => {
-  const store = tzStore([{ ...ToolStatus, state: "not_installed", installed_version: null }]);
+  const store = appStore({ tools: [{ ...ToolStatus, state: "not_installed", installed_version: null }] });
   const state = { fail: false, calls: 0 };
   const list = await loadTimezones(tzApi(state), store);
   assert.ok(list.includes("UTC"));
@@ -39,7 +32,7 @@ test("loadTimezones without iLEAPP uses the fallback and does not cache it", asy
 });
 
 test("loadTimezones never caches a fallback, so iLEAPP's list is used once it loads", async () => {
-  const store = tzStore([{ ...ToolStatus }]);
+  const store = appStore({ tools: [{ ...ToolStatus }] });
   const state = { fail: true, calls: 0 };
   const api = tzApi(state);
   const fallback = await loadTimezones(api, store);
@@ -53,7 +46,7 @@ test("loadTimezones never caches a fallback, so iLEAPP's list is used once it lo
 });
 
 test("loadTimezones reloads iLEAPP's list when its installed version changes", async () => {
-  const store = tzStore([{ ...ToolStatus }]);
+  const store = appStore({ tools: [{ ...ToolStatus }] });
   const state = { fail: false, calls: 0 };
   const api = tzApi(state);
   await loadTimezones(api, store);

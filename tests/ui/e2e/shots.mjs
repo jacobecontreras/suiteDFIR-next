@@ -46,7 +46,7 @@ const LOG_BUDGET_MS = 100;
 /**
  * @typedef {object} Screen
  * @property {string} name
- * @property {string} query The URL query, e.g. "?mock&scenario=empty".
+ * @property {string} [query] The URL query, e.g. "?mock&scenario=empty" (default "?mock").
  * @property {string} hash
  * @property {(page: Page) => Promise<void>} setup Waits for the state to be on screen.
  * @property {string} [element] Screenshot only this element instead of the full page.
@@ -127,11 +127,11 @@ async function waitForLines(page, n, timeoutMs = 60000) {
 }
 
 /**
- * Waits for the Run screen's result panel with the given status label.
+ * Waits for the Run or Acquire screen's result panel with the given status label.
  * @param {Page} page
  * @param {string} status e.g. "Succeeded"
  */
-async function runResult(page, status) {
+async function resultBadge(page, status) {
   await page.locator(".result-card:not([hidden]) .card-head .badge", { hasText: status }).waitFor({ timeout: 30000 });
 }
 
@@ -178,11 +178,18 @@ async function startAcquisition(page, o = {}) {
 }
 
 /**
+ * In the open "Turn backup encryption off" dialog: types `password`, turns encryption off and waits
+ * until it is off; with `close`, then closes the dialog.
  * @param {Page} page
- * @param {string} status e.g. "Succeeded"
+ * @param {string} password
+ * @param {{ close?: boolean }} [o]
  */
-async function acqResult(page, status) {
-  await page.locator(".result-card:not([hidden]) .card-head .badge", { hasText: status }).waitFor({ timeout: 30000 });
+async function turnEncryptionOff(page, password, o = {}) {
+  const dialog = page.locator("dialog");
+  await dialog.getByLabel("Backup password").fill(password);
+  await dialog.getByRole("button", { name: "Turn encryption off" }).click();
+  await page.getByText("Backup encryption is off.").waitFor();
+  if (o.close) await dialog.getByRole("button", { name: "Close" }).click();
 }
 
 /**
@@ -269,6 +276,38 @@ async function searchStatus(page, text, timeoutMs = 10000) {
 }
 
 /**
+ * Starts recording each change of the log view's live region, with its time (`liveUpdates`).
+ * @param {Page} page
+ */
+async function watchLiveRegion(page) {
+  await page.evaluate(() => {
+    const w = /** @type {any} */ (window);
+    w.__live = [];
+    const region = /** @type {HTMLElement} */ (document.querySelector(".log-view [aria-live]"));
+    new MutationObserver(() => w.__live.push({ t: performance.now(), text: region.textContent ?? "" })).observe(region, { childList: true, characterData: true, subtree: true });
+  });
+}
+
+/**
+ * The live region's changes since `watchLiveRegion`.
+ * @param {Page} page
+ */
+async function liveUpdates(page) {
+  return page.evaluate(() => /** @type {{ t: number, text: string }[]} */ (/** @type {any} */ (window).__live));
+}
+
+/**
+ * Throws unless there are at least `min` live-region updates, each at least a second after the one
+ * before. The throttle waits 1,000 ms by Date.now(); the observer stamps performance.now().
+ * @param {{ t: number, text: string }[]} live
+ * @param {number} min
+ */
+function assertSpaced(live, min) {
+  const gaps = live.slice(1).map((x, i) => x.t - live[i].t);
+  if (live.length < min || gaps.some((g) => g < 990)) throw new Error(`live region updates ${JSON.stringify(live.map((x) => Math.round(x.t)))}`);
+}
+
+/**
  * The Run screen's log after the 100,000-line flood run (finished, so the log no longer moves),
  * searched for `query` (S2).
  * @param {string} name
@@ -280,13 +319,12 @@ async function searchStatus(page, text, timeoutMs = 10000) {
 function logSearchScreen(name, query, status, then) {
   return {
     name,
-    query: "?mock",
     hash: newRunHash,
     element: ".log-view",
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/flood");
       await waitForLines(page, 100_000);
-      await runResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByRole("searchbox", { name: "Search the log" }).fill(query);
       await searchStatus(page, status);
       if (then) await then(page);
@@ -318,7 +356,6 @@ const SCREENS = [
   },
   {
     name: "app-error",
-    query: "?mock",
     hash: caseHash(MISSING),
     setup: async (page) => {
       await page.locator(".app-error").waitFor();
@@ -336,7 +373,6 @@ const SCREENS = [
   // ---- D2: Cases and Case ----
   {
     name: "cases-recent",
-    query: "?mock",
     hash: "#/cases",
     setup: async (page) => {
       await page.locator(".case-list").waitFor();
@@ -344,7 +380,6 @@ const SCREENS = [
   },
   {
     name: "cases-missing-folder",
-    query: "?mock",
     hash: "#/cases",
     element: ".case-item-missing",
     setup: async (page) => {
@@ -370,7 +405,6 @@ const SCREENS = [
   },
   {
     name: "case-new-validation",
-    query: "?mock",
     hash: "#/cases",
     viewport: true,
     setup: async (page) => {
@@ -382,7 +416,6 @@ const SCREENS = [
   },
   {
     name: "case-edit",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     setup: async (page) => {
       await page.getByRole("button", { name: "Edit" }).click();
@@ -391,7 +424,6 @@ const SCREENS = [
   },
   {
     name: "case-runs",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     setup: async (page) => {
       await page.locator(".runs-table").waitFor();
@@ -400,7 +432,6 @@ const SCREENS = [
   {
     // UTC shown on keyboard focus (Tab from the first row's label link to its time).
     name: "case-runs-utc-focus",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     element: ".table-wrap",
     setup: async (page) => {
@@ -411,7 +442,6 @@ const SCREENS = [
   },
   {
     name: "case-empty-runs",
-    query: "?mock",
     hash: caseHash(HARBOR),
     setup: async (page) => {
       await page.getByText("No runs yet.").waitFor();
@@ -420,7 +450,6 @@ const SCREENS = [
   {
     // A run whose app "crashes" (…/interrupt) is marked interrupted when the case is opened again.
     name: "case-recovered-notice",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/interrupt");
@@ -433,7 +462,6 @@ const SCREENS = [
   },
   {
     name: "run-details",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -444,7 +472,6 @@ const SCREENS = [
   },
   {
     name: "run-details-raw-json",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -458,13 +485,11 @@ const SCREENS = [
   // ---- D3: New run ----
   {
     name: "newrun-sections",
-    query: "?mock",
     hash: newRunHash,
     setup: newRunReady,
   },
   {
     name: "newrun-inspection",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -474,7 +499,6 @@ const SCREENS = [
   },
   {
     name: "newrun-overlap-error",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -484,7 +508,6 @@ const SCREENS = [
   },
   {
     name: "newrun-permission-error",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(2)",
     setup: async (page) => {
@@ -495,7 +518,6 @@ const SCREENS = [
   },
   {
     name: "newrun-encrypted-password",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -506,7 +528,6 @@ const SCREENS = [
   {
     // A backup whose encryption cannot be read needs a password as if encrypted (K8 owner decision).
     name: "newrun-encryption-unknown",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -520,7 +541,6 @@ const SCREENS = [
     // The backups in the default backup folder, newest first; details a backup's plists do not give
     // (or a folder that cannot be read) stay visible as unknown.
     name: "newrun-backups-found",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(2)",
     setup: async (page) => {
@@ -567,7 +587,6 @@ const SCREENS = [
     // "Use" sets the input to the backup, read as an iTunes backup through input_inspect: this one is
     // encrypted, so the password field appears. Nothing starts.
     name: "newrun-backup-chosen",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await findBackups(page);
@@ -577,7 +596,6 @@ const SCREENS = [
   },
   {
     name: "newrun-picker-search",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await customMode(page);
@@ -587,7 +605,6 @@ const SCREENS = [
   },
   {
     name: "newrun-picker-tristate",
-    query: "?mock",
     hash: newRunHash,
     element: ".picker",
     setup: async (page) => {
@@ -603,7 +620,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-unknown",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -613,7 +629,6 @@ const SCREENS = [
   },
   {
     name: "newrun-unknown-modules",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -624,7 +639,6 @@ const SCREENS = [
   },
   {
     name: "newrun-start-disabled",
-    query: "?mock",
     hash: newRunHash,
     element: ".start-card",
     setup: async (page) => {
@@ -637,7 +651,6 @@ const SCREENS = [
   },
   {
     name: "newrun-aleapp-file",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -649,7 +662,6 @@ const SCREENS = [
   },
   {
     name: "newrun-save-profile",
-    query: "?mock",
     hash: newRunHash,
     viewport: true,
     setup: async (page) => {
@@ -661,7 +673,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-saved",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(4)",
     setup: async (page) => {
@@ -675,7 +686,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-imported",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(4)",
     setup: async (page) => {
@@ -689,7 +699,6 @@ const SCREENS = [
   },
   {
     name: "newrun-import-replace",
-    query: "?mock",
     hash: newRunHash,
     viewport: true,
     setup: async (page) => {
@@ -702,7 +711,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-exported",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(4)",
     setup: async (page) => {
@@ -715,7 +723,6 @@ const SCREENS = [
   },
   {
     name: "newrun-started",
-    query: "?mock",
     hash: newRunHash,
     live: [".job-phase", ".phase-steps", ".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -730,7 +737,6 @@ const SCREENS = [
   },
   {
     name: "newrun-ready",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -742,7 +748,6 @@ const SCREENS = [
   runPhaseScreen("preparing", "Preparing", "Choose folder…", "Pixel-7-extraction"),
   {
     name: "run-phase-running",
-    query: "?mock",
     hash: newRunHash,
     live: [".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -756,7 +761,6 @@ const SCREENS = [
   runPhaseScreen("finalizing", "Finalizing", "Choose folder…", "Pixel-7-extraction"),
   {
     name: "run-cancel-confirm",
-    query: "?mock",
     hash: newRunHash,
     live: [".log-count", ".log-viewport"],
     viewport: true,
@@ -769,36 +773,32 @@ const SCREENS = [
   },
   {
     name: "run-succeeded",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose file…", "iPhone-12-FFS.zip");
-      await runResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByText(/complete, 0 error/).waitFor();
     },
   },
   {
     name: "run-completed-with-errors",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/errors");
-      await runResult(page, "Completed with errors");
+      await resultBadge(page, "Completed with errors");
       await page.getByText("Modules with errors").waitFor();
     },
   },
   {
     name: "run-failed",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/fail-crash");
-      await runResult(page, "Failed");
+      await resultBadge(page, "Failed");
     },
   },
   {
     name: "run-cancelled",
-    query: "?mock",
     hash: newRunHash,
     live: [".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -806,22 +806,20 @@ const SCREENS = [
       await waitForLines(page, 20);
       await page.locator(".screen-head").getByRole("button", { name: "Cancel run" }).click();
       await page.locator("dialog").getByRole("button", { name: "Cancel run" }).click();
-      await runResult(page, "Cancelled");
+      await resultBadge(page, "Cancelled");
     },
   },
   {
     name: "run-interrupted",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     setup: async (page) => {
       await page.getByRole("link", { name: "Before the power cut" }).click();
-      await runResult(page, "Interrupted");
+      await resultBadge(page, "Interrupted");
     },
   },
   // ---- D4b: Settings, every ToolState plus installing and install failed ----
   {
     name: "settings",
-    query: "?mock",
     hash: "#/settings",
     setup: async (page) => {
       await page.locator(".tool-card").first().waitFor();
@@ -831,7 +829,6 @@ const SCREENS = [
   {
     // verified (iLEAPP) and installed_unverified (aLEAPP), then Verify on aLEAPP.
     name: "settings-tools-verify",
-    query: "?mock",
     hash: "#/settings",
     element: ".tool-grid",
     setup: async (page) => {
@@ -915,7 +912,6 @@ const SCREENS = [
   {
     // A tools-folder override (with "Use the default"), and a finished temp cleanup.
     name: "settings-storage",
-    query: "?mock",
     hash: "#/settings",
     element: "section[aria-labelledby=settings-storage]",
     setup: async (page) => {
@@ -928,7 +924,6 @@ const SCREENS = [
   },
   {
     name: "settings-about-licenses",
-    query: "?mock",
     hash: "#/settings",
     element: "section[aria-labelledby=settings-about]",
     setup: async (page) => {
@@ -954,7 +949,6 @@ const SCREENS = [
   // ---- D5: Acquire ----
   {
     name: "acquire-devices",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await acquireReady(page);
@@ -975,7 +969,6 @@ const SCREENS = [
     // Pair on the unpaired iPad: the device now shows the Trust dialog. As with the core, the next
     // polls report `not_paired` (no host pair record yet); the card keeps the Pair answer.
     name: "acquire-awaiting-trust",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     element: ".device-list",
     setup: async (page) => {
@@ -991,7 +984,6 @@ const SCREENS = [
   {
     // Retry after Trust: paired. The iPad's owner had turned backup encryption on.
     name: "acquire-encryption-already-on",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await acquireReady(page);
@@ -1005,7 +997,6 @@ const SCREENS = [
   },
   {
     name: "acquire-encryption-enable",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await acquireReady(page);
@@ -1017,7 +1008,6 @@ const SCREENS = [
   },
   {
     name: "acquire-password-mismatch",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     element: ".acquire-screen",
     setup: async (page) => {
@@ -1130,7 +1120,6 @@ const SCREENS = [
   },
   {
     name: "acquire-progress",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     live: [".progress-block", ".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -1149,7 +1138,6 @@ const SCREENS = [
   },
   {
     name: "acquire-cancel-confirm",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     live: [".progress-block", ".log-count", ".log-viewport"],
     viewport: true,
@@ -1162,26 +1150,23 @@ const SCREENS = [
   },
   {
     name: "acquire-succeeded",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, keep: true, label: "Seized iPhone, item 7" });
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByText("Turned on for the backup, then off again").waitFor();
     },
   },
   {
     name: "acquire-failed",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { label: "Seized iPhone, item 7/backup_fail" });
-      await acqResult(page, "Failed");
+      await resultBadge(page, "Failed");
     },
   },
   {
     name: "acquire-cancelled",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     live: [".progress-block", ".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -1189,29 +1174,27 @@ const SCREENS = [
       await page.locator(".progress-block").waitFor();
       await page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" }).click();
       await page.locator("dialog").getByRole("button", { name: "Cancel acquisition" }).click();
-      await acqResult(page, "Cancelled");
+      await resultBadge(page, "Cancelled");
     },
   },
   {
     // Turning encryption off after the backup failed: the warnings and the action.
     name: "acquire-restore-failed",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByText("Backup encryption may still be on for this device.").waitFor();
     },
   },
   {
     // The later restore, with a wrong password: encryption stays on.
     name: "acquire-restore-dialog-still-on",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).click();
       await page.locator("dialog").getByLabel("Backup password").fill("wrong");
       await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
@@ -1222,20 +1205,16 @@ const SCREENS = [
     // A retry with the right password succeeds; the re-read AcqSummary no longer has the warning, so
     // the result stops offering the action (acquisition.json keeps its warnings).
     name: "acquire-restore-done",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).click();
       const dialog = page.locator("dialog");
       await dialog.getByLabel("Backup password").fill("wrong");
       await dialog.getByRole("button", { name: "Turn encryption off" }).click();
       await page.getByText("Backup encryption is still on.").waitFor();
-      await dialog.getByLabel("Backup password").fill("examiner-pw");
-      await dialog.getByRole("button", { name: "Turn encryption off" }).click();
-      await page.getByText("Backup encryption is off.").waitFor();
-      await dialog.getByRole("button", { name: "Close" }).click();
+      await turnEncryptionOff(page, "examiner-pw", { close: true });
       await page.getByText("Backup encryption was turned off after this acquisition.").waitFor();
       if (await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).count()) {
         throw new Error("the result still offers the action after a successful restore");
@@ -1246,11 +1225,10 @@ const SCREENS = [
     // "Parse with iLEAPP" after a success with "Parse with iLEAPP now": New run with the backup and
     // the password filled in.
     name: "newrun-handoff",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, keep: true, label: "Seized iPhone, item 7" });
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByRole("button", { name: "Parse with iLEAPP" }).click();
       await page.getByText("The backup password set during the acquisition is filled in.").waitFor();
       await page.locator(".ready-text").waitFor();
@@ -1258,7 +1236,6 @@ const SCREENS = [
   },
   {
     name: "case-acquisitions",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     element: "section[aria-labelledby=acquisitions-heading]",
     setup: async (page) => {
@@ -1267,7 +1244,6 @@ const SCREENS = [
   },
   {
     name: "case-acquisition-details",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -1279,7 +1255,6 @@ const SCREENS = [
     // The app "crashed" during an acquisition that had turned encryption on: interrupted on the
     // next case open, with "Turn backup encryption off".
     name: "case-acquisition-interrupted",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     element: "section[aria-labelledby=acquisitions-heading]",
     setup: async (page) => {
@@ -1292,7 +1267,6 @@ const SCREENS = [
   },
   {
     name: "case-restore-dialog",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -1302,30 +1276,23 @@ const SCREENS = [
   },
   {
     name: "case-restore-done",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
       await page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" }).click();
-      await page.locator("dialog").getByLabel("Backup password").fill("examiner-pw");
-      await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
-      await page.getByText("Backup encryption is off.").waitFor();
+      await turnEncryptionOff(page, "examiner-pw");
     },
   },
   {
     // After the successful later restore the table is re-read (case_open): the row's derived
     // warnings no longer ask for "Turn backup encryption off".
     name: "case-acquisitions-after-restore",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     element: "section[aria-labelledby=acquisitions-heading]",
     setup: async (page) => {
       const turnOff = page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" });
       await turnOff.click();
-      await page.locator("dialog").getByLabel("Backup password").fill("examiner-pw");
-      await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
-      await page.getByText("Backup encryption is off.").waitFor();
-      await page.locator("dialog").getByRole("button", { name: "Close" }).click();
+      await turnEncryptionOff(page, "examiner-pw", { close: true });
       await turnOff.waitFor({ state: "detached" });
       if (await page.locator(".acq-table").getByText("Encryption may still be on").count()) throw new Error("the row still says encryption may be on");
     },
@@ -1333,7 +1300,6 @@ const SCREENS = [
   {
     // 100,000 lines (the flood scenario), scrolled to the middle: auto-scroll turns itself off.
     name: "run-log-100k",
-    query: "?mock",
     hash: newRunHash,
     element: ".log-view",
     setup: async (page) => {
@@ -1521,7 +1487,7 @@ const CHECKS = [
       await assertRunning("Enter on the focused button");
       await open();
       await page.locator("dialog").getByRole("button", { name: "Cancel run" }).click();
-      await runResult(page, "Cancelled");
+      await resultBadge(page, "Cancelled");
     },
   },
   {
@@ -1583,7 +1549,7 @@ const CHECKS = [
       await assertRunning("Enter on the focused button");
       await open();
       await page.locator("dialog").getByRole("button", { name: "Cancel acquisition" }).click();
-      await acqResult(page, "Cancelled");
+      await resultBadge(page, "Cancelled");
     },
   },
   {
@@ -1640,7 +1606,7 @@ const CHECKS = [
         }).observe(document.body, { childList: true, subtree: true });
       });
       await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByText("Backup encryption may still be on for this device.").waitFor();
       // The final acquisition.json is read after `finished`: its seal row appears.
       await page.locator(".result-card dt", { hasText: "Seal" }).waitFor();
@@ -1651,15 +1617,11 @@ const CHECKS = [
       await page.locator(".acquire-screen").getByRole("link", { name: "Operation Nightjar" }).first().click();
       const turnOff = page.locator(".acq-table").getByRole("button", { name: "Turn backup encryption off" }).first();
       await turnOff.click();
-      const dialog = page.locator("dialog");
-      await dialog.getByLabel("Backup password").fill("examiner-pw");
-      await dialog.getByRole("button", { name: "Turn encryption off" }).click();
-      await page.getByText("Backup encryption is off.").waitFor();
-      await dialog.getByRole("button", { name: "Close" }).click();
+      await turnEncryptionOff(page, "examiner-pw", { close: true });
       await page.evaluate((hash) => {
         window.location.hash = hash;
       }, acquireHash(NIGHTJAR));
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByText("Backup encryption was turned off after this acquisition.").waitFor();
       if (await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).count()) {
         throw new Error("the reopened result still offers Turn backup encryption off");
@@ -1679,13 +1641,10 @@ const CHECKS = [
       await page.getByLabel("Parse with iLEAPP now").check();
       await page.locator(".ready-text").waitFor();
       await page.getByRole("button", { name: "Start acquisition" }).click();
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       // Left on as asked: turn it off (a later restore), so the next form offers encryption again.
       await page.locator(".result-card").getByRole("button", { name: "Turn backup encryption off" }).click();
-      await page.locator("dialog").getByLabel("Backup password").fill("examiner-pw");
-      await page.locator("dialog").getByRole("button", { name: "Turn encryption off" }).click();
-      await page.getByText("Backup encryption is off.").waitFor();
-      await page.locator("dialog").getByRole("button", { name: "Close" }).click();
+      await turnEncryptionOff(page, "examiner-pw", { close: true });
       await page.getByText("Backup encryption was turned off after this acquisition.").waitFor();
       await page.getByRole("button", { name: "New acquisition" }).click();
       await page.getByRole("radio", { name: "Alex's iPhone" }).waitFor();
@@ -1724,7 +1683,7 @@ const CHECKS = [
       if (!state.same) throw new Error(`focus moved during the backup: ${JSON.stringify(state)}`);
       await page.locator(".screen-head").getByRole("button", { name: "Cancel acquisition" }).click();
       await page.locator("dialog").getByRole("button", { name: "Cancel acquisition" }).click();
-      await acqResult(page, "Cancelled");
+      await resultBadge(page, "Cancelled");
     },
   },
   {
@@ -1765,7 +1724,7 @@ const CHECKS = [
     hash: acquireHash(NIGHTJAR),
     run: async (page) => {
       await startAcquisition(page, { encrypt: true, keep: true, label: "Handoff check" });
-      await acqResult(page, "Succeeded");
+      await resultBadge(page, "Succeeded");
       await page.getByRole("button", { name: "Parse with iLEAPP" }).click();
       const password = page.getByLabel(/Backup password/);
       await password.waitFor();
@@ -1796,12 +1755,7 @@ const CHECKS = [
       await startRun(page, "Choose folder…", "Pixel-7-extraction");
       await page.locator(".phase-step-current", { hasText: "Analyzing" }).waitFor();
       await waitForLines(page, 90);
-      await page.evaluate(() => {
-        const w = /** @type {any} */ (window);
-        w.__live = [];
-        const region = /** @type {HTMLElement} */ (document.querySelector(".log-view [aria-live]"));
-        new MutationObserver(() => w.__live.push({ t: performance.now(), text: region.textContent ?? "" })).observe(region, { childList: true, characterData: true, subtree: true });
-      });
+      await watchLiveRegion(page);
       const search = page.getByRole("searchbox", { name: "Search the log" });
       /** @param {string} step */
       const rows = async (step) => {
@@ -1938,10 +1892,8 @@ const CHECKS = [
       }
 
       await page.waitForTimeout(1200);
-      const live = await page.evaluate(() => /** @type {{ t: number, text: string }[]} */ (/** @type {any} */ (window).__live));
-      const gaps = live.slice(1).map((x, i) => x.t - live[i].t);
-      // The throttle waits 1,000 ms by Date.now(); the observer stamps performance.now().
-      if (live.length < 2 || gaps.some((g) => g < 990)) throw new Error(`live region updates ${JSON.stringify(live.map((x) => Math.round(x.t)))}`);
+      const live = await liveUpdates(page);
+      assertSpaced(live, 2);
       if (!live.some((x) => x.text.startsWith("Match 10 of 42, line 24: "))) throw new Error(`the rapid presses did not end with match 10: ${JSON.stringify(live.map((x) => x.text))}`);
     },
   },
@@ -1954,23 +1906,17 @@ const CHECKS = [
     run: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/slow");
       await waitForLines(page, 10);
-      await page.evaluate(() => {
-        const w = /** @type {any} */ (window);
-        w.__live = [];
-        const region = /** @type {HTMLElement} */ (document.querySelector(".log-view [aria-live]"));
-        new MutationObserver(() => w.__live.push({ t: performance.now(), text: region.textContent ?? "" })).observe(region, { childList: true, characterData: true, subtree: true });
-      });
+      await watchLiveRegion(page);
       await page.getByRole("searchbox", { name: "Search the log" }).fill("artifact completed");
       await page.waitForTimeout(3500);
-      const live = await page.evaluate(() => /** @type {{ t: number, text: string }[]} */ (/** @type {any} */ (window).__live));
+      const live = await liveUpdates(page);
       const texts = live.map((x) => x.text);
       const report = texts.findIndex((t) => /^[\d,]+ matching lines?$/.test(t));
       if (report < 0) throw new Error(`no search report: ${JSON.stringify(texts)}`);
       if (texts.slice(report + 1).filter((t) => / artifact (started|completed)$/.test(t)).length < 2) {
         throw new Error(`the latest line did not resume after the search report: ${JSON.stringify(texts)}`);
       }
-      const gaps = live.slice(1).map((x, i) => x.t - live[i].t);
-      if (gaps.some((g) => g < 990)) throw new Error(`live region updates ${JSON.stringify(live.map((x) => Math.round(x.t)))}`);
+      assertSpaced(live, 0);
     },
   },
 ];
@@ -2258,6 +2204,8 @@ function normalizeDom(text, window, stable) {
 
 /** @param {number[]} values */
 const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+const round = (/** @type {number} */ v) => Number(v.toFixed(1));
+const stats = (/** @type {number[]} */ values) => ({ runs: values.length, median: round(median(values)), max: round(Math.max(...values)) });
 
 /**
  * Render + filter of 1,300 fixture modules in the module picker, measured in the page with
@@ -2373,13 +2321,12 @@ async function measureLog(page) {
     return { jumps, intervals, wrongRows, rows: vp.querySelectorAll(".log-row").length, lines: Number(vp.dataset.count) };
   });
   const scrollLongTasks = await page.evaluate(() => /** @type {number[]} */ (/** @type {any} */ (window).__longTasks.splice(0)));
-  const round = (/** @type {number} */ v) => Number(v.toFixed(1));
   return {
     lines: scroll.lines,
     row_elements: scroll.rows,
     stream_ms: streamMs,
     stream_long_tasks: { count: streamLongTasks.length, max_ms: Math.max(0, ...streamLongTasks) },
-    jump_ms: { runs: scroll.jumps.length, median: round(median(scroll.jumps)), max: round(Math.max(...scroll.jumps)) },
+    jump_ms: stats(scroll.jumps),
     jump_wrong_rows: scroll.wrongRows,
     scroll_frame_ms: { frames: scroll.intervals.length, median: round(median(scroll.intervals)), max: round(Math.max(...scroll.intervals)) },
     scroll_long_tasks: { count: scrollLongTasks.length, max_ms: Math.max(0, ...scrollLongTasks) },
@@ -2422,7 +2369,7 @@ const LOG_SEARCH_QUERIES = [
  * @param {Page} page
  */
 async function measureLogSearch(page) {
-  await runResult(page, "Succeeded");
+  await resultBadge(page, "Succeeded");
   await waitForLines(page, FLOOD_LOG_LINES);
   await page.evaluate(() => void (/** @type {any} */ (window).__longTasks.splice(0)));
   const r = await page.evaluate(async (queries) => {
@@ -2531,8 +2478,6 @@ async function measureLogSearch(page) {
     return { typed, next, missing, nextStatus, filtered, rows: vp.querySelectorAll(".log-row").length, lines: Number(vp.dataset.count) };
   }, LOG_SEARCH_QUERIES);
   const longTasks = await page.evaluate(() => /** @type {number[]} */ (/** @type {any} */ (window).__longTasks.splice(0)));
-  const round = (/** @type {number} */ v) => Number(v.toFixed(1));
-  const stats = (/** @type {number[]} */ values) => ({ runs: values.length, median: round(median(values)), max: round(Math.max(...values)) });
   return {
     lines: r.lines,
     row_elements: r.rows,
@@ -2624,7 +2569,7 @@ async function main() {
         watchPage(page, label, problems);
         const file = path.join(opts.out, `${screen.name}-${scheme}.png`);
         try {
-          await page.goto(`${base}${screen.query}${screen.hash}`);
+          await page.goto(`${base}${screen.query ?? "?mock"}${screen.hash}`);
           await screen.setup(page);
           await page.waitForTimeout(200);
           if (screen.element) await page.locator(screen.element).first().screenshot({ path: file });

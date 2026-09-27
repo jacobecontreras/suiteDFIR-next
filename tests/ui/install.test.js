@@ -2,9 +2,9 @@
 // Settings: tool states, their actions, and install/import progress (ROADMAP D4b).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import { MAX_MESSAGES, TOOL_STATES, applyInstallEvent, finishInstall, installSteps, startInstall, toolActions } from "../../ui/lib/install.js";
+import { contractValues } from "./helpers.js";
 
 /** @typedef {import("../../ui/types").ToolState} ToolState */
 
@@ -17,10 +17,7 @@ const steps = (p) =>
     .join(" ");
 
 test("every ToolState of CONTRACTS.md §2 has a label, a tone and an explanation", () => {
-  const doc = readFileSync(new URL("../../docs/CONTRACTS.md", import.meta.url), "utf8");
-  const row = /^\| `ToolState` \| (.+) \|$/m.exec(doc);
-  assert.ok(row, "ToolState row not found");
-  const states = [...row[1].matchAll(/`([a-z_]+)`/g)].map((m) => m[1]).sort();
+  const states = contractValues("ToolState").sort();
   assert.equal(states.length, 6);
   assert.deepEqual(Object.keys(TOOL_STATES).sort(), states);
   for (const info of Object.values(TOOL_STATES)) {

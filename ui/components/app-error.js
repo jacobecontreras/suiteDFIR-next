@@ -57,3 +57,16 @@ export function errorSlot() {
     dispose: clear,
   };
 }
+
+/**
+ * Shows `error` in a new error slot at the end of `container`, in place of the one shown there before.
+ * @param {Element} container
+ * @param {unknown} error
+ * @param {string} title
+ */
+export function replaceError(container, error, title) {
+  const slot = errorSlot();
+  slot.show(error, title);
+  container.querySelector(".error-slot")?.remove();
+  container.append(slot.node);
+}

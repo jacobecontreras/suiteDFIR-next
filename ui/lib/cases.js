@@ -3,6 +3,7 @@
 
 /** @typedef {import("../types").CaseFields} CaseFields */
 /** @typedef {import("../types").CaseFile} CaseFile */
+/** @typedef {import("../types").CaseSummary} CaseSummary */
 /** @typedef {import("../types").RunRecord} RunRecord */
 /** @typedef {import("../types").RunSummary} RunSummary */
 
@@ -37,6 +38,19 @@ export function editableFields(file) {
     description: file.description,
     default_timezone: file.default_timezone,
   };
+}
+
+/**
+ * The `case.json` of `casePath` from the recent-cases list (`cases_list`). Throws a `case_not_found`
+ * AppError when the case is not in the list or its case.json could not be read.
+ * @param {readonly CaseSummary[]} cases
+ * @param {string} casePath
+ * @returns {CaseFile}
+ */
+export function caseFileOf(cases, casePath) {
+  const summary = cases.find((c) => c.path === casePath);
+  if (!summary?.case) throw { code: "case_not_found", message: "This case is not in the recent list, or its folder is missing.", detail: casePath };
+  return summary.case;
 }
 
 /**

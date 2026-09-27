@@ -18,10 +18,10 @@ import {
   summaryText,
   useLabel,
 } from "../../ui/lib/backups.js";
+import { loadMock } from "./helpers.js";
 
 /** @typedef {import("../../ui/types").InputInspection} InputInspection */
 /** @typedef {import("../../ui/types").IosBackup} IosBackup */
-/** @typedef {typeof import("../../ui/api/ipc.js")} Api */
 
 /** @type {IosBackup} */
 const ALEX = {
@@ -138,28 +138,12 @@ test("a chosen backup is read as itunes only when its inspection says so", () =>
   assert.equal(chosenBackupType({ ...BACKUP_FOLDER, detected_type: "fs", allowed_types: ["fs"] }), "fs");
 });
 
-// ---- The mock (ui-dev/mock.js) ----
-
-/**
- * A fresh mock instance with the given scenario flags (its state and flags are per module load).
- * @param {string} flags
- * @returns {Promise<Api>}
- */
-async function mockWith(flags) {
-  const g = /** @type {any} */ (globalThis);
-  g.__SUITEDFIR_MOCK_TICK_MS = 1;
-  g.location = { search: `?mock&scenario=${flags}` };
-  try {
-    return await import(new URL(`../../ui-dev/mock.js?flags=${flags}`, import.meta.url).href);
-  } finally {
-    delete g.location;
-  }
-}
+// ---- The mock (ui-dev/mock.js), a fresh instance per scenario (loadMock) ----
 
 const CASE = "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar";
 
 test("the mock finds its fixture backups, newest first, and they inspect as the list says", async () => {
-  const mock = await mockWith("");
+  const mock = await loadMock("");
   const found = await mock.ios_backups_find();
   assert.equal(found.length, 4);
   assert.equal(found[0].device_name, "Alex's iPhone");
@@ -180,16 +164,16 @@ test("the mock finds its fixture backups, newest first, and they inspect as the 
 });
 
 test("the mock's backups_empty and backups_denied flags", async () => {
-  const empty = await mockWith("backups_empty");
+  const empty = await loadMock("backups_empty");
   assert.deepEqual(await empty.ios_backups_find(), []);
-  const denied = await mockWith("backups_denied");
+  const denied = await loadMock("backups_denied");
   await assert.rejects(denied.ios_backups_find(), (/** @type {any} */ err) => {
     assert.equal(err.code, "permission_denied");
     assert.match(err.message, /Full Disk Access/);
     assert.match(err.detail, /MobileSync\/Backup: access denied/);
     return true;
   });
-  const windows = await mockWith("backups_denied,windows");
+  const windows = await loadMock("backups_denied,windows");
   await assert.rejects(windows.ios_backups_find(), (/** @type {any} */ err) => {
     assert.equal(err.code, "permission_denied");
     assert.ok(!err.message.includes("Full Disk Access"), err.message);
