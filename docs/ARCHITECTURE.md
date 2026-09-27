@@ -100,11 +100,9 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 │                               lives in ui-dev/, never bundled)           │
 │                     ▲ Channel<RunEvent | InstallEvent>                   │
 │  ───────────────────┼──────────────────────────────────────────────────  │
-│  src-tauri: commands/*.rs (thin) ─► AppState (settings, active run,      │
-│             backlog, instance lock, quit guard)                          │
-│  crates/core: contracts manifest leapp::{install,modules} inspect case   │
-│               settings paths fsutil hashing run::{record,status,argv,    │
-│               profile,casedata} process tail runner idevice acquire      │
+│  src-tauri: commands.rs ─► ops/ (thin) ─► AppState (settings, active     │
+│             job, backlog, instance lock, quit guard)                     │
+│  crates/core: all logic (§5.1)                                           │
 └───────────────┬──────────────────────────────────────────────────────────┘
                 │ spawn: new session / job object, stdin=null, no window
                 ▼
