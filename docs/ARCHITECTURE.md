@@ -269,15 +269,8 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 
 **Recovery** on `case_open`: a `running` acquisition that is not this process's active job becomes `interrupted` (discovery and recovery are owned by the `acquire` module). If the record shows encryption was enabled by the examiner and not confirmed restored, add warning `encryption_left_enabled`, or `encryption_state_unknown` if the enable outcome was unknown. The Case screen shows a "Turn backup encryption off" action.
 
-**Later restore** (`acq_restore_encryption {case_path, acq_id, password}`):
-- Allowed only when:
-  - the record has one of those two warnings;
-  - no earlier attempt recorded `restored: true`;
-  - the device is connected and paired.
-- A failed attempt can be retried.
-- Runs step 8 on its own.
-- Each attempt writes its own read-only file next to the (already read-only) `acquisition.json`, and never overwrites one: `encryption-restore.json`, then `encryption-restore-2.json`, `-3.json`, … (CONTRACTS.md §13.3).
-- After a successful attempt, the Case screen stops offering "Turn backup encryption off": `AcqSummary.warnings` leaves out the two codes. `acquisition.json` still carries them.
+**Later restore** (`acq_restore_encryption {case_path, acq_id, password}`): runs step 8 on its own. It is allowed only when the record has one of those two warnings, no earlier attempt recorded `restored: true`, and the device is connected and paired; a failed attempt can be retried (preconditions: the CONTRACTS.md §13.5 `acq_restore_encryption` row). Each attempt writes its own read-only `encryption-restore[-N].json` next to `acquisition.json` (CONTRACTS.md §13.3).
+After a successful attempt, `AcqSummary.warnings` leaves out the two codes, so the Case screen stops offering "Turn backup encryption off"; `acquisition.json` still carries them.
 
 ## 7. Process model details
 
