@@ -5,7 +5,7 @@
 //! - A normalized golden `acquisition.json` (and `backup.sha256`) for every CONTRACTS.md §13.4 row,
 //!   plus `will_encrypt_absent`, `enable_unconfirmed` and the `prepare_failed` / `spawn_failed`
 //!   short-circuits; the `encryption-restore[-N].json` files of the later restores.
-//! - The ordered `lab.calls()` of `success`, `success_encrypt` and `restore_failed`, and the recorded
+//! - The ordered `lab.calls()` of `success`, `success_encrypt` and `restore_fail`, and the recorded
 //!   `commands[i].argv[1..]` against the fake's recorded call.
 //! - The `acq_start` and `restore_later` refusals (exact `AppError`, no attempt file, no `off`).
 //! - The event order rules of `success_encrypt`.
@@ -18,8 +18,9 @@
 //! app version (`<APP_VERSION>`) and the host (fixed by the test). Placeholders stand for values
 //! that depend on timing or on the machine, each checked for presence and type: `duration_ms`
 //! (`<DURATION_MS>`, an integer; `null` stays), `free_bytes_after` (`<FREE_BYTES>`, an integer;
-//! `null` stays) and, in the cancel rows only, `last_progress_percent` (`<LAST_PROGRESS_PERCENT>`,
-//! an integer 0-100 or `null`).
+//! `null` stays) and, only in the `slow_cancel` and `ignore_term_cancel` rows (the backup is
+//! stopped part-way), `last_progress_percent` (`<LAST_PROGRESS_PERCENT>`, an integer 0-100 or
+//! `null`).
 //!
 //! **Goldens** live in `tests/golden/acq/`. A file under `tests/golden/acq/<os>/` (`windows`,
 //! `linux`) replaces the default (macOS) one on that OS. On a mismatch the normalized actual is
@@ -70,13 +71,18 @@ struct Goldens {
 }
 
 impl Goldens {
-    fn check(&mut self, name: &str, actual: &str) {
+    /// The golden file of `name` on this OS: the per-OS one if it exists, else the default.
+    fn file(name: &str) -> PathBuf {
         let os_file = Path::new(GOLDEN_DIR).join(os_name()).join(name);
-        let file = if os_file.is_file() {
+        if os_file.is_file() {
             os_file
         } else {
             Path::new(GOLDEN_DIR).join(name)
-        };
+        }
+    }
+
+    fn check(&mut self, name: &str, actual: &str) {
+        let file = Self::file(name);
         let expected = fs::read_to_string(&file).ok();
         if expected.as_deref() == Some(actual) {
             return;
@@ -199,7 +205,8 @@ impl Normalizer {
         self
     }
 
-    /// The cancel rows: the last overall percent depends on when the cancel landed.
+    /// The rows whose backup is cancelled part-way (`slow_cancel`, `ignore_term_cancel`): the last
+    /// overall percent depends on when the cancel landed.
     fn cancel_row(mut self) -> Self {
         self.placeholders.push((
             "last_progress_percent",
@@ -382,7 +389,8 @@ fn shared_tools_dir() -> &'static Path {
     &common::shared_tools().0
 }
 
-/// Checks `<name>.acquisition.json` and, when one was written, `<name>.backup.sha256` (raw).
+/// Checks `<name>.acquisition.json` and `<name>.backup.sha256` (raw). A `backup.sha256` must be
+/// written exactly when its golden exists.
 fn check_acquisition(
     goldens: &mut Goldens,
     name: &str,
@@ -392,8 +400,18 @@ fn check_acquisition(
     let text = fs::read_to_string(dir.join("acquisition.json")).unwrap();
     let normalized = normalizer.json(&text);
     goldens.check(&format!("{name}.acquisition.json"), &normalized);
-    if let Ok(manifest) = fs::read_to_string(dir.join(acquire::BACKUP_MANIFEST)) {
-        goldens.check(&format!("{name}.backup.sha256"), &manifest);
+    let manifest_name = format!("{name}.backup.sha256");
+    match fs::read_to_string(dir.join(acquire::BACKUP_MANIFEST)) {
+        Ok(manifest) => goldens.check(&manifest_name, &manifest),
+        Err(_) if Goldens::file(&manifest_name).is_file() => {
+            eprintln!(
+                "---- z0b golden mismatch: {manifest_name} on {}: the golden exists, but no \
+                 backup.sha256 was written ----",
+                os_name()
+            );
+            goldens.mismatches.push(manifest_name);
+        }
+        Err(_) => {}
     }
     normalized
 }
@@ -708,9 +726,7 @@ fn z0_cancel_during_enable() {
         }
     });
     let mut goldens = Goldens::default();
-    let normalizer = Normalizer::for_case(&case, shared_tools_dir())
-        .acq(&outcome.record.acq_id)
-        .cancel_row();
+    let normalizer = Normalizer::for_case(&case, shared_tools_dir()).acq(&outcome.record.acq_id);
     check_acquisition(
         &mut goldens,
         "cancel_during_enable",
@@ -734,9 +750,7 @@ fn z0_cancel_during_restore() {
         }
     });
     let mut goldens = Goldens::default();
-    let normalizer = Normalizer::for_case(&case, shared_tools_dir())
-        .acq(&outcome.record.acq_id)
-        .cancel_row();
+    let normalizer = Normalizer::for_case(&case, shared_tools_dir()).acq(&outcome.record.acq_id);
     check_acquisition(
         &mut goldens,
         "cancel_during_restore",
@@ -842,14 +856,19 @@ fn z0_crash_after_enable() {
     }
     child.kill().unwrap();
     child.wait().unwrap();
-    // On Unix the backup tool (in its own session) outlives the runner; stop it. On Windows the
-    // job object took it down with the runner.
+    // On Unix the backup tool (in its own session) may outlive the runner; stop it. It may also
+    // have died on its own (EPIPE on the killed runner's stdout) before writing its pid file. On
+    // Windows the job object took it down with the runner.
     #[cfg(unix)]
     {
         let pid_file = root.path().join("state").join("backup.pid");
-        wait_for(&pid_file);
-        let pid = fs::read_to_string(&pid_file).unwrap();
-        let _ = Command::new("kill").args(["-KILL", pid.trim()]).status();
+        let until = Instant::now() + Duration::from_secs(3);
+        while !pid_file.exists() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if let Ok(pid) = fs::read_to_string(&pid_file) {
+            let _ = Command::new("kill").args(["-KILL", pid.trim()]).status();
+        }
     }
     let before = running_record(&case.path).unwrap();
     let recovered = acquire::recover_case(&case.path, None, Timestamp::now()).unwrap();

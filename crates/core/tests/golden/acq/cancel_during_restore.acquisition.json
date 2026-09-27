@@ -153,7 +153,7 @@
     "info_plist_found": true,
     "status_plist_found": true,
     "snapshot_state": "finished",
-    "last_progress_percent": "<LAST_PROGRESS_PERCENT>",
+    "last_progress_percent": 100,
     "device_file_errors": 0,
     "free_bytes_after": "<FREE_BYTES>"
   },
