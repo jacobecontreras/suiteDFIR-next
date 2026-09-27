@@ -157,7 +157,6 @@ The tools are built from upstream source tarballs; ROADMAP X1 pins their SHA-256
 - USB only; Wi-Fi devices are not supported in phase 1.
 - Windows arm64: no pinned build, so no acquisition.
 - One device at a time (one-active-job rule).
-- Host pair records (`/var/db/lockdown` on macOS, `%ProgramData%\Apple\Lockdown` on Windows, `/var/lib/lockdown` on Linux) are created by pairing and are not managed by the app.
 
 ## 8. UNVERIFIED items (X3a/X3b tests + human QA must resolve)
 

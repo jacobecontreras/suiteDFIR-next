@@ -395,7 +395,7 @@ A **known case folder** is a path in `settings.recent_cases` whose `case.json` p
   - Rust std handles long paths for file operations, but the process cwd must be < 248 chars.
 - **iOS acquisition prerequisites:**
   - macOS: none (usbmuxd is built in).
-  - Windows: the Apple Mobile Device Service (Apple Devices app or iTunes). The app detects its absence and links to installation guidance. The tools use ANSI file APIs, so acquisition folders must be ASCII and short (§6b step 4).
+  - Windows: the Apple Mobile Device Service (Apple Devices app or iTunes). The app detects its absence and links to installation guidance. Acquisition folders must be ASCII-only and short (§6b step 4).
   - Host pair records are created by pairing and live in `/var/db/lockdown` (macOS; not readable by the app), `%ProgramData%\Apple\Lockdown` (Windows), or `/var/lib/lockdown` (Linux). The app records `host_id`/`system_buid` but never edits these stores.
   - Linux: the distro packages `usbmuxd` and `libimobiledevice-utils` (or equivalent), with the daemon running. The app detects missing tools and shows the install command for common distros.
 - **Linux:**
