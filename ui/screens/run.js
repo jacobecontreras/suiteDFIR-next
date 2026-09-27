@@ -9,7 +9,7 @@
  * The events come from the job stream hub (lib/jobstream.js): the run started in this window, or
  * `job_attach` after a reload. A run that is not the active job is shown from its `run.json`.
  */
-import { appError, errorSlot } from "../components/app-error.js";
+import { appError, errorSlot, replaceError } from "../components/app-error.js";
 import { confirmDialog } from "../components/dialog.js";
 import { logView } from "../components/log-view.js";
 import { percentOf, progressMeter, stepList } from "../components/progress.js";
@@ -20,9 +20,8 @@ import { RUN_PHASES, stepStates } from "../lib/jobstream.js";
 import { jobKey } from "../lib/jobs.js";
 import { routeHref } from "../lib/router.js";
 import { watch } from "../lib/store.js";
-import { icon, inputTypeLabel, pathText, statusBadge, timeText, toolName } from "../lib/view.js";
+import { dash, icon, inputTypeLabel, pathText, reasonList, statusBadge, timeText, toolName } from "../lib/view.js";
 
-/** @typedef {import("../types").Reason} Reason */
 /** @typedef {import("../types").RunFile} RunFile */
 /** @typedef {import("../types").RunRecord} RunRecord */
 /** @typedef {import("../types").RunStatus} RunStatus */
@@ -219,7 +218,7 @@ export function runScreen(ctx) {
     const rows = [
       ["Tool", `${toolName(r.tool.id)} ${r.tool.version}`],
       ["Input", h("span", { class: "cell-input" }, h("span", { class: "tag", title: inputTypeLabel(r.input.type) }, r.input.type), pathText(r.input.path, 90))],
-      ["Label", r.label ?? h("span", { class: "muted" }, "—")],
+      ["Label", r.label ?? dash()],
       ["Created", timeText(r.created_at)],
       ["Run ID", h("span", { class: "mono" }, r.run_id)],
     ];
@@ -380,7 +379,7 @@ export function runScreen(ctx) {
     try {
       await api.open_report({ case_path: casePath, run_id: runId });
     } catch (err) {
-      showResultError(err, "The report could not be opened.");
+      replaceError(resultCard, err, "The report could not be opened.");
     }
   }
 
@@ -389,7 +388,7 @@ export function runScreen(ctx) {
     try {
       await api.reveal_path({ path: record.command.cwd });
     } catch (err) {
-      showResultError(err, "The folder could not be revealed.");
+      replaceError(resultCard, err, "The folder could not be revealed.");
     }
   }
 
@@ -398,19 +397,8 @@ export function runScreen(ctx) {
     try {
       await api.open_text_file({ case_path: casePath, run_id: runId, which });
     } catch (err) {
-      showResultError(err, "The file could not be opened.");
+      replaceError(resultCard, err, "The file could not be opened.");
     }
-  }
-
-  /**
-   * @param {unknown} err
-   * @param {string} titleText
-   */
-  function showResultError(err, titleText) {
-    const slot = errorSlot();
-    slot.show(err, titleText);
-    resultCard.querySelector(".error-slot")?.remove();
-    resultCard.append(slot.node);
   }
 
   // ---- Job end without a `finished` event, and the elapsed-time tick ----
@@ -450,21 +438,6 @@ export function runScreen(ctx) {
       for (const fn of cleanups) fn();
     },
   };
-}
-
-/**
- * @param {string} heading
- * @param {readonly Reason[]} list
- * @param {"reasons" | "warnings"} kind
- */
-function reasonList(heading, list, kind) {
-  if (list.length === 0) return null;
-  return h(
-    "div",
-    { class: `stack-sm reason-list reason-list-${kind}` },
-    h("h3", null, heading),
-    h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))),
-  );
 }
 
 /** @param {RunRecord} r */

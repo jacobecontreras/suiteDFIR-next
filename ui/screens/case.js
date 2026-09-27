@@ -18,7 +18,7 @@ import { routeHref } from "../lib/router.js";
 import { DEFAULT_RUN_SORT, nextSort, sortRuns } from "../lib/sort.js";
 import { watch } from "../lib/store.js";
 import { loadTimezones } from "../lib/timezones.js";
-import { icon, inputTypeLabel, pathText, sizeText, statusBadge, timeText, toolName } from "../lib/view.js";
+import { dash, icon, inputTypeLabel, pathText, sizeText, statusBadge, timeText, toolName } from "../lib/view.js";
 
 /** @typedef {import("../types").AcqSummary} AcqSummary */
 /** @typedef {import("../types").AcquisitionRecord} AcquisitionRecord */
@@ -556,10 +556,6 @@ export function caseScreen(ctx) {
       for (const fn of cleanups) fn();
     },
   };
-}
-
-function dash() {
-  return h("span", { class: "muted" }, "—");
 }
 
 /**

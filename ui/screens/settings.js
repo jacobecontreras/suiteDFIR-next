@@ -20,7 +20,7 @@ import { TOOL_STATES, applyInstallEvent, finishInstall, installSteps, stageLabel
 import { jobKey } from "../lib/jobs.js";
 import { watch } from "../lib/store.js";
 import { loadTimezones } from "../lib/timezones.js";
-import { icon, uid } from "../lib/view.js";
+import { dash, icon, uid } from "../lib/view.js";
 
 /** @typedef {import("../types").InstallEvent} InstallEvent */
 /** @typedef {import("../types").ToolId} ToolId */
@@ -597,10 +597,6 @@ export function settingsScreen(ctx) {
       for (const fn of cleanups) fn();
     },
   };
-}
-
-function dash() {
-  return h("span", { class: "muted" }, "—");
 }
 
 /**

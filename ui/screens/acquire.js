@@ -15,7 +15,7 @@
  *
  * Start, Pair and the encryption change are plain buttons: Enter in a field never triggers them.
  */
-import { appError, errorSlot } from "../components/app-error.js";
+import { appError, errorSlot, replaceError } from "../components/app-error.js";
 import { confirmDialog } from "../components/dialog.js";
 import { logView } from "../components/log-view.js";
 import { percentOf, progressMeter, stepList } from "../components/progress.js";
@@ -50,7 +50,7 @@ import { jobKey, setActiveJob } from "../lib/jobs.js";
 import { createPoller } from "../lib/poll.js";
 import { routeHref } from "../lib/router.js";
 import { watch } from "../lib/store.js";
-import { icon, statusBadge, timeText, uid } from "../lib/view.js";
+import { dash, icon, reasonList, statusBadge, timeText, uid } from "../lib/view.js";
 
 /** @typedef {import("../types").AcqFile} AcqFile */
 /** @typedef {import("../types").AcqPreflight} AcqPreflight */
@@ -59,7 +59,6 @@ import { icon, statusBadge, timeText, uid } from "../lib/view.js";
 /** @typedef {import("../types").AcquisitionRecord} AcquisitionRecord */
 /** @typedef {import("../types").DeviceSummary} DeviceSummary */
 /** @typedef {import("../types").DevicesResult} DevicesResult */
-/** @typedef {import("../types").Reason} Reason */
 /** @typedef {import("../lib/acquire.js").AcqForm} AcqForm */
 /** @typedef {import("../lib/jobstream.js").AcqFinished} AcqFinished */
 /** @typedef {import("../lib/jobstream.js").JobStream} JobStream */
@@ -1048,7 +1047,7 @@ export function acquireScreen(ctx) {
     try {
       await api.reveal_path({ path });
     } catch (err) {
-      showResultError(err, "The folder could not be revealed.");
+      replaceError(resultCard, err, "The folder could not be revealed.");
     }
   }
 
@@ -1060,19 +1059,8 @@ export function acquireScreen(ctx) {
     try {
       await api.open_acq_file({ case_path: casePath, acq_id: acqId, which });
     } catch (err) {
-      showResultError(err, "The file could not be opened.");
+      replaceError(resultCard, err, "The file could not be opened.");
     }
-  }
-
-  /**
-   * @param {unknown} err
-   * @param {string} titleText
-   */
-  function showResultError(err, titleText) {
-    const slot = errorSlot();
-    slot.show(err, titleText);
-    resultCard.querySelector(".error-slot")?.remove();
-    resultCard.append(slot.node);
   }
 
   async function askCancel() {
@@ -1132,10 +1120,6 @@ export function acquireScreen(ctx) {
   };
 }
 
-function dash() {
-  return h("span", { class: "muted" }, "—");
-}
-
 /**
  * A stable key for a polling error (a new but equal error must not re-render the list).
  * @param {unknown} err
@@ -1143,21 +1127,6 @@ function dash() {
 function toAppErrorKey(err) {
   const e = toAppError(err);
   return `${e.code}|${e.message}|${e.detail ?? ""}`;
-}
-
-/**
- * @param {string} heading
- * @param {readonly Reason[]} list
- * @param {"reasons" | "warnings"} kind
- */
-function reasonList(heading, list, kind) {
-  if (list.length === 0) return null;
-  return h(
-    "div",
-    { class: `stack-sm reason-list reason-list-${kind}` },
-    h("h3", null, heading),
-    h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))),
-  );
 }
 
 /** @param {AcquisitionRecord} r */
