@@ -74,7 +74,7 @@ SUITEDFIR_BUNDLED_TOOLS_DIR=<suiteDFIR.app/Contents/MacOS or the Windows install
   cargo test -p suitedfir-core --test idevice -- --ignored --exact release_bundle_tools_verify_against_the_manifest
 ```
 
-Linux release builds (AppImage + deb, `ubuntu:22.04`) use no overlay: Linux uses the distribution's iOS tools. The arm64 Linux and Windows bundles (S3) come from `release.yml` only (§6). Windows arm64 gets only the online installer, built with `--target aarch64-pc-windows-msvc` and without `fetch-idevice-tools` or `tauri.release.conf.json`: there is no pinned iOS tool build for it (`fetch-idevice-tools` refuses the target), so the app reports acquisition as `unsupported_platform` there. On a Mac the tool bundle is fetched with `SUITEDFIR_GH_USER` set while `gh` holds several accounts; while the repository is public, an anonymous download works too.
+Linux release builds (AppImage + deb, `ubuntu:22.04`) use no overlay: Linux uses the distribution's iOS tools. Windows arm64 gets only the online installer, built with `--target aarch64-pc-windows-msvc` and without `fetch-idevice-tools` or `tauri.release.conf.json`: there is no pinned iOS tool build for it (`fetch-idevice-tools` refuses the target), so the app reports acquisition as `unsupported_platform` there. On a Mac the tool bundle is fetched with `SUITEDFIR_GH_USER` set while `gh` holds several accounts; while the repository is public, an anonymous download works too.
 
 The `xtask` alias lives in `.cargo/config.toml`.
 
