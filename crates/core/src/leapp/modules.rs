@@ -46,8 +46,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use crate::contracts::{
-    AppError, ErrorCode, InputType, ModuleInfo, ModulesFile, Timestamp, ToolId, ToolManifest,
-    VersionedFile,
+    InputType, ModuleInfo, ModulesFile, Timestamp, ToolId, ToolManifest, VersionedFile,
 };
 use crate::hashing::to_hex;
 use crate::leapp::install::InstallError;
@@ -130,16 +129,6 @@ impl From<IntrospectionError> for InstallError {
     fn from(error: IntrospectionError) -> Self {
         InstallError::Introspection {
             message: error.message,
-            detail: error.detail,
-        }
-    }
-}
-
-impl From<IntrospectionError> for AppError {
-    fn from(error: IntrospectionError) -> Self {
-        AppError {
-            code: ErrorCode::IntrospectionFailed,
-            message: format!("Module introspection failed: {}", error.message),
             detail: error.detail,
         }
     }
@@ -719,7 +708,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::contracts::examples;
+    use crate::contracts::{ErrorCode, examples};
 
     fn plugin(name: &str, module_name: &str, category: &str) -> serde_json::Value {
         json!({"name": name, "module_name": module_name, "category": category,
@@ -886,8 +875,10 @@ mod tests {
         );
         assert!(apply(ToolId::Aleapp, probe(ToolId::Aleapp, 500)).is_ok());
         assert!(apply(ToolId::Aleapp, probe(ToolId::Aleapp, 499)).is_err());
-        let app: AppError = error.into();
-        assert_eq!(app.code, ErrorCode::IntrospectionFailed);
+        assert_eq!(
+            InstallError::from(error).code(),
+            ErrorCode::IntrospectionFailed
+        );
     }
 
     #[test]
@@ -1124,8 +1115,10 @@ mod tests {
             )),
             "{detail}"
         );
-        let app: AppError = error.into();
-        assert_eq!(app.code, ErrorCode::IntrospectionFailed);
+        assert_eq!(
+            InstallError::from(error).code(),
+            ErrorCode::IntrospectionFailed
+        );
 
         // Any other failure to run the probe keeps the generic message.
         fs::write(&layout.stderr, "Traceback (most recent call last):\n").unwrap();
