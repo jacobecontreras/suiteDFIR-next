@@ -186,7 +186,7 @@ export function initialRunRecord(s) {
   rec.label = s.label;
   rec.created_at = s.createdAt;
   rec.case_snapshot = caseSnapshot(s.caseFile);
-  rec.tool ={ ...rec.tool, id: s.tool, version: tool.version, asset_name: tool.asset_name };
+  rec.tool = { ...rec.tool, id: s.tool, version: tool.version, asset_name: tool.asset_name };
   const hashStatus = s.inputKind === "directory" ? "not_applicable" : s.hashInput ? "pending" : "not_requested";
   rec.input = {
     path: s.inputPath,
