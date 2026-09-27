@@ -374,39 +374,31 @@ pub fn call_history() -> ModuleInfo {
     }
 }
 
-fn modules_list() -> Vec<ModuleInfo> {
-    vec![
-        call_history(),
-        ModuleInfo {
-            name: s("sms"),
-            module_name: s("sms"),
-            category: s("SMS & iMessage"),
-            display_name: s("SMS & iMessage"),
-            description: Some(s("Messages from sms.db")),
-        },
-    ]
-}
-
-fn ileapp_always_run() -> std::collections::BTreeMap<String, Vec<String>> {
-    [
-        (s("default"), strings(&["last_build"])),
-        (
-            s("itunes"),
-            strings(&["itunes_backup_info", "itunes_backup_installed_applications"]),
-        ),
-    ]
-    .into()
-}
-
 pub fn modules_file() -> ModulesFile {
     ModulesFile {
         schema_version: ModulesFile::SCHEMA_VERSION,
         tool: ToolId::Ileapp,
         version: s("v2026.4.2"),
         generated_at: at("2026-09-24T18:00:05Z"),
-        always_run: ileapp_always_run(),
+        always_run: [
+            (s("default"), strings(&["last_build"])),
+            (
+                s("itunes"),
+                strings(&["itunes_backup_info", "itunes_backup_installed_applications"]),
+            ),
+        ]
+        .into(),
         timezones: Some(strings(&["Africa/Abidjan", "America/Chicago", "UTC"])),
-        modules: modules_list(),
+        modules: vec![
+            call_history(),
+            ModuleInfo {
+                name: s("sms"),
+                module_name: s("sms"),
+                category: s("SMS & iMessage"),
+                display_name: s("SMS & iMessage"),
+                description: Some(s("Messages from sms.db")),
+            },
+        ],
     }
 }
 
@@ -464,16 +456,6 @@ fn case_snapshot() -> CaseSnapshot {
         case_number: case.case_number,
         examiner: case.examiner,
         agency: case.agency,
-    }
-}
-
-fn pending_seal() -> Seal {
-    Seal {
-        status: SealStatus::Pending,
-        manifest: None,
-        manifest_sha256: None,
-        file_count: None,
-        total_bytes: None,
     }
 }
 
@@ -615,7 +597,13 @@ pub fn run_record_initial() -> RunRecord {
         leapp_result: None,
         output: RunOutput {
             report_dir: s("report"),
-            seal: pending_seal(),
+            seal: Seal {
+                status: SealStatus::Pending,
+                manifest: None,
+                manifest_sha256: None,
+                file_count: None,
+                total_bytes: None,
+            },
         },
         ..run_record()
     }
