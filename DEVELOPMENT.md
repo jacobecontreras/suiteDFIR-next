@@ -34,9 +34,10 @@ node scripts/serve-ui.mjs [--root <dir>] [--port 5173]
                                          # serve <root>/ui + <root>/ui-dev (at /dev/) with the CSP from
                                          # <root>/src-tauri/tauri.conf.json (--root defaults to the repo root);
                                          # open http://127.0.0.1:5173/?mock for browser mock mode
-node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots (light/dark) and
-                                         # check-*/perf checks; fails on a CSP violation, console error, failed check
-                                         # or missed budget (needs Playwright + Chromium; starts serve-ui itself; not in npm test)
+node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b] [--dom]   # mock-mode screenshots (light/dark),
+                                         # with --dom also each screen's DOM, and check-*/perf checks; fails on a CSP violation,
+                                         # console error, failed check or missed budget (needs Playwright + Chromium; starts
+                                         # serve-ui itself; not in npm test)
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
                                          # (~350 MB per tool, downloaded to the OS temp dir or
                                          # --download-dir <dir> and deleted after checking)
