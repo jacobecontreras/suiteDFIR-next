@@ -982,7 +982,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn password_debug_is_redacted_and_bytes_are_cleared() {
+    fn password_debug_is_redacted() {
         let password = Password::new("hunter22".to_owned());
         assert_eq!(format!("{password:?}"), "Password(<redacted>)");
         assert_eq!(password.chars(), 8);
@@ -990,10 +990,6 @@ mod tests {
         assert!(!password.is_in("hunter2"));
         assert_eq!(password.env_value(), OsString::from("hunter22"));
         assert_eq!(Password::new("pässwörd".to_owned()).chars(), 8);
-        let mut bytes = Password::new("secret".to_owned());
-        // What drop does, observed before the memory is freed.
-        bytes.0.fill(0);
-        assert!(bytes.0.iter().all(|&b| b == 0));
     }
 
     #[test]
