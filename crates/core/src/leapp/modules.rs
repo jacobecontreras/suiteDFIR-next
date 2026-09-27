@@ -1253,8 +1253,8 @@ mod z0 {
         }
     }
 
-    /// Runs `introspect`, retrying a start that failed while another test's child still held the
-    /// just-written script open (ETXTBSY on Unix).
+    /// Runs `introspect`, retrying only a start that failed with ETXTBSY (Unix, `os error 26`):
+    /// another test's child still held the just-written script open.
     fn introspect_script(
         script: &Path,
         tool: ToolId,
@@ -1265,7 +1265,12 @@ mod z0 {
         loop {
             let result = introspect(script, tool, manifest, cache);
             match &result {
-                Err(e) if e.message.starts_with("cannot start ") && attempts < 50 => {
+                Err(e)
+                    if cfg!(unix)
+                        && e.message.starts_with("cannot start ")
+                        && e.message.contains("os error 26")
+                        && attempts < 50 =>
+                {
                     eprintln!("retrying introspection: {e}");
                     attempts += 1;
                     thread::sleep(Duration::from_millis(50));

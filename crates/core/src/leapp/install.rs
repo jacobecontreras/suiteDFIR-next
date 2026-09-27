@@ -2240,15 +2240,15 @@ mod z0 {
         ModuleInfo, ModulesFile, PlatformAsset, PlatformKey, Timestamp, ToolId, ToolManifest,
         ToolState, ToolStatus, VersionedFile, parse_versioned,
     };
-    use crate::hashing::to_hex;
     use crate::leapp::modules::IntrospectionError;
 
     const VERSION: &str = "v2026.4.2";
     const ENTRY_BYTES: &[u8] = b"#!z0 ileapp onefile binary\n";
     const ASSET_NAME: &str = "ileapp-z0.zip";
 
+    /// Lowercase hex SHA-256, independent of `hashing::to_hex`.
     fn sha256_of(bytes: &[u8]) -> String {
-        to_hex(&Sha256::digest(bytes))
+        format!("{:x}", Sha256::digest(bytes))
     }
 
     fn asset_zip() -> Vec<u8> {
@@ -2703,7 +2703,7 @@ mod z0 {
         );
         fs::write(&modules_json, modules).unwrap();
 
-        // A missing entry (checked before modules.json).
+        // A missing entry.
         fs::remove_file(setup.entry()).unwrap();
         assert_both(
             pinned,
