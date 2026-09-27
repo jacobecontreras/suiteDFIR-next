@@ -149,7 +149,7 @@ Build only what [ARCHITECTURE.md §2](docs/ARCHITECTURE.md#2-scope) lists. The o
 | `plist` | `Value::from_reader` (XML and binary) | core |
 | `time` | `formatting`, `parsing` | core |
 | `getrandom` | | core |
-| `libc` (unix), `windows-sys` (windows, features listed in ARCHITECTURE §7) | | core |
+| `libc` (unix), `windows-sys` (windows; features: ARCHITECTURE §7 plus `Win32_Storage_FileSystem`) | | core |
 | `log` | facade; the file logger is our own | core, src-tauri |
 | `thiserror` | | core, src-tauri |
 | dev-only: `tempfile`; `tauri` feature `test` (E2) | | tests |
