@@ -48,7 +48,6 @@ use serde::Deserialize;
 use crate::contracts::{
     InputType, ModuleInfo, ModulesFile, Timestamp, ToolId, ToolManifest, VersionedFile,
 };
-use crate::hashing::to_hex;
 use crate::leapp::install::InstallError;
 use crate::process::{self, ExitInfo, SpawnSpec};
 use crate::run::status::AlwaysRun;
@@ -466,20 +465,8 @@ pub fn introspect(
 /// `YYYYMMDD-HHMMSSZ-<tool>-<6 lowercase hex>`: shaped like a run id, as `process` requires for
 /// temp dirs (ARCHITECTURE.md §8).
 fn job_id(tool: ToolId, at: Timestamp) -> Result<String, IntrospectionError> {
-    let mut random = [0u8; 3];
-    getrandom::fill(&mut random)
-        .map_err(|e| IntrospectionError::new(format!("cannot get random bytes: {e}")))?;
-    let t = at.as_datetime();
-    Ok(format!(
-        "{:04}{:02}{:02}-{:02}{:02}{:02}Z-{tool}-{}",
-        t.year(),
-        u8::from(t.month()),
-        t.day(),
-        t.hour(),
-        t.minute(),
-        t.second(),
-        to_hex(&random)
-    ))
+    crate::run::record::new_run_id(tool, at)
+        .map_err(|e| IntrospectionError::new(format!("cannot get random bytes: {e}")))
 }
 
 /// The files in the temp dir `dir` (step 1).
