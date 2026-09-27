@@ -46,7 +46,7 @@ const LOG_BUDGET_MS = 100;
 /**
  * @typedef {object} Screen
  * @property {string} name
- * @property {string} query The URL query, e.g. "?mock&scenario=empty".
+ * @property {string} [query] The URL query, e.g. "?mock&scenario=empty" (default "?mock").
  * @property {string} hash
  * @property {(page: Page) => Promise<void>} setup Waits for the state to be on screen.
  * @property {string} [element] Screenshot only this element instead of the full page.
@@ -280,7 +280,6 @@ async function searchStatus(page, text, timeoutMs = 10000) {
 function logSearchScreen(name, query, status, then) {
   return {
     name,
-    query: "?mock",
     hash: newRunHash,
     element: ".log-view",
     setup: async (page) => {
@@ -318,7 +317,6 @@ const SCREENS = [
   },
   {
     name: "app-error",
-    query: "?mock",
     hash: caseHash(MISSING),
     setup: async (page) => {
       await page.locator(".app-error").waitFor();
@@ -336,7 +334,6 @@ const SCREENS = [
   // ---- D2: Cases and Case ----
   {
     name: "cases-recent",
-    query: "?mock",
     hash: "#/cases",
     setup: async (page) => {
       await page.locator(".case-list").waitFor();
@@ -344,7 +341,6 @@ const SCREENS = [
   },
   {
     name: "cases-missing-folder",
-    query: "?mock",
     hash: "#/cases",
     element: ".case-item-missing",
     setup: async (page) => {
@@ -370,7 +366,6 @@ const SCREENS = [
   },
   {
     name: "case-new-validation",
-    query: "?mock",
     hash: "#/cases",
     viewport: true,
     setup: async (page) => {
@@ -382,7 +377,6 @@ const SCREENS = [
   },
   {
     name: "case-edit",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     setup: async (page) => {
       await page.getByRole("button", { name: "Edit" }).click();
@@ -391,7 +385,6 @@ const SCREENS = [
   },
   {
     name: "case-runs",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     setup: async (page) => {
       await page.locator(".runs-table").waitFor();
@@ -400,7 +393,6 @@ const SCREENS = [
   {
     // UTC shown on keyboard focus (Tab from the first row's label link to its time).
     name: "case-runs-utc-focus",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     element: ".table-wrap",
     setup: async (page) => {
@@ -411,7 +403,6 @@ const SCREENS = [
   },
   {
     name: "case-empty-runs",
-    query: "?mock",
     hash: caseHash(HARBOR),
     setup: async (page) => {
       await page.getByText("No runs yet.").waitFor();
@@ -420,7 +411,6 @@ const SCREENS = [
   {
     // A run whose app "crashes" (…/interrupt) is marked interrupted when the case is opened again.
     name: "case-recovered-notice",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/interrupt");
@@ -433,7 +423,6 @@ const SCREENS = [
   },
   {
     name: "run-details",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -444,7 +433,6 @@ const SCREENS = [
   },
   {
     name: "run-details-raw-json",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -458,13 +446,11 @@ const SCREENS = [
   // ---- D3: New run ----
   {
     name: "newrun-sections",
-    query: "?mock",
     hash: newRunHash,
     setup: newRunReady,
   },
   {
     name: "newrun-inspection",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -474,7 +460,6 @@ const SCREENS = [
   },
   {
     name: "newrun-overlap-error",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -484,7 +469,6 @@ const SCREENS = [
   },
   {
     name: "newrun-permission-error",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(2)",
     setup: async (page) => {
@@ -495,7 +479,6 @@ const SCREENS = [
   },
   {
     name: "newrun-encrypted-password",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -506,7 +489,6 @@ const SCREENS = [
   {
     // A backup whose encryption cannot be read needs a password as if encrypted (K8 owner decision).
     name: "newrun-encryption-unknown",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -520,7 +502,6 @@ const SCREENS = [
     // The backups in the default backup folder, newest first; details a backup's plists do not give
     // (or a folder that cannot be read) stay visible as unknown.
     name: "newrun-backups-found",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(2)",
     setup: async (page) => {
@@ -567,7 +548,6 @@ const SCREENS = [
     // "Use" sets the input to the backup, read as an iTunes backup through input_inspect: this one is
     // encrypted, so the password field appears. Nothing starts.
     name: "newrun-backup-chosen",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await findBackups(page);
@@ -577,7 +557,6 @@ const SCREENS = [
   },
   {
     name: "newrun-picker-search",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await customMode(page);
@@ -587,7 +566,6 @@ const SCREENS = [
   },
   {
     name: "newrun-picker-tristate",
-    query: "?mock",
     hash: newRunHash,
     element: ".picker",
     setup: async (page) => {
@@ -603,7 +581,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-unknown",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -613,7 +590,6 @@ const SCREENS = [
   },
   {
     name: "newrun-unknown-modules",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -624,7 +600,6 @@ const SCREENS = [
   },
   {
     name: "newrun-start-disabled",
-    query: "?mock",
     hash: newRunHash,
     element: ".start-card",
     setup: async (page) => {
@@ -637,7 +612,6 @@ const SCREENS = [
   },
   {
     name: "newrun-aleapp-file",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -649,7 +623,6 @@ const SCREENS = [
   },
   {
     name: "newrun-save-profile",
-    query: "?mock",
     hash: newRunHash,
     viewport: true,
     setup: async (page) => {
@@ -661,7 +634,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-saved",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(4)",
     setup: async (page) => {
@@ -675,7 +647,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-imported",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(4)",
     setup: async (page) => {
@@ -689,7 +660,6 @@ const SCREENS = [
   },
   {
     name: "newrun-import-replace",
-    query: "?mock",
     hash: newRunHash,
     viewport: true,
     setup: async (page) => {
@@ -702,7 +672,6 @@ const SCREENS = [
   },
   {
     name: "newrun-profile-exported",
-    query: "?mock",
     hash: newRunHash,
     element: ".form-section:nth-of-type(4)",
     setup: async (page) => {
@@ -715,7 +684,6 @@ const SCREENS = [
   },
   {
     name: "newrun-started",
-    query: "?mock",
     hash: newRunHash,
     live: [".job-phase", ".phase-steps", ".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -730,7 +698,6 @@ const SCREENS = [
   },
   {
     name: "newrun-ready",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await newRunReady(page);
@@ -742,7 +709,6 @@ const SCREENS = [
   runPhaseScreen("preparing", "Preparing", "Choose folder…", "Pixel-7-extraction"),
   {
     name: "run-phase-running",
-    query: "?mock",
     hash: newRunHash,
     live: [".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -756,7 +722,6 @@ const SCREENS = [
   runPhaseScreen("finalizing", "Finalizing", "Choose folder…", "Pixel-7-extraction"),
   {
     name: "run-cancel-confirm",
-    query: "?mock",
     hash: newRunHash,
     live: [".log-count", ".log-viewport"],
     viewport: true,
@@ -769,7 +734,6 @@ const SCREENS = [
   },
   {
     name: "run-succeeded",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose file…", "iPhone-12-FFS.zip");
@@ -779,7 +743,6 @@ const SCREENS = [
   },
   {
     name: "run-completed-with-errors",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/errors");
@@ -789,7 +752,6 @@ const SCREENS = [
   },
   {
     name: "run-failed",
-    query: "?mock",
     hash: newRunHash,
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/fail-crash");
@@ -798,7 +760,6 @@ const SCREENS = [
   },
   {
     name: "run-cancelled",
-    query: "?mock",
     hash: newRunHash,
     live: [".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -811,7 +772,6 @@ const SCREENS = [
   },
   {
     name: "run-interrupted",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     setup: async (page) => {
       await page.getByRole("link", { name: "Before the power cut" }).click();
@@ -821,7 +781,6 @@ const SCREENS = [
   // ---- D4b: Settings, every ToolState plus installing and install failed ----
   {
     name: "settings",
-    query: "?mock",
     hash: "#/settings",
     setup: async (page) => {
       await page.locator(".tool-card").first().waitFor();
@@ -831,7 +790,6 @@ const SCREENS = [
   {
     // verified (iLEAPP) and installed_unverified (aLEAPP), then Verify on aLEAPP.
     name: "settings-tools-verify",
-    query: "?mock",
     hash: "#/settings",
     element: ".tool-grid",
     setup: async (page) => {
@@ -915,7 +873,6 @@ const SCREENS = [
   {
     // A tools-folder override (with "Use the default"), and a finished temp cleanup.
     name: "settings-storage",
-    query: "?mock",
     hash: "#/settings",
     element: "section[aria-labelledby=settings-storage]",
     setup: async (page) => {
@@ -928,7 +885,6 @@ const SCREENS = [
   },
   {
     name: "settings-about-licenses",
-    query: "?mock",
     hash: "#/settings",
     element: "section[aria-labelledby=settings-about]",
     setup: async (page) => {
@@ -954,7 +910,6 @@ const SCREENS = [
   // ---- D5: Acquire ----
   {
     name: "acquire-devices",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await acquireReady(page);
@@ -975,7 +930,6 @@ const SCREENS = [
     // Pair on the unpaired iPad: the device now shows the Trust dialog. As with the core, the next
     // polls report `not_paired` (no host pair record yet); the card keeps the Pair answer.
     name: "acquire-awaiting-trust",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     element: ".device-list",
     setup: async (page) => {
@@ -991,7 +945,6 @@ const SCREENS = [
   {
     // Retry after Trust: paired. The iPad's owner had turned backup encryption on.
     name: "acquire-encryption-already-on",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await acquireReady(page);
@@ -1005,7 +958,6 @@ const SCREENS = [
   },
   {
     name: "acquire-encryption-enable",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await acquireReady(page);
@@ -1017,7 +969,6 @@ const SCREENS = [
   },
   {
     name: "acquire-password-mismatch",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     element: ".acquire-screen",
     setup: async (page) => {
@@ -1130,7 +1081,6 @@ const SCREENS = [
   },
   {
     name: "acquire-progress",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     live: [".progress-block", ".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -1149,7 +1099,6 @@ const SCREENS = [
   },
   {
     name: "acquire-cancel-confirm",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     live: [".progress-block", ".log-count", ".log-viewport"],
     viewport: true,
@@ -1162,7 +1111,6 @@ const SCREENS = [
   },
   {
     name: "acquire-succeeded",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, keep: true, label: "Seized iPhone, item 7" });
@@ -1172,7 +1120,6 @@ const SCREENS = [
   },
   {
     name: "acquire-failed",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { label: "Seized iPhone, item 7/backup_fail" });
@@ -1181,7 +1128,6 @@ const SCREENS = [
   },
   {
     name: "acquire-cancelled",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     live: [".progress-block", ".log-count", ".log-viewport"],
     setup: async (page) => {
@@ -1195,7 +1141,6 @@ const SCREENS = [
   {
     // Turning encryption off after the backup failed: the warnings and the action.
     name: "acquire-restore-failed",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
@@ -1206,7 +1151,6 @@ const SCREENS = [
   {
     // The later restore, with a wrong password: encryption stays on.
     name: "acquire-restore-dialog-still-on",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -1222,7 +1166,6 @@ const SCREENS = [
     // A retry with the right password succeeds; the re-read AcqSummary no longer has the warning, so
     // the result stops offering the action (acquisition.json keeps its warnings).
     name: "acquire-restore-done",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, label: "Seized iPhone, item 7/restore_fail" });
@@ -1246,7 +1189,6 @@ const SCREENS = [
     // "Parse with iLEAPP" after a success with "Parse with iLEAPP now": New run with the backup and
     // the password filled in.
     name: "newrun-handoff",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     setup: async (page) => {
       await startAcquisition(page, { encrypt: true, keep: true, label: "Seized iPhone, item 7" });
@@ -1258,7 +1200,6 @@ const SCREENS = [
   },
   {
     name: "case-acquisitions",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     element: "section[aria-labelledby=acquisitions-heading]",
     setup: async (page) => {
@@ -1267,7 +1208,6 @@ const SCREENS = [
   },
   {
     name: "case-acquisition-details",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -1279,7 +1219,6 @@ const SCREENS = [
     // The app "crashed" during an acquisition that had turned encryption on: interrupted on the
     // next case open, with "Turn backup encryption off".
     name: "case-acquisition-interrupted",
-    query: "?mock",
     hash: acquireHash(NIGHTJAR),
     element: "section[aria-labelledby=acquisitions-heading]",
     setup: async (page) => {
@@ -1292,7 +1231,6 @@ const SCREENS = [
   },
   {
     name: "case-restore-dialog",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -1302,7 +1240,6 @@ const SCREENS = [
   },
   {
     name: "case-restore-done",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     viewport: true,
     setup: async (page) => {
@@ -1316,7 +1253,6 @@ const SCREENS = [
     // After the successful later restore the table is re-read (case_open): the row's derived
     // warnings no longer ask for "Turn backup encryption off".
     name: "case-acquisitions-after-restore",
-    query: "?mock",
     hash: caseHash(NIGHTJAR),
     element: "section[aria-labelledby=acquisitions-heading]",
     setup: async (page) => {
@@ -1333,7 +1269,6 @@ const SCREENS = [
   {
     // 100,000 lines (the flood scenario), scrolled to the middle: auto-scroll turns itself off.
     name: "run-log-100k",
-    query: "?mock",
     hash: newRunHash,
     element: ".log-view",
     setup: async (page) => {
@@ -2624,7 +2559,7 @@ async function main() {
         watchPage(page, label, problems);
         const file = path.join(opts.out, `${screen.name}-${scheme}.png`);
         try {
-          await page.goto(`${base}${screen.query}${screen.hash}`);
+          await page.goto(`${base}${screen.query ?? "?mock"}${screen.hash}`);
           await screen.setup(page);
           await page.waitForTimeout(200);
           if (screen.element) await page.locator(screen.element).first().screenshot({ path: file });
