@@ -58,6 +58,8 @@ export function caseScreen(ctx) {
   let sort = DEFAULT_RUN_SORT;
   /** @type {(() => void)[]} */
   const cleanups = [];
+  /** The case folder: the opened case's path once it is known. */
+  const currentPath = () => detail?.path ?? path;
 
   const title = h("h1", { tabindex: "-1" }, folderLabel(path) || "Case");
   const headActions = h("div", { class: "actions" });
@@ -98,7 +100,7 @@ export function caseScreen(ctx) {
     if (!detail) return;
     title.textContent = detail.case.name;
     headActions.replaceChildren(
-      h("button", { class: "btn", type: "button", onClick: () => reveal(detail?.path ?? path) }, icon("folder"), "Reveal folder"),
+      h("button", { class: "btn", type: "button", onClick: () => reveal(currentPath()) }, icon("folder"), "Reveal folder"),
       h("a", { class: "btn", href: routeHref("acquire", { case: detail.path }) }, icon("smartphone"), "Acquire iOS backup"),
       h("a", { class: "btn btn-primary", href: routeHref("new-run", { case: detail.path }) }, "New run"),
     );
@@ -171,7 +173,7 @@ export function caseScreen(ctx) {
         renderMeta();
       },
       onSubmit: async (fields) => {
-        const updated = await api.case_update({ path: detail?.path ?? path, fields });
+        const updated = await api.case_update({ path: currentPath(), fields });
         if (disposed) return;
         form.dispose();
         detail = updated;
@@ -268,7 +270,7 @@ export function caseScreen(ctx) {
         { class: "cell-label" },
         h(
           "a",
-          { href: routeHref("run", { case: detail?.path ?? path, id: run.run_id }), title: run.status === "running" ? "Show the run's progress and log" : "Show the run's result" },
+          { href: routeHref("run", { case: currentPath(), id: run.run_id }), title: run.status === "running" ? "Show the run's progress and log" : "Show the run's result" },
           run.label ?? h("span", { class: "untitled" }, "Unlabeled run"),
         ),
       ),
@@ -295,7 +297,7 @@ export function caseScreen(ctx) {
   async function openReport(run) {
     runsErrors.clear();
     try {
-      await api.open_report({ case_path: detail?.path ?? path, run_id: run.run_id });
+      await api.open_report({ case_path: currentPath(), run_id: run.run_id });
     } catch (err) {
       runsErrors.show(err, "The report could not be opened.");
     }
@@ -314,11 +316,18 @@ export function caseScreen(ctx) {
     }
   }
 
-  /** @param {RunSummary} run */
-  function showDetails(run) {
-    const content = h("div", { class: "stack", "aria-busy": "true" }, h("p", { class: "muted" }, "Loading run.json…"));
+  /**
+   * A dialog with the details of a run or acquisition record, read as it opens.
+   * @template R
+   * @param {string} title
+   * @param {"run.json" | "acquisition.json"} file
+   * @param {() => Promise<R>} load
+   * @param {(record: R) => Node[]} details
+   */
+  function showRecord(title, file, load, details) {
+    const content = h("div", { class: "stack", "aria-busy": "true" }, h("p", { class: "muted" }, `Loading ${file}…`));
     const dialog = modal({
-      title: `Run ${run.label ?? run.run_id}`,
+      title,
       wide: true,
       content: () =>
         h(
@@ -330,11 +339,20 @@ export function caseScreen(ctx) {
     });
     cleanups.push(() => dialog.close());
     dialog.open();
-    api
-      .run_get({ case_path: detail?.path ?? path, run_id: run.run_id })
-      .then((record) => content.replaceChildren(...runDetails(record)))
-      .catch((err) => content.replaceChildren(appError(err, { title: "run.json could not be read." }).node))
+    load()
+      .then((record) => content.replaceChildren(...details(record)))
+      .catch((err) => content.replaceChildren(appError(err, { title: `${file} could not be read.` }).node))
       .finally(() => content.removeAttribute("aria-busy"));
+  }
+
+  /** @param {RunSummary} run */
+  function showDetails(run) {
+    showRecord(`Run ${run.label ?? run.run_id}`, "run.json", () => api.run_get({ case_path: currentPath(), run_id: run.run_id }), runDetails);
+  }
+
+  /** @param {AcqSummary} a */
+  function showAcqDetails(a) {
+    showRecord(`Acquisition ${a.label ?? a.acq_id}`, "acquisition.json", () => api.acq_get({ case_path: currentPath(), acq_id: a.acq_id }), acqDetails);
   }
 
   // ---- Acquisitions (D5) ----
@@ -378,7 +396,7 @@ export function caseScreen(ctx) {
 
   /** @param {AcqSummary} a */
   function acqRow(a) {
-    const casePath = detail?.path ?? path;
+    const casePath = currentPath();
     // AcqSummary.warnings is derived by the core: it drops these codes once a later restore
     // recorded `restored: true` (acquisition.json keeps them), so the action then disappears.
     const encryptionOn = needsEncryptionOff(a.warnings);
@@ -433,7 +451,7 @@ export function caseScreen(ctx) {
   async function openAcqLog(a) {
     acqErrors.clear();
     try {
-      await api.open_acq_file({ case_path: detail?.path ?? path, acq_id: a.acq_id, which: "stdout" });
+      await api.open_acq_file({ case_path: currentPath(), acq_id: a.acq_id, which: "stdout" });
     } catch (err) {
       acqErrors.show(err, "The log could not be opened.");
     }
@@ -444,7 +462,7 @@ export function caseScreen(ctx) {
     acqErrors.clear();
     const dialog = restoreEncryptionDialog({
       api,
-      casePath: detail?.path ?? path,
+      casePath: currentPath(),
       acq: { acq_id: a.acq_id, label: a.label, device_name: a.device_name, udid: a.udid },
       windows: store.get().appInfo?.os === "windows",
       // Whatever the outcome, re-read the rows: their warnings say whether the action still applies.
@@ -462,36 +480,13 @@ export function caseScreen(ctx) {
    */
   async function reloadAcqs() {
     try {
-      const opened = await api.case_open({ path: detail?.path ?? path });
+      const opened = await api.case_open({ path: currentPath() });
       if (disposed || !detail) return;
       detail = { ...detail, acquisitions: opened.acquisitions };
       renderAcqs();
     } catch (err) {
       if (!disposed) acqErrors.show(err, "The acquisitions could not be read again. Reopen the case to see their current state.");
     }
-  }
-
-  /** @param {AcqSummary} a */
-  function showAcqDetails(a) {
-    const content = h("div", { class: "stack", "aria-busy": "true" }, h("p", { class: "muted" }, "Loading acquisition.json…"));
-    const dialog = modal({
-      title: `Acquisition ${a.label ?? a.acq_id}`,
-      wide: true,
-      content: () =>
-        h(
-          "div",
-          { class: "modal-main" },
-          h("div", { class: "modal-body modal-scroll" }, content),
-          h("div", { class: "modal-footer" }, h("button", { class: "btn", type: "button", onClick: () => dialog.close() }, "Close")),
-        ),
-    });
-    cleanups.push(() => dialog.close());
-    dialog.open();
-    api
-      .acq_get({ case_path: detail?.path ?? path, acq_id: a.acq_id })
-      .then((record) => content.replaceChildren(...acqDetails(record)))
-      .catch((err) => content.replaceChildren(appError(err, { title: "acquisition.json could not be read." }).node))
-      .finally(() => content.removeAttribute("aria-busy"));
   }
 
   /**
@@ -522,7 +517,7 @@ export function caseScreen(ctx) {
         const job = store.get().activeJob;
         const previous = lastJob;
         lastJob = job;
-        if (!previous || previous.case_path !== (detail?.path ?? path)) return;
+        if (!previous || previous.case_path !== currentPath()) return;
         if (previous.kind === "run") {
           if (job?.kind === "run" && job.run_id === previous.run_id) return;
           void refreshRun(previous.run_id);
@@ -537,7 +532,7 @@ export function caseScreen(ctx) {
   /** @param {string} runId */
   async function refreshRun(runId) {
     try {
-      const record = await api.run_get({ case_path: detail?.path ?? path, run_id: runId });
+      const record = await api.run_get({ case_path: currentPath(), run_id: runId });
       if (disposed || !detail) return;
       detail = { ...detail, runs: detail.runs.map((r) => (r.run_id === runId ? updatedRunSummary(r, record) : r)) };
       renderRuns();
@@ -558,23 +553,66 @@ export function caseScreen(ctx) {
   };
 }
 
+/** @typedef {[string, [string, Node | string][]]} DetailGroup A heading and its rows. */
+
+const yesNo = (/** @type {boolean | null} */ v) => (v === null ? dash() : v ? "Yes" : "No");
+/** @param {import("../types").Reason[]} list */
+const reasons = (list) => (list.length ? h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))) : dash());
+
+/**
+ * The "Times" group of a run or acquisition record.
+ * @param {RunRecord | AcquisitionRecord} r
+ * @returns {DetailGroup}
+ */
+function timesGroup(r) {
+  return [
+    "Times",
+    [
+      ["Created", timeText(r.created_at)],
+      ["Started", timeText(r.started_at)],
+      ["Ended", timeText(r.ended_at)],
+      ...(r.recovered_at ? /** @type {[string, Node][]} */ ([["Recovered", timeText(r.recovered_at)]]) : []),
+      ["Duration", r.duration_ms === null ? dash() : formatDuration(r.duration_ms)],
+    ],
+  ];
+}
+
+/**
+ * The detail groups, then the raw JSON as text.
+ * @param {DetailGroup[]} groups
+ * @param {string} rawLabel e.g. "Raw run.json"
+ * @param {RunRecord | AcquisitionRecord} r
+ * @returns {Node[]}
+ */
+function detailView(groups, rawLabel, r) {
+  return [
+    h(
+      "div",
+      { class: "detail-groups" },
+      groups.map(([heading, rows]) =>
+        h(
+          "section",
+          { class: "detail-group" },
+          h("h3", null, heading),
+          h("dl", { class: "facts facts-compact" }, rows.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
+        ),
+      ),
+    ),
+    h("details", { class: "raw-json" }, h("summary", null, rawLabel), h("pre", { class: "pre" }, JSON.stringify(r, null, 2))),
+  ];
+}
+
 /**
  * The key facts of a run record, then the raw JSON as text (D2).
  * @param {RunRecord} r
  * @returns {Node[]}
  */
 function runDetails(r) {
-  const yesNo = (/** @type {boolean | null} */ v) => (v === null ? dash() : v ? "Yes" : "No");
-  /** @param {import("../types").Reason[]} list */
-  const reasons = (list) =>
-    list.length
-      ? h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message)))
-      : dash();
   const counts = r.leapp_result?.module_counts;
   const proc = r.process;
   const seal = r.output.seal;
   const modules = r.modules;
-  /** @type {[string, [string, Node | string][]][]} */
+  /** @type {DetailGroup[]} */
   const groups = [
     [
       "Outcome",
@@ -586,16 +624,7 @@ function runDetails(r) {
         ["Label", r.label ?? dash()],
       ],
     ],
-    [
-      "Times",
-      [
-        ["Created", timeText(r.created_at)],
-        ["Started", timeText(r.started_at)],
-        ["Ended", timeText(r.ended_at)],
-        ...(r.recovered_at ? /** @type {[string, Node][]} */ ([["Recovered", timeText(r.recovered_at)]]) : []),
-        ["Duration", r.duration_ms === null ? dash() : formatDuration(r.duration_ms)],
-      ],
-    ],
+    timesGroup(r),
     [
       "Tool",
       [
@@ -650,26 +679,7 @@ function runDetails(r) {
       ],
     ],
   ];
-  return [
-    h(
-      "div",
-      { class: "detail-groups" },
-      groups.map(([heading, rows]) =>
-        h(
-          "section",
-          { class: "detail-group" },
-          h("h3", null, heading),
-          h("dl", { class: "facts facts-compact" }, rows.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
-        ),
-      ),
-    ),
-    h(
-      "details",
-      { class: "raw-json" },
-      h("summary", null, "Raw run.json"),
-      h("pre", { class: "pre" }, JSON.stringify(r, null, 2)),
-    ),
-  ];
+  return detailView(groups, "Raw run.json", r);
 }
 
 /**
@@ -678,15 +688,11 @@ function runDetails(r) {
  * @returns {Node[]}
  */
 function acqDetails(r) {
-  const yesNo = (/** @type {boolean | null} */ v) => (v === null ? dash() : v ? "Yes" : "No");
-  /** @param {import("../types").Reason[]} list */
-  const reasons = (list) =>
-    list.length ? h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))) : dash();
   const e = r.encryption;
   const seal = r.output.seal;
   const b = r.backup_result;
   const mono = (/** @type {string | null} */ v) => (v === null ? dash() : h("span", { class: "mono break" }, v));
-  /** @type {[string, [string, Node | string][]][]} */
+  /** @type {DetailGroup[]} */
   const groups = [
     [
       "Outcome",
@@ -698,16 +704,7 @@ function acqDetails(r) {
         ["Label", r.label ?? dash()],
       ],
     ],
-    [
-      "Times",
-      [
-        ["Created", timeText(r.created_at)],
-        ["Started", timeText(r.started_at)],
-        ["Ended", timeText(r.ended_at)],
-        ...(r.recovered_at ? /** @type {[string, Node][]} */ ([["Recovered", timeText(r.recovered_at)]]) : []),
-        ["Duration", r.duration_ms === null ? dash() : formatDuration(r.duration_ms)],
-      ],
-    ],
+    timesGroup(r),
     [
       "Device",
       [
@@ -757,21 +754,7 @@ function acqDetails(r) {
       ],
     ],
   ];
-  return [
-    h(
-      "div",
-      { class: "detail-groups" },
-      groups.map(([heading, rows]) =>
-        h(
-          "section",
-          { class: "detail-group" },
-          h("h3", null, heading),
-          h("dl", { class: "facts facts-compact" }, rows.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
-        ),
-      ),
-    ),
-    h("details", { class: "raw-json" }, h("summary", null, "Raw acquisition.json"), h("pre", { class: "pre" }, JSON.stringify(r, null, 2))),
-  ];
+  return detailView(groups, "Raw acquisition.json", r);
 }
 
 /** @param {string} status */
