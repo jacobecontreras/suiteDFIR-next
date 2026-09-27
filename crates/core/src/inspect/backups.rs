@@ -411,6 +411,35 @@ mod tests {
     }
 
     impl Synthetic {
+        /// No plists: only `Manifest.db` and the hashed-name file.
+        fn bare() -> Self {
+            Self {
+                info: None,
+                manifest: None,
+                binary: false,
+            }
+        }
+
+        /// XML plists of a device whose `Manifest.plist` says `IsEncrypted: encrypted`.
+        fn device(name: &str, product: &str, version: &str, last: &str, encrypted: bool) -> Self {
+            Self {
+                info: Some(info(name, product, version, last)),
+                manifest: Some(manifest(Some(encrypted))),
+                binary: false,
+            }
+        }
+
+        /// Alex's iPhone13,2 on iOS 18.6, last backed up 2026-09-20T21:04:33Z.
+        fn alex(encrypted: bool) -> Self {
+            Self::device(
+                "Alex's iPhone",
+                "iPhone13,2",
+                "18.6",
+                "2026-09-20T21:04:33Z",
+                encrypted,
+            )
+        }
+
         fn write(self, dir: &Path) -> u64 {
             fs::create_dir_all(dir.join("3d")).unwrap();
             fs::write(dir.join("Manifest.db"), b"SQLite format 3\0").unwrap();
@@ -551,17 +580,7 @@ mod tests {
         let root = tmp.path().join("Backup");
         // Unencrypted, XML plists.
         let a = root.join(UDID_A);
-        let a_size = Synthetic {
-            info: Some(info(
-                "Alex's iPhone",
-                "iPhone13,2",
-                "18.6",
-                "2026-09-20T21:04:33Z",
-            )),
-            manifest: Some(manifest(Some(false))),
-            binary: false,
-        }
-        .write(&a);
+        let a_size = Synthetic::alex(false).write(&a);
         // Encrypted, binary plists, an older backup.
         let b = root.join(UDID_B);
         let b_size = Synthetic {
@@ -577,12 +596,7 @@ mod tests {
         .write(&b);
         // Only Manifest.db: a backup whose details are unknown.
         let c = root.join(UDID_C);
-        let c_size = Synthetic {
-            info: None,
-            manifest: None,
-            binary: false,
-        }
-        .write(&c);
+        let c_size = Synthetic::bare().write(&c);
         // Not backups: a folder without Manifest.db/Manifest.plist, and a file.
         fs::create_dir_all(root.join("Not a backup")).unwrap();
         fs::write(root.join("Not a backup").join("Info.plist"), b"x").unwrap();
@@ -667,12 +681,7 @@ mod tests {
 
         // Unparsable plists and a plist that is not a dictionary.
         let garbage = root.join("garbage");
-        Synthetic {
-            info: None,
-            manifest: None,
-            binary: false,
-        }
-        .write(&garbage);
+        Synthetic::bare().write(&garbage);
         fs::write(garbage.join("Info.plist"), b"garbage").unwrap();
         Value::Array(vec![string("x")])
             .to_file_xml(garbage.join("Manifest.plist"))
@@ -689,12 +698,7 @@ mod tests {
 
         // A plist that is a folder.
         let folder_plist = root.join("folder-plist");
-        Synthetic {
-            info: None,
-            manifest: None,
-            binary: false,
-        }
-        .write(&folder_plist);
+        Synthetic::bare().write(&folder_plist);
         fs::create_dir(folder_plist.join("Info.plist")).unwrap();
         assert_eq!(read_backup(&folder_plist).device_name, None);
 
@@ -734,27 +738,21 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let first = tmp.path().join("Apple Computer").join("Backup");
         let second = tmp.path().join("Apple").join("Backup");
-        let size = Synthetic {
-            info: Some(info(
-                "Old iPhone",
-                "iPhone10,1",
-                "16.7",
-                "2024-05-05T05:05:05Z",
-            )),
-            manifest: Some(manifest(Some(false))),
-            binary: false,
-        }
+        let size = Synthetic::device(
+            "Old iPhone",
+            "iPhone10,1",
+            "16.7",
+            "2024-05-05T05:05:05Z",
+            false,
+        )
         .write(&first.join(UDID_A));
-        Synthetic {
-            info: Some(info(
-                "New iPhone",
-                "iPhone16,1",
-                "26.0",
-                "2026-05-05T05:05:05Z",
-            )),
-            manifest: Some(manifest(Some(true))),
-            binary: false,
-        }
+        Synthetic::device(
+            "New iPhone",
+            "iPhone16,1",
+            "26.0",
+            "2026-05-05T05:05:05Z",
+            true,
+        )
         .write(&second.join(UDID_B));
         let found = find(&[first.clone(), second.clone(), first.clone()]).unwrap();
         let names: Vec<_> = found.iter().map(|b| b.device_name.as_deref()).collect();
@@ -775,17 +773,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("Backup");
         let dir = root.join(UDID_A);
-        let size = Synthetic {
-            info: Some(info(
-                "Alex's iPhone",
-                "iPhone13,2",
-                "18.6",
-                "2026-09-20T21:04:33Z",
-            )),
-            manifest: Some(manifest(Some(false))),
-            binary: false,
-        }
-        .write(&dir);
+        let size = Synthetic::alex(false).write(&dir);
         let elsewhere = tmp.path().join("elsewhere");
         fs::create_dir(&elsewhere).unwrap();
         fs::write(elsewhere.join("big"), vec![0u8; 4096]).unwrap();
@@ -802,28 +790,15 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("Backup");
         let real = root.join(UDID_A);
-        Synthetic {
-            info: Some(info(
-                "Alex's iPhone",
-                "iPhone13,2",
-                "18.6",
-                "2026-09-20T21:04:33Z",
-            )),
-            manifest: Some(manifest(Some(false))),
-            binary: false,
-        }
-        .write(&real);
+        Synthetic::alex(false).write(&real);
         let outside = tmp.path().join("outside").join(UDID_B);
-        Synthetic {
-            info: Some(info(
-                "Read from outside",
-                "iPad8,1",
-                "17.5.1",
-                "2026-09-24T00:00:00Z",
-            )),
-            manifest: Some(manifest(Some(true))),
-            binary: false,
-        }
+        Synthetic::device(
+            "Read from outside",
+            "iPad8,1",
+            "17.5.1",
+            "2026-09-24T00:00:00Z",
+            true,
+        )
         .write(&outside);
         if !try_symlink_dir(&outside, &root.join(UDID_B)) {
             return;
@@ -860,12 +835,7 @@ mod tests {
         write_plist(&outside.join("Manifest.plist"), manifest(Some(true)), false);
         // A real backup folder whose plists link outside.
         let linked_plists = root.join(UDID_A);
-        let size = Synthetic {
-            info: None,
-            manifest: None,
-            binary: false,
-        }
-        .write(&linked_plists);
+        let size = Synthetic::bare().write(&linked_plists);
         if !try_symlink_file(
             &outside.join("Info.plist"),
             &linked_plists.join("Info.plist"),
@@ -916,28 +886,15 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("Backup");
         let real = root.join(UDID_A);
-        Synthetic {
-            info: Some(info(
-                "Alex's iPhone",
-                "iPhone13,2",
-                "18.6",
-                "2026-09-20T21:04:33Z",
-            )),
-            manifest: Some(manifest(Some(false))),
-            binary: false,
-        }
-        .write(&real);
+        Synthetic::alex(false).write(&real);
         let outside = tmp.path().join("outside").join(UDID_B);
-        Synthetic {
-            info: Some(info(
-                "Read from outside",
-                "iPad8,1",
-                "17.5.1",
-                "2026-09-24T00:00:00Z",
-            )),
-            manifest: Some(manifest(Some(true))),
-            binary: false,
-        }
+        Synthetic::device(
+            "Read from outside",
+            "iPad8,1",
+            "17.5.1",
+            "2026-09-24T00:00:00Z",
+            true,
+        )
         .write(&outside);
         let junction = root.join(UDID_B);
         let output = fsutil::test_support::junction(&junction, &outside);
@@ -967,23 +924,8 @@ mod tests {
     fn finding_never_writes() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("Backup");
-        Synthetic {
-            info: Some(info(
-                "Alex's iPhone",
-                "iPhone13,2",
-                "18.6",
-                "2026-09-20T21:04:33Z",
-            )),
-            manifest: Some(manifest(Some(true))),
-            binary: false,
-        }
-        .write(&root.join(UDID_A));
-        Synthetic {
-            info: None,
-            manifest: None,
-            binary: false,
-        }
-        .write(&root.join(UDID_B));
+        Synthetic::alex(true).write(&root.join(UDID_A));
+        Synthetic::bare().write(&root.join(UDID_B));
         // Read-only files are read fine.
         for name in ["Info.plist", "Manifest.plist", "Manifest.db"] {
             fsutil::set_read_only(&root.join(UDID_A).join(name)).unwrap();
@@ -1030,40 +972,24 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("Backup");
         let readable = root.join(UDID_A);
-        Synthetic {
-            info: Some(info(
-                "Alex's iPhone",
-                "iPhone13,2",
-                "18.6",
-                "2026-09-20T21:04:33Z",
-            )),
-            manifest: Some(manifest(Some(false))),
-            binary: false,
-        }
-        .write(&readable);
+        Synthetic::alex(false).write(&readable);
         let locked = root.join(UDID_B);
-        Synthetic {
-            info: Some(info(
-                "Locked iPad",
-                "iPad8,1",
-                "17.5.1",
-                "2025-03-01T08:00:00Z",
-            )),
-            manifest: Some(manifest(Some(true))),
-            binary: false,
-        }
+        Synthetic::device(
+            "Locked iPad",
+            "iPad8,1",
+            "17.5.1",
+            "2025-03-01T08:00:00Z",
+            true,
+        )
         .write(&locked);
         let locked_info = root.join(UDID_C);
-        Synthetic {
-            info: Some(info(
-                "Hidden name",
-                "iPhone12,1",
-                "17.0",
-                "2024-01-01T00:00:00Z",
-            )),
-            manifest: Some(manifest(Some(true))),
-            binary: false,
-        }
+        Synthetic::device(
+            "Hidden name",
+            "iPhone12,1",
+            "17.0",
+            "2024-01-01T00:00:00Z",
+            true,
+        )
         .write(&locked_info);
         mode(&locked, 0o000);
         mode(&locked_info.join("Info.plist"), 0o000);
