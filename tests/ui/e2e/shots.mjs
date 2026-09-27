@@ -2,12 +2,19 @@
 // Mock-mode UI screenshots, light and dark (DEVELOPMENT.md §4.8, §5). Needs Playwright with
 // Chromium, so it runs on a machine with a browser and is not part of `npm test`:
 //
-//   node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens <name,name,...>]
+//   node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens <name,name,...>] [--dom]
 //
 // It starts `<root>/scripts/serve-ui.mjs --root <root> --port 0` itself, reads the port from the
 // server's first stdout line, and stops the server in `finally` (a background server would not
 // survive a separate ssh session). Each screen is loaded fresh from /?mock (the mock's state is per
 // page load), set up, and saved as <out>/<screen>-<light|dark>.png.
+//
+// With `--dom` (Z0c), each screen's DOM is also saved, after its screenshot, as
+// <out>/<screen>-<light|dark>.dom.txt: #app and every open <dialog> outside it, one node per line
+// (see `domSnapshot`), with only what differs between runs masked: content that moves with time
+// (`DOM_TEXT_MASKS`, `Screen.live`) and run-specific values (`normalizeDom`).
+// Two runs of the same code give byte-identical files, so a diff against a baseline run shows DOM
+// changes that pixels miss (attributes, roles, hidden text).
 //
 // It also runs behavior checks (`check-*`, no screenshot), e.g. that Enter in a New run field never
 // starts a run and that cancelling needs a confirmation. It fails (exit 1) on a failed check, on any
@@ -27,7 +34,7 @@ import { chromium } from "playwright";
 
 /** @typedef {import("playwright").Page} Page */
 
-const USAGE = "usage: node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens <name,name,...>]";
+const USAGE = "usage: node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens <name,name,...>] [--dom]";
 const NIGHTJAR = "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar";
 const MISSING = "/Volumes/Archive/suiteDFIR Cases/Riverside 2025";
 const HARBOR = "/Users/examiner/Documents/suiteDFIR Cases/Harbor Lights";
@@ -43,6 +50,10 @@ const LOG_BUDGET_MS = 100;
  * @property {(page: Page) => Promise<void>} setup Waits for the state to be on screen.
  * @property {string} [element] Screenshot only this element instead of the full page.
  * @property {boolean} [viewport] Screenshot the viewport (for modal dialogs) instead of the full page.
+ * @property {string[]} [live] `--dom` only: selectors of elements that are still moving when the
+ *   screen is captured (a job or install streams on, or the state reached depends on timing); the
+ *   DOM file leaves out their attributes and content (`domSnapshot`). Screens with a held or
+ *   finished job pin the same elements.
  */
 
 /** @param {string} path */
@@ -297,6 +308,7 @@ const SCREENS = [
     name: "shell-banners-active-job",
     query: "?mock&scenario=dev_override,active_run",
     hash: "#/cases",
+    live: [".job-phase"],
     setup: async (page) => {
       await page.locator(".job-indicator").waitFor();
       await page.locator(".banner-dev").waitFor();
@@ -704,6 +716,7 @@ const SCREENS = [
     name: "newrun-started",
     query: "?mock",
     hash: newRunHash,
+    live: [".job-phase", ".phase-steps", ".log-count", ".log-viewport"],
     setup: async (page) => {
       await newRunReady(page);
       await pickInput(page, "Choose folder…", "00008101-000A1B2C3D4E");
@@ -730,6 +743,7 @@ const SCREENS = [
     name: "run-phase-running",
     query: "?mock",
     hash: newRunHash,
+    live: [".log-count", ".log-viewport"],
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/slow");
       await waitForLines(page, 40);
@@ -743,6 +757,7 @@ const SCREENS = [
     name: "run-cancel-confirm",
     query: "?mock",
     hash: newRunHash,
+    live: [".log-count", ".log-viewport"],
     viewport: true,
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/slow");
@@ -784,6 +799,7 @@ const SCREENS = [
     name: "run-cancelled",
     query: "?mock",
     hash: newRunHash,
+    live: [".log-count", ".log-viewport"],
     setup: async (page) => {
       await startRun(page, "Choose folder…", "Evidence/slow");
       await waitForLines(page, 20);
@@ -855,6 +871,7 @@ const SCREENS = [
     query: "?mock&scenario=no_tools",
     hash: "#/settings",
     element: ".tool-grid",
+    live: [".install-progress"],
     setup: async (page) => {
       await page.locator(".tool-card", { hasText: "iLEAPP" }).getByRole("button", { name: /^Install/ }).click();
       await page.getByText(/^Downloading iLEAPP/).waitFor();
@@ -866,6 +883,7 @@ const SCREENS = [
     query: "?mock&scenario=no_tools",
     hash: "#/settings",
     element: "section[aria-labelledby=settings-storage]",
+    live: [".install-progress"],
     setup: async (page) => {
       await page.locator(".tool-card", { hasText: "iLEAPP" }).getByRole("button", { name: /^Install/ }).click();
       await page.getByText("Not while a parser is being installed.").waitFor();
@@ -923,6 +941,7 @@ const SCREENS = [
     name: "run-attached",
     query: "?mock&scenario=active_run",
     hash: "#/cases",
+    live: [".log-count", ".log-viewport"],
     setup: async (page) => {
       await page.locator(".job-indicator").click();
       await page.locator(".run-screen .phase-steps").waitFor();
@@ -1062,6 +1081,7 @@ const SCREENS = [
     name: "acquire-busy-device",
     query: "?mock&scenario=active_acq",
     hash: acquireHash(HARBOR),
+    live: [".job-phase"],
     setup: async (page) => {
       await acquireReady(page);
       await page.getByText("In use by the current acquisition.").waitFor();
@@ -1072,6 +1092,7 @@ const SCREENS = [
     name: "acquire-attached",
     query: "?mock&scenario=active_acq",
     hash: acquireHash(NIGHTJAR),
+    live: [".progress-block", ".log-count", ".log-viewport"],
     setup: async (page) => {
       await page.locator(".acquire-screen .phase-steps").waitFor();
       await page.locator(".progress-block").waitFor();
@@ -1110,6 +1131,7 @@ const SCREENS = [
     name: "acquire-progress",
     query: "?mock",
     hash: acquireHash(NIGHTJAR),
+    live: [".progress-block", ".log-count", ".log-viewport"],
     setup: async (page) => {
       await startAcquisition(page, { label: "Seized iPhone, item 7/slow" });
       await page.getByText(/^[4-9]%$/).waitFor({ timeout: 15000 });
@@ -1128,6 +1150,7 @@ const SCREENS = [
     name: "acquire-cancel-confirm",
     query: "?mock",
     hash: acquireHash(NIGHTJAR),
+    live: [".progress-block", ".log-count", ".log-viewport"],
     viewport: true,
     setup: async (page) => {
       await startAcquisition(page, { label: "Seized iPhone, item 7/slow" });
@@ -1159,6 +1182,7 @@ const SCREENS = [
     name: "acquire-cancelled",
     query: "?mock",
     hash: acquireHash(NIGHTJAR),
+    live: [".progress-block", ".log-count", ".log-viewport"],
     setup: async (page) => {
       await startAcquisition(page, { label: "Seized iPhone, item 7/slow" });
       await page.locator(".progress-block").waitFor();
@@ -1977,12 +2001,14 @@ async function newContext(browser, scheme) {
 
 /** @param {string[]} argv */
 function parseArgs(argv) {
-  /** @type {{ root: string | null, out: string | null, screens: string[] | null }} */
-  const opts = { root: null, out: null, screens: null };
+  /** @type {{ root: string | null, out: string | null, screens: string[] | null, dom: boolean }} */
+  const opts = { root: null, out: null, screens: null, dom: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = argv[i + 1];
-    if ((arg === "--root" || arg === "--out" || arg === "--screens") && value !== undefined) {
+    if (arg === "--dom") {
+      opts.dom = true;
+    } else if ((arg === "--root" || arg === "--out" || arg === "--screens") && value !== undefined) {
       i += 1;
       if (arg === "--root") opts.root = path.resolve(value);
       else if (arg === "--out") opts.out = path.resolve(value);
@@ -1992,7 +2018,7 @@ function parseArgs(argv) {
     }
   }
   if (!opts.root || !opts.out) throw new Error(USAGE);
-  return { root: opts.root, out: opts.out, screens: opts.screens };
+  return { root: opts.root, out: opts.out, screens: opts.screens, dom: opts.dom };
 }
 
 /**
@@ -2024,6 +2050,168 @@ function startServer(root) {
     child.once("error", reject);
   });
   return { child, port };
+}
+
+/**
+ * `--dom`: #app and every open <dialog> outside it (dialog.js and the mock picker append theirs to
+ * <body>), one node per line, indented by depth. Elements print their attributes in DOM order and
+ * escaped as in outerHTML; text nodes print as JSON strings, split after each line break (the
+ * continuation segments start with `+ `) so a Raw JSON <pre> diffs line by line. The live state of
+ * form controls (typed values, `checked`) is not an attribute and is not included, as with
+ * outerHTML.
+ * Content that moves with time is masked here, where the elements are known (see `DOM_TEXT_MASKS`
+ * and `Screen.live`); `normalizeDom` masks the run-specific values in what remains.
+ * Runs in the page (Playwright sends its source), so it may only use what it defines itself and
+ * its argument.
+ * @param {{ text: string[], live: string[] }} masks Selectors: `text`, elements whose text is
+ *   replaced by "<masked>" (the element and its attributes stay); `live`, elements printed as
+ *   `<tag><!-- live: masked --></tag>` (attributes and content left out).
+ * @returns {string}
+ */
+function domSnapshot(masks) {
+  const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+  /** @param {string} s */
+  const escape = (s) => s.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  /** @param {Element} el @param {string[]} selectors */
+  const matches = (el, selectors) => selectors.some((s) => el.matches(s));
+  /** @type {string[]} */
+  const out = [];
+  /**
+   * @param {Node} node
+   * @param {number} depth
+   */
+  const walk = (node, depth) => {
+    const pad = "  ".repeat(depth);
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node.parentElement && matches(node.parentElement, masks.text)) {
+        out.push(`${pad}"<masked>"`);
+        return;
+      }
+      (node.nodeValue ?? "").split(/(?<=\n)/).forEach((part, i) => out.push(`${pad}${i === 0 ? "" : "+ "}${JSON.stringify(part)}`));
+      return;
+    }
+    if (node.nodeType === Node.COMMENT_NODE) {
+      out.push(`${pad}<!--${node.nodeValue ?? ""}-->`);
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    const name = node.localName;
+    if (matches(node, masks.live)) {
+      out.push(`${pad}<${name}><!-- live: masked --></${name}>`);
+      return;
+    }
+    const attrs = [...node.attributes].map((a) => ` ${a.name}="${escape(a.value)}"`).join("");
+    const children = [...node.childNodes];
+    if (VOID.has(name)) {
+      out.push(`${pad}<${name}${attrs}>`);
+    } else if (children.length === 0) {
+      out.push(`${pad}<${name}${attrs}></${name}>`);
+    } else {
+      out.push(`${pad}<${name}${attrs}>`);
+      for (const child of children) walk(child, depth + 1);
+      out.push(`${pad}</${name}>`);
+    }
+  };
+  const app = document.getElementById("app");
+  if (app) walk(app, 0);
+  for (const dialog of document.querySelectorAll("dialog[open]")) {
+    if (app?.contains(dialog)) continue;
+    out.push("<!-- open dialog outside #app -->");
+    walk(dialog, 0);
+  }
+  return `${out.join("\n")}\n`;
+}
+
+/**
+ * `--dom`: elements whose text moves with time on every screen, masked by `domSnapshot` (the
+ * element and its attributes stay):
+ * - `.elapsed`: the Run and Acquire screens' elapsed time, or the duration of a job this page ran;
+ * - the log view's `aria-live` region: the latest log line, updated at most once a second, so which
+ *   line it holds depends on when the throttle last fired.
+ */
+const DOM_TEXT_MASKS = [".elapsed", ".log-view p.visually-hidden[aria-live]"];
+
+/** `--dom`: a timestamp up to this far outside the shots run counts as made during it. */
+const TIME_SLACK_MS = 60_000;
+
+/** The prefixes `uid()` (ui/lib/view.js) is called with; its counter is page-wide. */
+const UID_PREFIXES = [
+  "access-guidance",
+  "acq-reasons",
+  "backup-finder",
+  "device",
+  "dialog-title",
+  "enc",
+  "field",
+  "folder",
+  "keychain",
+  "log-follow",
+  "log-search",
+  "picker",
+  "progress",
+  "section",
+  "start-reasons",
+  "tool",
+];
+
+/**
+ * `--dom`: masks the values of a `domSnapshot` that differ between two runs of the same code, and
+ * nothing else:
+ * - `uid()` ids (`picker-17`): numbered per prefix in order of first appearance (`picker-#1`), so
+ *   the links between ids and `for` / `aria-*` stay visible. Only in tags, not in text.
+ * - Job ids (`YYYYMMDD-HHMMSSZ-<kind>-<6 hex>`, the hex is random in the mock): the hex is numbered
+ *   in order of first appearance (`#1`); the time part is masked only when it is from this run.
+ * - The mock's other random hex: 32-digit case ids, the 8 digits of the install failure's
+ *   "got …" detail; numbered likewise.
+ * - Timestamps made during this run (between `window.from` and `window.to`), RFC 3339 (`<iso-now>`,
+ *   also inside Raw JSON <pre> text), `YYYY-MM-DD HH:MM:SS UTC` (`<utc-now> UTC`) and local
+ *   `YYYY-MM-DD HH:MM:SS` (`<local-now>`); fixed seed and fixture times stay as they are.
+ * @param {string} text
+ * @param {{ from: number, to: number }} window The run's time span, in ms since the epoch.
+ * @returns {string}
+ */
+function normalizeDom(text, window) {
+  /** @param {number} ms */
+  const inRun = (ms) => ms >= window.from && ms <= window.to;
+  /** @type {Map<string, Map<string, number>>} */
+  const seen = new Map();
+  /**
+   * @param {string} kind
+   * @param {string} value
+   */
+  const ordinal = (kind, value) => {
+    let values = seen.get(kind);
+    if (!values) seen.set(kind, (values = new Map()));
+    let n = values.get(value);
+    if (n === undefined) values.set(value, (n = values.size + 1));
+    return `#${n}`;
+  };
+  const uid = new RegExp(`\\b(${UID_PREFIXES.join("|")})-(\\d+)\\b`, "g");
+  /** @param {string} s */
+  const mask = (s) =>
+    s
+      .replace(/\b(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})Z-(ileapp|aleapp|ios)-([0-9a-f]{6})\b/g, (m, y, mo, d, h, mi, sec, kind, hex) => {
+        const stamp = inRun(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec)) ? "<now>" : `${y}${mo}${d}-${h}${mi}${sec}Z`;
+        return `${stamp}-${kind}-${ordinal("job", hex)}`;
+      })
+      .replace(/\b[0-9a-f]{32}\b/g, (m) => `<hex32-${ordinal("hex32", m)}>`)
+      .replace(/\bgot ([0-9a-f]{8})…/g, (m, hex) => `got <hex8-${ordinal("hex8", hex)}>…`)
+      .replace(/\b(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z/g, (m, y, mo, d, h, mi, sec) =>
+        inRun(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec)) ? "<iso-now>" : m,
+      )
+      .replace(/\b(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) UTC\b/g, (m, y, mo, d, h, mi, sec) =>
+        inRun(Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec)) ? "<utc-now> UTC" : m,
+      )
+      .replace(/\b(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})\b/g, (m, y, mo, d, h, mi, sec) =>
+        inRun(new Date(+y, +mo - 1, +d, +h, +mi, +sec).getTime()) ? "<local-now>" : m,
+      );
+  return text
+    .split("\n")
+    .map((line) => {
+      const masked = mask(line);
+      return line.trimStart().startsWith("<") ? masked.replace(uid, (m, prefix) => `${prefix}-${ordinal(`uid:${prefix}`, m)}`) : masked;
+    })
+    .join("\n");
 }
 
 /** @param {number[]} values */
@@ -2354,6 +2542,7 @@ function logSearchProblems(s) {
 }
 
 async function main() {
+  const startedMs = Date.now();
   const opts = parseArgs(process.argv.slice(2));
   const wanted = opts.screens;
   const screens = wanted ? SCREENS.filter((s) => wanted.includes(s.name)) : SCREENS;
@@ -2391,6 +2580,12 @@ async function main() {
           if (screen.element) await page.locator(screen.element).first().screenshot({ path: file });
           else await page.screenshot({ path: file, fullPage: !screen.viewport });
           process.stdout.write(`captured ${file}\n`);
+          if (opts.dom) {
+            const domFile = path.join(opts.out, `${screen.name}-${scheme}.dom.txt`);
+            const dom = await page.evaluate(domSnapshot, { text: DOM_TEXT_MASKS, live: screen.live ?? [] });
+            await writeFile(domFile, normalizeDom(dom, { from: startedMs - TIME_SLACK_MS, to: Date.now() + TIME_SLACK_MS }));
+            process.stdout.write(`dom ${domFile}\n`);
+          }
         } catch (err) {
           problems.push(`${label}: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
