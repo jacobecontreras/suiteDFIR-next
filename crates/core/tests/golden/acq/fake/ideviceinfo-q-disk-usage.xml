@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>TotalDiskCapacity</key>
+	<integer>77309411328</integer>
+	<key>TotalSystemCapacity</key>
+	<integer>8589934592</integer>
+	<key>TotalDataCapacity</key>
+	<integer>68719476736</integer>
+	<key>TotalDataAvailable</key>
+	<integer>68717379584</integer>
+</dict>
+</plist>

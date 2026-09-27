@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BuildVersion</key>
+	<string>22G86</string>
+	<key>DeviceClass</key>
+	<string>iPhone</string>
+	<key>DeviceName</key>
+	<string>Fake iPhone</string>
+	<key>ProductType</key>
+	<string>iPhone13,2</string>
+	<key>ProductVersion</key>
+	<string>18.6</string>
+	<key>UniqueDeviceID</key>
+	<string>00008101-000A1B2C3D4E001E</string>
+</dict>
+</plist>

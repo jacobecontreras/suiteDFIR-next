@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "acq_id": "<ACQ_ID>",
+  "label": "Golden iPhone",
+  "status": "failed",
+  "status_reasons": [
+    {
+      "code": "prepare_failed",
+      "message": "cannot create the temp dir: Cannot create a file when that file already exists. (os error 183)"
+    }
+  ],
+  "warnings": [],
+  "created_at": "<TIMESTAMP>",
+  "started_at": null,
+  "ended_at": "<TIMESTAMP>",
+  "recovered_at": null,
+  "duration_ms": "<DURATION_MS>",
+  "app": {
+    "name": "suiteDFIR",
+    "version": "<APP_VERSION>"
+  },
+  "host": {
+    "os": "testos",
+    "os_version": "1.0",
+    "arch": "testarch",
+    "hostname": "LAB-TEST-01"
+  },
+  "case_snapshot": {
+    "case_id": "<CASE_ID>",
+    "name": "Operation Nightjar",
+    "case_number": "2026-0142",
+    "examiner": "J. Doe",
+    "agency": "County Forensics Lab"
+  },
+  "device": {
+    "udid": "00008101-000A1B2C3D4E001E",
+    "serial_number": null,
+    "device_name": null,
+    "product_type": null,
+    "product_version": null,
+    "build_version": null,
+    "captured_at": null,
+    "info_file": null,
+    "info_file_sha256": null
+  },
+  "pairing": {
+    "paired_before": true,
+    "paired_by_app_at": null,
+    "host_id": null,
+    "system_buid": null
+  },
+  "device_changes": [],
+  "tools": {
+    "version": "1.4.0",
+    "source": "bundled",
+    "binaries": {
+      "idevice_id": {
+        "path": "<TOOLS>\\idevice_id.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "ideviceinfo": {
+        "path": "<TOOLS>\\ideviceinfo.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "idevicepair": {
+        "path": "<TOOLS>\\idevicepair.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "idevicebackup2": {
+        "path": "<TOOLS>\\idevicebackup2.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      }
+    }
+  },
+  "encryption": {
+    "will_encrypt_before": false,
+    "enable_requested": false,
+    "enabled_by_examiner": false,
+    "will_encrypt_after_enable": null,
+    "restore_requested": false,
+    "restored_after": "not_requested",
+    "will_encrypt_after_restore": null,
+    "password_supplied": false,
+    "password_channel": null
+  },
+  "commands": [],
+  "process": null,
+  "backup_result": null,
+  "output": {
+    "backup_dir": "backup",
+    "seal": {
+      "status": "sealed",
+      "manifest": "backup.sha256",
+      "manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "file_count": 0,
+      "total_bytes": 0
+    }
+  },
+  "logs": {
+    "stdout": "idevicebackup2.stdout.log",
+    "stderr": "idevicebackup2.stderr.log"
+  }
+}

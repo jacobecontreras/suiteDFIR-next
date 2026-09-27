@@ -1309,3 +1309,254 @@ mod tests {
         assert_eq!(capacity - available, 1000);
     }
 }
+
+/// Z0b characterization goldens (the simplification pass, SIMPLIFY.md §3): the fake's outputs as
+/// they are at main 24af32c, compared as text with the files in `tests/golden/acq/fake/`. A file
+/// under `tests/golden/acq/<os>/fake/` (`windows`, `linux`) replaces the default (macOS) one on
+/// that OS. On a mismatch the actual text is printed and written to
+/// `<temp dir>/suitedfir-z0b-actual/<os>/fake/`. Frozen: later bundles do not edit this module.
+#[cfg(test)]
+mod z0 {
+    use super::*;
+
+    const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/acq");
+
+    fn os_name() -> &'static str {
+        if cfg!(windows) {
+            "windows"
+        } else if cfg!(target_os = "linux") {
+            "linux"
+        } else {
+            "macos"
+        }
+    }
+
+    /// Compares `actual` with the golden file `name` (the per-OS one if it exists); returns a
+    /// description of the mismatch, after printing and saving the actual text.
+    fn check(name: &str, actual: &str) -> Option<String> {
+        let os_file = Path::new(GOLDEN_DIR)
+            .join(os_name())
+            .join("fake")
+            .join(name);
+        let file = if os_file.is_file() {
+            os_file
+        } else {
+            Path::new(GOLDEN_DIR).join("fake").join(name)
+        };
+        let expected = fs::read_to_string(&file).ok();
+        if expected.as_deref() == Some(actual) {
+            return None;
+        }
+        let saved = env::temp_dir()
+            .join("suitedfir-z0b-actual")
+            .join(os_name())
+            .join("fake")
+            .join(name);
+        let _ = fs::create_dir_all(saved.parent().unwrap_or(Path::new(".")));
+        let _ = fs::write(&saved, actual);
+        eprintln!(
+            "---- z0b golden mismatch: fake/{name} on {} (golden {}; actual saved to {}) ----\n\
+             {actual}\n---- end of fake/{name} ----",
+            os_name(),
+            file.display(),
+            saved.display()
+        );
+        Some(format!("fake/{name}"))
+    }
+
+    fn assert_goldens(results: Vec<Option<String>>) {
+        let mismatches: Vec<String> = results.into_iter().flatten().collect();
+        assert!(
+            mismatches.is_empty(),
+            "golden mismatches (normalized actuals printed above): {mismatches:?}"
+        );
+    }
+
+    fn fake(scenario: Scenario) -> Fake {
+        Fake {
+            scenario,
+            store: Store {
+                dir: None,
+                state: State::initial(scenario),
+            },
+            pacing: Pacing {
+                interval: Duration::ZERO,
+                prompt_wait: Duration::ZERO,
+                data_used: DEFAULT_DATA_USED,
+            },
+        }
+    }
+
+    /// What `ideviceinfo -x` prints for a value: the XML plist and a newline; nothing without one.
+    fn stdout_of(value: Option<plist::Value>) -> String {
+        let mut out = Vec::new();
+        if let Some(value) = value {
+            value.to_writer_xml(&mut out).unwrap();
+            writeln!(out).unwrap();
+        }
+        String::from_utf8(out).unwrap()
+    }
+
+    /// The XML of `ideviceinfo -x` (full), `-s -x`, `-q com.apple.mobile.backup -x` (with and
+    /// without the `WillEncrypt` key, and encrypted), `-k WillEncrypt -x` (and with the key absent:
+    /// nothing) and `-q com.apple.disk_usage -x`.
+    #[test]
+    fn z0_ideviceinfo_xml() {
+        assert_goldens(vec![
+            check("ideviceinfo-x.xml", &stdout_of(Some(device_info(false)))),
+            check("ideviceinfo-s-x.xml", &stdout_of(Some(device_info(true)))),
+            check(
+                "ideviceinfo-q-backup.xml",
+                &stdout_of(fake(Scenario::Success).backup_domain(false)),
+            ),
+            check(
+                "ideviceinfo-q-backup-encrypted.xml",
+                &stdout_of(fake(Scenario::AlreadyEncrypted).backup_domain(false)),
+            ),
+            check(
+                "ideviceinfo-q-backup-without-willencrypt.xml",
+                &stdout_of(fake(Scenario::WillEncryptAbsent).backup_domain(false)),
+            ),
+            check(
+                "ideviceinfo-k-willencrypt.xml",
+                &stdout_of(fake(Scenario::Success).backup_domain(true)),
+            ),
+            check(
+                "ideviceinfo-k-willencrypt-absent.xml",
+                &stdout_of(fake(Scenario::WillEncryptAbsent).backup_domain(true)),
+            ),
+            check(
+                "ideviceinfo-q-disk-usage.xml",
+                &stdout_of(Some(disk_usage(DEFAULT_DATA_USED))),
+            ),
+        ]);
+    }
+
+    /// One plist value on a line of the dump.
+    fn show(value: &plist::Value) -> String {
+        match value {
+            plist::Value::String(text) => format!("string {text:?}"),
+            plist::Value::Boolean(flag) => format!("boolean {flag}"),
+            plist::Value::Integer(number) => format!("integer {number}"),
+            other => format!("other {other:?}"),
+        }
+    }
+
+    /// Every file under `dir` (relative path with `/`, sorted by bytes): its size and SHA-256, and
+    /// with `plists`, for a plist its format and its top-level keys in file order with their values.
+    fn dump_tree(dir: &Path, plists: bool) -> String {
+        fn walk(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(root, &path, files);
+                } else {
+                    let relative = path
+                        .strip_prefix(root)
+                        .unwrap()
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    files.push((relative, path));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        if dir.is_dir() {
+            walk(dir, dir, &mut files);
+        }
+        files.sort();
+        let mut out = String::new();
+        for (relative, path) in files {
+            let bytes = fs::read(&path).unwrap();
+            let hash = suitedfir_core::hashing::sha256_file(&path).unwrap();
+            out.push_str(&format!(
+                "{relative}  {} bytes  sha256 {hash}\n",
+                bytes.len()
+            ));
+            if plists && relative.ends_with(".plist") {
+                let format = if bytes.starts_with(b"bplist00") {
+                    "binary"
+                } else if bytes.starts_with(b"<?xml") {
+                    "xml"
+                } else {
+                    "unknown"
+                };
+                out.push_str(&format!("  format {format}\n"));
+                let value = plist::Value::from_file(&path).unwrap();
+                for (key, value) in value.as_dictionary().unwrap() {
+                    out.push_str(&format!("  {key} = {}\n", show(value)));
+                }
+            }
+        }
+        out
+    }
+
+    /// A key-order dump of the plists `Layout::write` writes (`Info.plist` as XML, `Status.plist`
+    /// and `Manifest.plist` as binary), with every file's size and hash, for each layout the
+    /// scenarios use.
+    #[test]
+    fn z0_layout_plists() {
+        let mut dump = String::new();
+        for (encrypted, manifest, snapshot) in [
+            (false, false, "new"),
+            (true, false, "new"),
+            (false, true, "new"),
+            (false, true, "finished"),
+            (true, true, "finished"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            Layout {
+                encrypted,
+                manifest,
+                snapshot: snapshot.to_owned(),
+            }
+            .write(dir.path())
+            .unwrap();
+            dump.push_str(&format!(
+                "== Layout {{ encrypted: {encrypted}, manifest: {manifest}, snapshot: {snapshot:?} }}\n"
+            ));
+            dump.push_str(&dump_tree(dir.path(), true));
+        }
+        assert_goldens(vec![check("layout-plists.txt", &dump)]);
+    }
+
+    /// The files `idevicebackup2 backup --full` leaves under `<dir>/<udid>/`, and its return value,
+    /// per backup scenario (the ones that end by themselves; `slow`, `ignore_term` and
+    /// `crash_after_enable` run until stopped). `encrypted` is `WillEncrypt` when the backup starts
+    /// (true after an enable, or in `already_encrypted`).
+    #[test]
+    fn z0_backup_file_set_per_scenario() {
+        let mut dump = String::new();
+        for (name, encrypted) in [
+            ("success", false),
+            ("success_encrypt", true),
+            ("already_encrypted", true),
+            ("restore_fail", true),
+            ("enable_unknown", true),
+            ("backup_fail", false),
+            ("backup_fail_encrypted", true),
+            ("incomplete", false),
+            ("cancel_on_device", false),
+            ("disconnect", false),
+            ("sync_lock", false),
+            ("cancel_during_restore", true),
+            ("info_empty", false),
+            ("will_encrypt_absent", true),
+            ("enable_unconfirmed", true),
+        ] {
+            let scenario = Scenario::parse(name).unwrap();
+            let mut fake = fake(scenario);
+            fake.store.state.will_encrypt = encrypted;
+            let dir = tempfile::tempdir().unwrap();
+            let code = fake.backup(dir.path()).unwrap();
+            dump.push_str(&format!(
+                "== {name} (WillEncrypt {encrypted}): returns {code}, connected afterwards {}\n",
+                fake.store.state.connected
+            ));
+            dump.push_str(&dump_tree(dir.path(), false));
+        }
+        assert_goldens(vec![check("backup-file-sets.txt", &dump)]);
+    }
+}

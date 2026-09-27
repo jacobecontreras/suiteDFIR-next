@@ -1,0 +1,106 @@
+[
+  {
+    "scenario": "not_paired",
+    "error": {
+      "code": "device_not_paired",
+      "message": "Pair the device with this computer first.",
+      "detail": "device 00008101-000A1B2C3D4E001E is not ready: not_paired"
+    },
+    "acquisitions_created": 0,
+    "calls": [
+      [
+        "idevice_id",
+        "-l"
+      ],
+      [
+        "idevicepair",
+        "-u",
+        "00008101-000A1B2C3D4E001E",
+        "hostid"
+      ]
+    ],
+    "pairing_attempts": []
+  },
+  {
+    "scenario": "locked",
+    "error": {
+      "code": "device_not_paired",
+      "message": "Pair the device with this computer first.",
+      "detail": "device 00008101-000A1B2C3D4E001E is not ready: not_paired"
+    },
+    "acquisitions_created": 0,
+    "calls": [
+      [
+        "idevice_id",
+        "-l"
+      ],
+      [
+        "idevicepair",
+        "-u",
+        "00008101-000A1B2C3D4E001E",
+        "hostid"
+      ]
+    ],
+    "pairing_attempts": []
+  },
+  {
+    "scenario": "trust_denied",
+    "error": {
+      "code": "device_not_paired",
+      "message": "Pair the device with this computer first.",
+      "detail": "device 00008101-000A1B2C3D4E001E is not ready: not_paired"
+    },
+    "acquisitions_created": 0,
+    "calls": [
+      [
+        "idevice_id",
+        "-l"
+      ],
+      [
+        "idevicepair",
+        "-u",
+        "00008101-000A1B2C3D4E001E",
+        "hostid"
+      ]
+    ],
+    "pairing_attempts": []
+  },
+  {
+    "scenario": "pairing_failed",
+    "error": {
+      "code": "device_not_paired",
+      "message": "Pair the device with this computer first.",
+      "detail": "device 00008101-000A1B2C3D4E001E is not ready: not_paired"
+    },
+    "acquisitions_created": 0,
+    "calls": [
+      [
+        "idevice_id",
+        "-l"
+      ],
+      [
+        "idevicepair",
+        "-u",
+        "00008101-000A1B2C3D4E001E",
+        "hostid"
+      ]
+    ],
+    "pairing_attempts": []
+  },
+  {
+    "scenario": "usbmuxd_missing",
+    "error": {
+      "code": "usbmuxd_unavailable",
+      "message": "The USB device service (usbmuxd) could not be reached. On Windows, install Apple Devices (or iTunes) and make sure the Apple Mobile Device Service is running. On Linux, install usbmuxd and start it (`sudo systemctl start usbmuxd`). On macOS, reconnect the device; if that does not help, restart the Mac. Then try again.",
+      "detail": "usbmuxd could not be reached (ERROR: Unable to retrieve device list!)"
+    },
+    "acquisitions_created": 0,
+    "calls": [
+      [
+        "idevice_id",
+        "-l"
+      ]
+    ],
+    "pairing_attempts": []
+  }
+]
