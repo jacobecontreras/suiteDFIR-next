@@ -7,10 +7,13 @@
 //! inside a case's acquisitions, the event rules (log batches of at most 500 lines, each stdio tail
 //! once, progress events) and that the backup password never leaks.
 
+mod common;
+
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use common::FAKE_LEAPP;
 use suitedfir_core::case::{self, CreatedCase};
 use suitedfir_core::contracts::{
     AppError, EntryVerifiedAgainst, ErrorCode, HashStatus, InputType, InstallSource, ModuleMode,
@@ -24,7 +27,6 @@ use suitedfir_core::run::profile::{ProfileFormat, ProfileStore};
 use suitedfir_core::runner::{self, RunContext, RunControl, RunOutcome};
 use suitedfir_core::settings;
 
-const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
 const PASSWORD: &str = "e1a-Backup-Pw!";
 /// An acquisition id for inputs inside a case's `acquisitions/`.
 const ACQ_ID: &str = "20260924-171200Z-ios-9c01de";
@@ -132,11 +134,7 @@ impl Lab {
     }
 
     fn assert_no_temp_dirs(&self) {
-        let tmp = self.paths.temp_root();
-        let left: Vec<_> = fs::read_dir(&tmp)
-            .map(|entries| entries.map(|e| e.unwrap().file_name()).collect())
-            .unwrap_or_default();
-        assert!(left.is_empty(), "left in {}: {left:?}", tmp.display());
+        common::assert_empty_or_missing(&self.paths.temp_root());
     }
 
     /// An iTunes-style backup folder at `dir` (`Manifest.plist` with `IsEncrypted`).

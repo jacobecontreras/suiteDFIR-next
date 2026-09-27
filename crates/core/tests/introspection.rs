@@ -9,15 +9,16 @@
 //! The tests run one at a time: a script written by one test must not be executed while another
 //! test's `fork` holds an inherited handle to it (ETXTBSY on Linux).
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use common::FAKE_LEAPP;
 use suitedfir_core::contracts::{ToolId, ToolManifest};
 use suitedfir_core::leapp::modules;
 use suitedfir_core::manifest;
-
-const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
 
 fn serial() -> MutexGuard<'static, ()> {
     static SERIAL: Mutex<()> = Mutex::new(());
@@ -26,19 +27,6 @@ fn serial() -> MutexGuard<'static, ()> {
 
 fn aleapp() -> &'static ToolManifest {
     &manifest::embedded().unwrap().tools[&ToolId::Aleapp]
-}
-
-/// Introspection's temp dirs are gone (the temp root may or may not exist).
-fn assert_no_temp_left(cache: &Path) {
-    let root = cache.join("tmp");
-    let left: Vec<String> = fs::read_dir(&root)
-        .map(|entries| {
-            entries
-                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    assert!(left.is_empty(), "left in {}: {left:?}", root.display());
 }
 
 #[test]
@@ -60,7 +48,7 @@ fn a_tool_that_does_not_run_the_probe_fails() {
         "{detail}"
     );
     assert!(detail.contains("--- stderr (end) ---"), "{detail}");
-    assert_no_temp_left(&cache);
+    common::assert_empty_or_missing(&cache.join("tmp"));
 }
 
 #[test]
@@ -71,7 +59,7 @@ fn a_tool_that_cannot_start_fails() {
     let missing = dir.path().join("no-such-tool");
     let error = modules::introspect(&missing, ToolId::Aleapp, aleapp(), &cache).unwrap_err();
     assert!(error.message.starts_with("cannot start"), "{error}");
-    assert_no_temp_left(&cache);
+    common::assert_empty_or_missing(&cache.join("tmp"));
 }
 
 /// A probe output with `count` ordinary aLEAPP plugins plus `usagestatsVersion`.
@@ -128,7 +116,7 @@ fn a_probe_output_becomes_the_module_list() {
     assert_eq!(file.always_run["default"], ["usagestatsVersion"]);
     // aLEAPP's list is never reported, even if the binary has pytz.
     assert_eq!(file.timezones, None);
-    assert_no_temp_left(&cache);
+    common::assert_empty_or_missing(&cache.join("tmp"));
 
     // How the tool was started (LEAPP-CLI.md §5 step 2).
     let read = |name: &str| fs::read_to_string(seen.join(name)).unwrap();
@@ -197,7 +185,7 @@ fn too_few_modules_fail() {
         error.message.contains("only 12 selectable modules"),
         "{error}"
     );
-    assert_no_temp_left(&cache);
+    common::assert_empty_or_missing(&cache.join("tmp"));
 }
 
 /// A copy of fake-leapp named `…-probe` answers the probe like a real build (every OS), for both
@@ -207,8 +195,7 @@ fn a_probe_copy_of_fake_leapp_introspects_on_every_os() {
     let _serial = serial();
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("cache");
-    let exe = if cfg!(windows) { ".exe" } else { "" };
-    let probe = dir.path().join(format!("fake-leapp-probe{exe}"));
+    let probe = dir.path().join(format!("fake-leapp-probe{}", common::EXE));
     fs::copy(FAKE_LEAPP, &probe).unwrap();
     for tool in ToolId::ALL {
         let manifest = &manifest::embedded().unwrap().tools[tool];
@@ -229,6 +216,6 @@ fn a_probe_copy_of_fake_leapp_introspects_on_every_os() {
                 assert_eq!(listed.timezones, None);
             }
         }
-        assert_no_temp_left(&cache);
+        common::assert_empty_or_missing(&cache.join("tmp"));
     }
 }

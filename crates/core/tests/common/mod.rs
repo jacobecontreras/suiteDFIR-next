@@ -1,7 +1,8 @@
-//! fake-idevice as bundled tools, for the `idevice` and `acquire` integration tests
-//! (DEVELOPMENT.md §4.8): copies of the binary under the four tool names (copies, never symlinks,
-//! so it works on Windows without privileges), a manifest pinning their hashes, and a lab with an
-//! app cache and a fake-device state dir per test.
+//! Shared test support for the integration tests (DEVELOPMENT.md §4.8): the fake binaries, a check
+//! that a temp root is empty, and fake-idevice as bundled tools for the `idevice` and `acquire`
+//! tests: copies of the binary under the four tool names (copies, never symlinks, so it works on
+//! Windows without privileges), a manifest pinning their hashes, and a lab with an app cache and a
+//! fake-device state dir per test.
 
 #![allow(dead_code)]
 
@@ -16,6 +17,7 @@ use suitedfir_core::hashing;
 use suitedfir_core::idevice::{Idevice, IdeviceConfig, ToolLookup, ToolName, embedded_manifest};
 
 pub const FAKE: &str = env!("CARGO_BIN_EXE_fake-idevice");
+pub const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
 /// The fake device.
 pub const UDID: &str = "00008101-000A1B2C3D4E001E";
 pub const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
@@ -30,6 +32,14 @@ pub fn host_platform() -> PlatformKey {
         ("linux", "aarch64") => PlatformKey::LinuxAarch64,
         _ => PlatformKey::LinuxX86_64,
     }
+}
+
+/// Nothing is left in `dir` (which may not exist).
+pub fn assert_empty_or_missing(dir: &Path) {
+    let left: Vec<_> = fs::read_dir(dir)
+        .map(|entries| entries.map(|e| e.unwrap().file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "left in {}: {left:?}", dir.display());
 }
 
 /// Copies fake-idevice into `dir` under the four tool names.
@@ -203,10 +213,6 @@ impl Lab {
 
     /// No scratch or job dir is left in `<app_cache>/tmp`.
     pub fn assert_no_temp_dirs(&self) {
-        let tmp = self.cache.join("tmp");
-        let left: Vec<_> = fs::read_dir(&tmp)
-            .map(|entries| entries.map(|e| e.unwrap().file_name()).collect())
-            .unwrap_or_default();
-        assert!(left.is_empty(), "left in {}: {left:?}", tmp.display());
+        assert_empty_or_missing(&self.cache.join("tmp"));
     }
 }
