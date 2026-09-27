@@ -25,7 +25,7 @@ import { unknownNames } from "../lib/selection.js";
 import { watch } from "../lib/store.js";
 import { pickTimezone, rememberToolTimezones, timezoneList } from "../lib/timezones.js";
 import { TOOL_FEATURES, installedTools } from "../lib/tools.js";
-import { icon, inputTypeLabel, sizeText, toolName, uid } from "../lib/view.js";
+import { breadcrumb, icon, inputTypeLabel, sizeText, toolName, uid } from "../lib/view.js";
 
 /** @typedef {import("../types").CaseFile} CaseFile */
 /** @typedef {import("../types").InputType} InputType */
@@ -228,14 +228,7 @@ export function newRunScreen(ctx) {
   const node = h(
     "section",
     { class: "screen" },
-    h(
-      "nav",
-      { class: "breadcrumb", "aria-label": "Breadcrumb" },
-      h("a", { href: routeHref("cases") }, "Cases"),
-      h("span", { "aria-hidden": "true" }, " / "),
-      caseName,
-      h("span", { "aria-hidden": "true" }, " / "),
-    ),
+    breadcrumb(caseName),
     h("div", { class: "screen-head" }, h("h1", { tabindex: "-1" }, "New run")),
     body,
   );

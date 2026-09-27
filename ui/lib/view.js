@@ -6,6 +6,7 @@
  */
 import { h } from "./dom.js";
 import { formatBytes, formatLocalTime, formatUtcTime, middleEllipsis, parseTimestamp } from "./format.js";
+import { routeHref } from "./router.js";
 
 /** @typedef {import("../types").RunStatus | import("../types").AcqStatus} JobStatus */
 /** @typedef {import("../types").Reason} Reason */
@@ -102,6 +103,16 @@ export function reasonList(heading, list, kind) {
     h("h3", null, heading),
     h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))),
   );
+}
+
+/**
+ * The breadcrumb above a screen's title: "Cases /", then, on the screens inside a case, its link and "/".
+ * @param {Node} [caseLink]
+ * @returns {HTMLElement}
+ */
+export function breadcrumb(caseLink) {
+  const sep = () => h("span", { "aria-hidden": "true" }, " / ");
+  return h("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, h("a", { href: routeHref("cases") }, "Cases"), sep(), caseLink && [caseLink, sep()]);
 }
 
 /**

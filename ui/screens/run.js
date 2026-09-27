@@ -20,7 +20,7 @@ import { RUN_PHASES, stepStates } from "../lib/jobstream.js";
 import { jobKey } from "../lib/jobs.js";
 import { routeHref } from "../lib/router.js";
 import { watch } from "../lib/store.js";
-import { dash, icon, inputTypeLabel, pathText, reasonList, statusBadge, timeText, toolName } from "../lib/view.js";
+import { breadcrumb, dash, icon, inputTypeLabel, pathText, reasonList, statusBadge, timeText, toolName } from "../lib/view.js";
 
 /** @typedef {import("../types").RunFile} RunFile */
 /** @typedef {import("../types").RunRecord} RunRecord */
@@ -98,14 +98,7 @@ export function runScreen(ctx) {
   const node = h(
     "section",
     { class: "screen run-screen" },
-    h(
-      "nav",
-      { class: "breadcrumb", "aria-label": "Breadcrumb" },
-      h("a", { href: routeHref("cases") }, "Cases"),
-      h("span", { "aria-hidden": "true" }, " / "),
-      caseLink,
-      h("span", { "aria-hidden": "true" }, " / "),
-    ),
+    breadcrumb(caseLink),
     h("div", { class: "screen-head" }, h("div", { class: "title-row" }, title, statusSlot), h("div", { class: "actions" }, cancelButton)),
     body,
   );

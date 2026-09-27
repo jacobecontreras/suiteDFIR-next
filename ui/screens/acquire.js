@@ -50,7 +50,7 @@ import { jobKey, setActiveJob } from "../lib/jobs.js";
 import { createPoller } from "../lib/poll.js";
 import { routeHref } from "../lib/router.js";
 import { watch } from "../lib/store.js";
-import { dash, icon, reasonList, statusBadge, timeText, uid } from "../lib/view.js";
+import { breadcrumb, dash, icon, reasonList, statusBadge, timeText, uid } from "../lib/view.js";
 
 /** @typedef {import("../types").AcqFile} AcqFile */
 /** @typedef {import("../types").AcqPreflight} AcqPreflight */
@@ -154,14 +154,7 @@ export function acquireScreen(ctx) {
   const node = h(
     "section",
     { class: "screen acquire-screen" },
-    h(
-      "nav",
-      { class: "breadcrumb", "aria-label": "Breadcrumb" },
-      h("a", { href: routeHref("cases") }, "Cases"),
-      h("span", { "aria-hidden": "true" }, " / "),
-      caseLink,
-      h("span", { "aria-hidden": "true" }, " / "),
-    ),
+    breadcrumb(caseLink),
     h("div", { class: "screen-head" }, h("div", { class: "title-row" }, title, statusSlot), headActions),
     body,
   );

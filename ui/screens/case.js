@@ -18,7 +18,7 @@ import { routeHref } from "../lib/router.js";
 import { DEFAULT_RUN_SORT, nextSort, sortRuns } from "../lib/sort.js";
 import { watch } from "../lib/store.js";
 import { loadTimezones } from "../lib/timezones.js";
-import { dash, icon, inputTypeLabel, pathText, sizeText, statusBadge, timeText, toolName } from "../lib/view.js";
+import { breadcrumb, dash, icon, inputTypeLabel, pathText, sizeText, statusBadge, timeText, toolName } from "../lib/view.js";
 
 /** @typedef {import("../types").AcqSummary} AcqSummary */
 /** @typedef {import("../types").AcquisitionRecord} AcquisitionRecord */
@@ -65,7 +65,7 @@ export function caseScreen(ctx) {
   const node = h(
     "section",
     { class: "screen" },
-    h("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, h("a", { href: routeHref("cases") }, "Cases"), h("span", { "aria-hidden": "true" }, " / ")),
+    breadcrumb(),
     h("div", { class: "screen-head" }, title, headActions),
     body,
   );
