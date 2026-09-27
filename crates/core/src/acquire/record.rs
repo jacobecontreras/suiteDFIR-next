@@ -362,12 +362,8 @@ fn read_record(file: &Path) -> Result<AcquisitionRecord, AcqError> {
 
 // ---- later-restore attempts ----
 //
-// Every `acq_restore_encryption` attempt writes its own read-only record, with the schema of
-// `EncryptionRestoreRecord`: `encryption-restore.json` for the first, then
-// `encryption-restore-2.json`, `-3.json`, … (CONTRACTS.md §13.3 "Later restore"). The name is
-// reserved before the device is touched ([`reserve_restore_attempt`]) and the file is created with
-// no-replace semantics ([`write_restore_attempt`]), so a file is never overwritten or rewritten.
-// `acquisition.json` is never touched.
+// One read-only file per attempt (CONTRACTS.md §13.3 "Later restore"); `acquisition.json` is never
+// touched.
 
 /// The file name of later-restore attempt `n` (1-based): `encryption-restore.json` for 1,
 /// `encryption-restore-<n>.json` after that.

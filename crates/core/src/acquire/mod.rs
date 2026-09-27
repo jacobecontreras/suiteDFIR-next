@@ -9,13 +9,9 @@
 //!   prompts and abort causes (step 7); restore encryption (step 8); validation and status
 //!   ([`status`], step 9); the seal (step 10); finalize (step 11). `acquisition.json` is rewritten
 //!   atomically after every device-changing command.
-//! - [`AcqControl::cancel`] follows the cancel semantics by phase: during `enabling_encryption` the
-//!   command finishes and the backup is skipped; during `backing_up` the backup is stopped; during
-//!   `restoring_encryption` the cancel is ignored; during `validating` and `sealing` the seal stops.
-//!   Encryption is restored (when enabled and asked for) whatever the backup outcome.
+//! - [`AcqControl::cancel`] follows the cancel semantics by phase.
 //! - Discovery, listing and recovery on case open, and the `input.acquisition_id` helper: [`record`].
-//! - [`restore_later`]: `acq_restore_encryption`; each attempt writes its own read-only
-//!   `encryption-restore[-N].json`, and a failed attempt can be retried.
+//! - [`restore_later`] is `acq_restore_encryption`.
 //!
 //! The backup password lives in a [`Password`] from `acq_start` until the restore step (or the
 //! enable step when no restore follows), reaches the tool only through the environment, and is
@@ -556,10 +552,8 @@ pub struct AcqOutcome {
 }
 
 /// What `finished` reports after the final write (ARCHITECTURE.md §6b step 11), and the write
-/// error for [`AcqOutcome::write_error`]: the record's status and reasons when it was written,
-/// also when it could not be made read-only ([`AcqError::NotReadOnly`]: the final record is on
-/// disk; logged); otherwise `failed` with `record_write_failed` (the record on disk stays
-/// `running` and becomes `interrupted` when the case is next opened).
+/// error for [`AcqOutcome::write_error`] (which says when there is one): the record's status and
+/// reasons when it was written, else `failed` with `record_write_failed`.
 fn finished_verdict(
     record: &AcquisitionRecord,
     write: Result<(), AcqError>,
