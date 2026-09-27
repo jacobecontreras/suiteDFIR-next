@@ -125,7 +125,7 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 | `leapp::install` | Download (HTTPS only, size-capped, progress) → verify asset hash → extract (zip entry only; AppImage via `--appimage-extract`) → verify the entry hash against the manifest (or record it where the manifest has `null`) → `install.json`. Offline import; `verify`. |
 | `leapp::modules` | Introspection run → `modules.json` (modules, always-run, timezones). |
 | `process` | Spawn in a new session/job, env, cwd, stdin null, stdout/stderr to files; `cancel()` with escalation; `wait()` → `ExitInfo`; temp dir create/remove/sweep. `unix.rs` / `windows.rs`. |
-| `tail` | Poll-based tail of `Screen_Output.html` → plain-text line batches. |
+| `tail` | Poll-based tail of `Screen_Output.html` → plain-text lines, which the runner polls and sends as `log` batches; `last_lines` for the stdout/stderr tails. |
 | `settings`, `paths`, `case` | `settings.json`; app-dir bundle (passed in from the shell; the core never guesses OS dirs); case create/open/update/list/recent; run discovery. |
 | `run::{record,status,argv,profile,casedata}` | `run.json` lifecycle and recovery; status rules; argv building and redaction; profiles; `.lcasedata`. |
 | `inspect` | Input inspection and type detection; iTunes backup and `IsEncrypted`; (S1) backup discovery. |
