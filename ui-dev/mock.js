@@ -54,10 +54,12 @@ import { FOUND_BACKUPS, UNREADABLE_BACKUP, backupsDenied, foundBackup } from "./
 import { pickOpen, pickSave, SAMPLES } from "./mock/picker.js";
 import {
   REASONS,
+  RESTORABLE,
   RUN_OUTCOMES,
   TOOLS,
   acquisitionIdOf,
   acqSummary,
+  caseSnapshot,
   finalizeRunRecord,
   initialAcqRecord,
   initialRunRecord,
@@ -65,6 +67,8 @@ import {
   interruptRunRecord,
   isoNow,
   newJobId,
+  noSeal,
+  reason,
   runSummary,
 } from "./mock/records.js";
 
@@ -365,7 +369,7 @@ function seedAcqLeftEncrypted(file) {
   rec.started_at = "2026-09-23T10:15:03Z";
   rec.ended_at = "2026-09-23T10:52:40Z";
   rec.duration_ms = 2260000;
-  rec.case_snapshot = { case_id: file.case_id, name: file.name, case_number: file.case_number, examiner: file.examiner, agency: file.agency };
+  rec.case_snapshot = caseSnapshot(file);
   rec.encryption.restored_after = "failed";
   rec.encryption.will_encrypt_after_restore = true;
   rec.warnings = [
@@ -489,19 +493,11 @@ function emitLog(j, lines) {
 }
 
 /**
- * @param {RunJob} j
- * @param {RunPhase} phase
+ * @template {RunJob | AcqJob} J
+ * @param {J} j
+ * @param {J["phase"]} phase
  */
-function runPhase(j, phase) {
-  j.phase = phase;
-  emit(j, { type: "phase", phase });
-}
-
-/**
- * @param {AcqJob} j
- * @param {AcqPhase} phase
- */
-function acqPhase(j, phase) {
+function setPhase(j, phase) {
   j.phase = phase;
   emit(j, { type: "phase", phase });
 }
@@ -1085,11 +1081,11 @@ async function simulateRun(j, scenario, resolved) {
   const t = tick();
   const rec = j.record;
   const tool = TOOLS[rec.tool.id];
-  runPhase(j, "preparing");
+  setPhase(j, "preparing");
   await sleep(t);
   await holdIn(j, "preparing");
   rec.started_at = isoNow();
-  runPhase(j, "running");
+  setPhase(j, "running");
   emitLog(j, [
     `${tool.display_name}: ${rec.tool.version} started`,
     `Processing started. Please wait. This may take a few minutes...`,
@@ -1150,7 +1146,7 @@ async function simulateRun(j, scenario, resolved) {
         : [],
   });
   if (hashing && !cancelled) {
-    runPhase(j, "hashing_input");
+    setPhase(j, "hashing_input");
     await sleep(t);
     if (has("hold_hashing_input")) {
       emit(j, { type: "hash_progress", bytes_done: Math.round(bytesTotal * 0.93), bytes_total: bytesTotal });
@@ -1158,11 +1154,11 @@ async function simulateRun(j, scenario, resolved) {
     }
     emit(j, { type: "hash_progress", bytes_done: bytesTotal, bytes_total: bytesTotal });
   }
-  runPhase(j, "analyzing");
+  setPhase(j, "analyzing");
   await sleep(t);
   await holdIn(j, "analyzing");
   if (outcome.report) {
-    runPhase(j, "sealing_report");
+    setPhase(j, "sealing_report");
     const files = outcome.index ? 5321 : 214;
     for (let i = 1; i <= 3; i++) {
       await sleep(t);
@@ -1170,7 +1166,7 @@ async function simulateRun(j, scenario, resolved) {
       if (i === 1) await holdIn(j, "sealing_report");
     }
   }
-  runPhase(j, "finalizing");
+  setPhase(j, "finalizing");
   await sleep(t);
   await holdIn(j, "finalizing");
   finalizeRunRecord(rec, outcome, { startedAt: rec.started_at, exitedAt, endedAt: isoNow() });
@@ -1191,11 +1187,10 @@ export const job_active = async () => clone(activeJob());
 export const job_attach = async (req, onEvent) => {
   if (req.kind === "run") {
     if (job?.kind !== "run" || job.record.run_id !== req.id) throw appError("run_not_found", `Run ${req.id} is not active.`);
-    job.subscriber = onEvent;
   } else {
     if (job?.kind !== "acquisition" || job.record.acq_id !== req.id) throw appError("acq_not_found", `Acquisition ${req.id} is not active.`);
-    job.subscriber = onEvent;
   }
+  job.subscriber = onEvent;
   return { backlog: [...job.lines] };
 };
 
@@ -1353,20 +1348,16 @@ export const acq_start = async (req, onEvent) => {
   return { acq_id: acqId, acq_dir: `${req.case_path}/acquisitions/${acqId}` };
 };
 
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Reason}
- */
-const r = (code, message) => ({ code, message });
+const NO_SUCCESS_MESSAGE = reason("success_message_missing", "“Backup Successful.” was not printed");
+const NOT_FINISHED = reason("snapshot_not_finished", "SnapshotState is not “finished”");
 
-/** @type {Record<string, Reason[]>} */
+/** @type {Record<string, Reason[]>} Used through `clone`, so the shared reasons are never changed. */
 const ACQ_FAILURES = {
-  backup_fail: [r("nonzero_exit", "idevicebackup2 exited with code 151"), r("success_message_missing", "“Backup Successful.” was not printed"), r("snapshot_not_finished", "SnapshotState is not “finished”")],
-  incomplete: [r("success_message_missing", "“Backup Successful.” was not printed"), r("snapshot_not_finished", "SnapshotState is “new”")],
-  cancel_on_device: [r("cancelled_on_device", "The backup was cancelled on the device"), r("success_message_missing", "“Backup Successful.” was not printed"), r("snapshot_not_finished", "SnapshotState is not “finished”")],
-  disconnect: [r("device_disconnected", "The device was disconnected during the backup"), r("success_message_missing", "“Backup Successful.” was not printed"), r("snapshot_not_finished", "SnapshotState is not “finished”")],
-  sync_lock: [r("sync_lock_failed", "Could not lock the device's sync (is Finder or iTunes syncing it?)"), r("nonzero_exit", "idevicebackup2 exited with code 255"), r("success_message_missing", "“Backup Successful.” was not printed"), r("backup_dir_missing", "backup/<udid>/ is missing")],
+  backup_fail: [reason("nonzero_exit", "idevicebackup2 exited with code 151"), NO_SUCCESS_MESSAGE, NOT_FINISHED],
+  incomplete: [NO_SUCCESS_MESSAGE, reason("snapshot_not_finished", "SnapshotState is “new”")],
+  cancel_on_device: [reason("cancelled_on_device", "The backup was cancelled on the device"), NO_SUCCESS_MESSAGE, NOT_FINISHED],
+  disconnect: [reason("device_disconnected", "The device was disconnected during the backup"), NO_SUCCESS_MESSAGE, NOT_FINISHED],
+  sync_lock: [reason("sync_lock_failed", "Could not lock the device's sync (is Finder or iTunes syncing it?)"), reason("nonzero_exit", "idevicebackup2 exited with code 255"), NO_SUCCESS_MESSAGE, reason("backup_dir_missing", "backup/<udid>/ is missing")],
 };
 
 /**
@@ -1381,7 +1372,7 @@ async function simulateAcq(j, scenario, req) {
   const tool = rec.tools.binaries.idevicebackup2.path;
   const udid = rec.device.udid;
   const device = devices.find((d) => d.udid === udid);
-  acqPhase(j, "preparing");
+  setPhase(j, "preparing");
   await sleep(t);
   await holdIn(j, "preparing");
   rec.started_at = isoNow();
@@ -1395,7 +1386,7 @@ async function simulateAcq(j, scenario, req) {
   let cancelledBeforeExit = false;
 
   if (req.enable_encryption) {
-    acqPhase(j, "enabling_encryption");
+    setPhase(j, "enabling_encryption");
     emit(j, { type: "device_prompt", kind: "passcode_for_encryption", text: "Please confirm enabling the backup encryption by entering the passcode on the device." });
     await holdIn(j, "enabling_encryption");
     await sleep(3 * t);
@@ -1408,12 +1399,12 @@ async function simulateAcq(j, scenario, req) {
       rec.encryption.enabled_by_examiner = true;
       rec.device_changes.push({ at: isoNow(), change: "backup_encryption_enabled", detail: "WillEncrypt false → true" });
     } else {
-      reasons = [r("encryption_enable_failed", "Turning backup encryption on failed")];
+      reasons = [reason("encryption_enable_failed", "Turning backup encryption on failed")];
     }
   }
 
   if (reasons.length === 0 && !j.cancelRequested) {
-    acqPhase(j, "backing_up");
+    setPhase(j, "backing_up");
     backupRan = true;
     const started = isoNow();
     rec.device_changes.push({ at: started, change: "sync_lock_taken", detail: "idevicebackup2 holds /com.apple.itunes.lock_sync during backup" });
@@ -1450,7 +1441,7 @@ async function simulateAcq(j, scenario, req) {
   }
 
   if (enabled && req.restore_encryption && scenario !== "disconnect") {
-    acqPhase(j, "restoring_encryption");
+    setPhase(j, "restoring_encryption");
     emit(j, { type: "device_prompt", kind: "passcode_for_encryption", text: "Please confirm disabling the backup encryption by entering the passcode on the device." });
     await holdIn(j, "restoring_encryption");
     await sleep(2 * t);
@@ -1462,17 +1453,17 @@ async function simulateAcq(j, scenario, req) {
       if (device) device.will_encrypt = false;
       rec.device_changes.push({ at: isoNow(), change: "backup_encryption_disabled", detail: "WillEncrypt true → false" });
     } else {
-      warnings.push(r("encryption_restore_failed", "Turning backup encryption off failed"));
+      warnings.push(reason("encryption_restore_failed", "Turning backup encryption off failed"));
     }
   }
   if (enabled && rec.encryption.restored_after !== "restored") {
-    warnings.push(r("encryption_left_enabled", "Backup encryption was enabled by the examiner and not confirmed disabled"));
+    warnings.push(reason("encryption_left_enabled", "Backup encryption was enabled by the examiner and not confirmed disabled"));
   }
   if (rec.encryption.will_encrypt_before === true) {
-    warnings.push(r("backup_encryption_preexisting", "Backup encryption was already on: parsing needs the owner's password"));
+    warnings.push(reason("backup_encryption_preexisting", "Backup encryption was already on: parsing needs the owner's password"));
   }
 
-  acqPhase(j, "validating");
+  setPhase(j, "validating");
   await sleep(t);
   await holdIn(j, "validating");
   if (backupRan) {
@@ -1490,7 +1481,7 @@ async function simulateAcq(j, scenario, req) {
   }
   const sealable = backupRan && scenario !== "sync_lock";
   if (sealable) {
-    acqPhase(j, "sealing");
+    setPhase(j, "sealing");
     const files = 48210;
     let done = 0;
     for (let i = 1; i <= 3; i++) {
@@ -1501,14 +1492,14 @@ async function simulateAcq(j, scenario, req) {
       if (i === 1) await holdIn(j, "sealing");
     }
     const sealCancelled = done < files;
-    if (sealCancelled) warnings.push(r("seal_cancelled", "Sealing was cancelled; backup.sha256 is incomplete"));
+    if (sealCancelled) warnings.push(reason("seal_cancelled", "Sealing was cancelled; backup.sha256 is incomplete"));
     rec.output.seal = sealCancelled
-      ? { status: "cancelled", manifest: null, manifest_sha256: null, file_count: null, total_bytes: null }
+      ? noSeal("cancelled")
       : { status: "sealed", manifest: "backup.sha256", manifest_sha256: fx.AcquisitionRecord.output.seal.manifest_sha256, file_count: files, total_bytes: 61203455110 };
   } else {
-    rec.output.seal = { status: "skipped_no_output", manifest: null, manifest_sha256: null, file_count: null, total_bytes: null };
+    rec.output.seal = noSeal("skipped_no_output");
   }
-  acqPhase(j, "finalizing");
+  setPhase(j, "finalizing");
   await sleep(t);
   await holdIn(j, "finalizing");
   /** @type {AcqStatus} */
@@ -1559,7 +1550,7 @@ const restoredLater = (acqId) => (restoreAttempts.get(acqId) ?? []).some((a) => 
 /** @type {Api["acq_restore_encryption"]} */
 export const acq_restore_encryption = async (req) => {
   const acq = findAcq(req.case_path, req.acq_id);
-  if (!acq.warnings.some((w) => w.code === "encryption_left_enabled" || w.code === "encryption_state_unknown")) {
+  if (!acq.warnings.some((w) => RESTORABLE.has(w.code))) {
     throw appError("restore_not_applicable", "This acquisition did not leave backup encryption on.");
   }
   const attempts = restoreAttempts.get(acq.acq_id) ?? [];
