@@ -616,9 +616,12 @@ pub fn discover(case_dir: &Path) -> Result<Vec<DiscoveredAcq>, AcqError> {
     Ok(found)
 }
 
-/// The warning codes that offer "Turn backup encryption off" on the Case screen ([`summary`]) and
-/// that make a later restore applicable ([`super::restore_later`], else `restore_not_applicable`).
-/// This one list defines both the offer and the refusal, so they always change together.
+/// The warning codes of an encryption left on. They decide which codes [`summary`] leaves out
+/// after a later restore recorded `restored: true`, and when [`super::restore_later`] refuses with
+/// `restore_not_applicable` (no such code in the record). The Case screen's "Turn backup
+/// encryption off" offer uses its own list in `ui/lib/acquire.js` (`ENCRYPTION_LEFT_ON`, checked by
+/// `needsEncryptionOff`, with both codes again in `encryptionLeftOnText`), which must stay in step
+/// with this one.
 pub(crate) const RESTORE_OFFER_CODES: [&str; 2] =
     ["encryption_left_enabled", "encryption_state_unknown"];
 
