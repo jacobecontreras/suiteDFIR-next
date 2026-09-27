@@ -29,8 +29,6 @@ const MAX_RECORD: usize = 64 * 1024;
 /// Whether `text` is a USB UDID (ARCHITECTURE.md §9): 40 hex digits, or 8 hex digits, a dash and
 /// 16 hex digits.
 pub fn is_udid(text: &str) -> bool {
-    let hex =
-        |part: &str, len: usize| part.len() == len && part.bytes().all(|b| b.is_ascii_hexdigit());
     match text.split_once('-') {
         None => hex(text, 40),
         Some((head, tail)) => hex(head, 8) && hex(tail, 16),
@@ -57,7 +55,12 @@ fn is_uuid(text: &str) -> bool {
         && parts
             .iter()
             .zip([8, 4, 4, 4, 12])
-            .all(|(part, len)| part.len() == len && part.bytes().all(|b| b.is_ascii_hexdigit()))
+            .all(|(part, len)| hex(part, len))
+}
+
+/// Whether `part` is exactly `len` hex digits.
+fn hex(part: &str, len: usize) -> bool {
+    part.len() == len && part.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// The HostID printed by `idevicepair hostid` or the SystemBUID printed by `idevicepair
