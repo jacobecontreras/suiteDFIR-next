@@ -29,19 +29,14 @@ cargo fmt --all --check
 cargo deny check
 npm run typecheck                        # tsc --noEmit over ui/, ui-dev/, tests/ui/
 npm test                                 # node --test "tests/ui/**/*.test.js"
-node scripts/record-invokes.mjs          # rewrite tests/ui/recorded-invokes.json: the invokes ui/api/ipc.js
-                                         # makes in the scripted flow of tests/ui/ipc-flow.js (E2); the
-                                         # src-tauri replay test runs them through the real handlers
-                                         # (npm test fails while the committed file is stale)
+node scripts/record-invokes.mjs          # rewrite tests/ui/recorded-invokes.json (§4.8 IPC replay; npm test fails when stale)
 node scripts/serve-ui.mjs [--root <dir>] [--port 5173]
                                          # serve <root>/ui + <root>/ui-dev (at /dev/) with the CSP from
                                          # <root>/src-tauri/tauri.conf.json (--root defaults to the repo root);
                                          # open http://127.0.0.1:5173/?mock for browser mock mode
-node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots, light and dark,
-                                         # behaviour checks (check-*: e.g. Enter never starts a job, cancel
-                                         # needs a confirmation) and measurements (perf, perf-log); fails on
-                                         # any CSP violation, console error, failed check or missed budget
-                                         # (needs Playwright + Chromium; starts serve-ui itself; not in npm test)
+node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots (light/dark) and
+                                         # check-*/perf checks; fails on a CSP violation, console error, failed check
+                                         # or missed budget (needs Playwright + Chromium; starts serve-ui itself; not in npm test)
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
                                          # (~350 MB per tool, downloaded to the OS temp dir or
                                          # --download-dir <dir> and deleted after checking)
@@ -279,7 +274,7 @@ A contract change updates all of these in one PR:
 **UI tests:**
 - `node --test` over pure modules: store, filters, virtual-list math, selection/profile diff, formatting.
 - A parity test: `ipc.js` and `mock.js` export identical function names.
-- **IPC replay (E2):** `tests/ui/recorded-invokes.json` holds every invoke `ipc.js` makes in a scripted flow over all commands. `src-tauri/src/replay.rs` replays it through the real command handlers on Tauri's mock runtime (`tauri::test`), with fake-leapp and fake-idevice as dev overrides and an opener that records, and checks each answer and event against its contract type. The src-tauri tests find fake-leapp and fake-idevice next to their own `deps/` folder, which `cargo test --workspace` fills.
+- **IPC replay (E2):** `tests/ui/recorded-invokes.json` holds every invoke `ipc.js` makes in a scripted flow over all commands (`tests/ui/ipc-flow.js`). `src-tauri/src/replay.rs` replays it through the real command handlers on Tauri's mock runtime (`tauri::test`), with fake-leapp and fake-idevice as dev overrides and an opener that records, and checks each answer and event against its contract type. The src-tauri tests find fake-leapp and fake-idevice next to their own `deps/` folder, which `cargo test --workspace` fills.
 
 **Screenshots:** UI PRs link mock-mode screenshots (light and dark) of every changed screen state, made with `tests/ui/e2e/shots.mjs` (§2).
 
