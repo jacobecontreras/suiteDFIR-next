@@ -12,7 +12,7 @@ import { backupFinder } from "../components/backup-finder.js";
 import { confirmDialog, modal } from "../components/dialog.js";
 import { modulePicker } from "../components/module-picker.js";
 import { canFindBackups, chosenBackupType } from "../lib/backups.js";
-import { folderLabel } from "../lib/cases.js";
+import { caseFileOf, folderLabel } from "../lib/cases.js";
 import { h, keepFocus } from "../lib/dom.js";
 import { isAppError } from "../lib/errors.js";
 import { field, selectInput, textInput } from "../lib/form.js";
@@ -240,11 +240,7 @@ export function newRunScreen(ctx) {
       const [cases, tools] = await Promise.all([api.cases_list(), api.tools_status()]);
       if (disposed) return;
       store.set({ tools });
-      const summary = cases.find((c) => c.path === casePath);
-      if (!summary?.case) {
-        throw { code: "case_not_found", message: "This case is not in the recent list, or its folder is missing.", detail: casePath };
-      }
-      caseFile = summary.case;
+      caseFile = caseFileOf(cases, casePath);
       caseName.textContent = caseFile.name;
       allTools = tools;
       installed = installedTools(tools);

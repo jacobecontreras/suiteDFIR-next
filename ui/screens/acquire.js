@@ -39,7 +39,7 @@ import {
   toolsGuidance,
   withPairOutcomes,
 } from "../lib/acquire.js";
-import { folderLabel } from "../lib/cases.js";
+import { caseFileOf, folderLabel } from "../lib/cases.js";
 import { fill, h, keepFocus, keyedSlot, setText } from "../lib/dom.js";
 import { toAppError } from "../lib/errors.js";
 import { field, textInput } from "../lib/form.js";
@@ -248,9 +248,7 @@ export function acquireScreen(ctx) {
     try {
       const cases = await api.cases_list();
       if (disposed) return;
-      const summary = cases.find((c) => c.path === casePath);
-      if (!summary?.case) throw { code: "case_not_found", message: "This case is not in the recent list, or its folder is missing.", detail: casePath };
-      caseLink.textContent = summary.case.name;
+      caseLink.textContent = caseFileOf(cases, casePath).name;
       const job = store.get().activeJob;
       const last = jobs.current();
       if (job?.kind === "acquisition" && job.case_path === casePath) {
