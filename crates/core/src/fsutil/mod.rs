@@ -234,9 +234,18 @@ pub(crate) mod test_support {
 mod tests {
     use super::*;
 
+    use std::ffi::OsString;
     use std::fs;
 
     use test_support::try_symlink_dir;
+
+    /// The names in `dir`.
+    fn names(dir: &Path) -> Vec<OsString> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect()
+    }
 
     #[test]
     fn write_json_atomic_writes_pretty_json_and_replaces() {
@@ -247,11 +256,7 @@ mod tests {
         write_json_atomic(&path, &serde_json::json!({"a": 2})).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "{\n  \"a\": 2\n}\n");
         // No temp files are left behind.
-        let names: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, ["case.json"]);
+        assert_eq!(names(dir.path()), ["case.json"]);
     }
 
     #[test]
@@ -289,11 +294,7 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(fs::read(&path).unwrap(), sealed, "byte-identical");
         assert!(fs::metadata(&path).unwrap().permissions().readonly());
-        let names: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, ["run.json"], "no temp file left behind");
+        assert_eq!(names(dir.path()), ["run.json"], "no temp file left behind");
         test_support::make_writable(&path);
     }
 
@@ -303,11 +304,7 @@ mod tests {
         let path = dir.path().join("report.sha256");
         write_file_atomic(&path, b"line\r\n\\raw\n").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"line\r\n\\raw\n");
-        let names: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, ["report.sha256"]);
+        assert_eq!(names(dir.path()), ["report.sha256"]);
     }
 
     #[test]
