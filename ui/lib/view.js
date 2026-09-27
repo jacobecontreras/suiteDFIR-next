@@ -69,14 +69,6 @@ const STATUS = {
 };
 
 /**
- * @param {JobStatus} status
- * @returns {string}
- */
-export function statusLabel(status) {
-  return STATUS[status]?.label ?? status;
-}
-
-/**
  * A status badge: icon + text + colour.
  * @param {JobStatus} status
  * @returns {HTMLElement}

@@ -51,15 +51,6 @@ export function progressMeter(spec) {
 }
 
 /**
- * A `<progress>` with a visible label and detail text, built once (see `progressMeter` to update).
- * @param {ProgressSpec} spec
- * @returns {HTMLElement}
- */
-export function progressBar(spec) {
-  return progressMeter(spec).node;
-}
-
-/**
  * Whole percent of `done` in `total`, or null.
  * @param {number | null | undefined} done
  * @param {number | null | undefined} total
