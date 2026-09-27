@@ -177,7 +177,7 @@ Anything else needs a PR labelled `new-dependency` that explains why std or an a
 - **Commands:** new commands validate every path argument per the path policy (ARCHITECTURE §9) and every enum.
 - **Secrets:**
   - Never log, persist or emit backup passwords. `itunes_password` exists only in `RunRequest` and in the spawned LEAPP argv; the acquisition passwords only in their request payloads and the idevice tools' env (ARCHITECTURE §9, D15). Redact them everywhere else.
-  - Types holding one implement `Debug` by hand and print `<redacted>`.
+  - Types holding one implement `Debug` by hand so the secret is never printed (e.g. `<redacted>`).
   - The UI clears password fields after use.
 - **Reports:** never load LEAPP report files into the app webview.
 
