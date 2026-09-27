@@ -8,7 +8,7 @@ import { caseForm } from "../components/case-form.js";
 import { modal } from "../components/dialog.js";
 import { folderLabel } from "../lib/cases.js";
 import { h } from "../lib/dom.js";
-import { formatCount } from "../lib/format.js";
+import { plural } from "../lib/format.js";
 import { routeHref } from "../lib/router.js";
 import { loadTimezones } from "../lib/timezones.js";
 import { installedTools } from "../lib/tools.js";
@@ -151,7 +151,7 @@ export function casesScreen(ctx) {
       h(
         "div",
         { class: "case-stats" },
-        h("span", null, summary.run_count === 1 ? "1 run" : `${formatCount(summary.run_count)} runs`),
+        h("span", null, plural(summary.run_count, "run", "runs")),
         summary.last_run_at && h("span", { class: "muted" }, "Last run ", timeText(summary.last_run_at)),
       ),
       h("div", { class: "case-actions" }, h("a", { class: "btn btn-sm", href }, "Open"), forget),

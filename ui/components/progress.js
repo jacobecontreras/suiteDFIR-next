@@ -4,6 +4,7 @@
  * step list (phases of a job, stages of an install). Plain nodes; nothing to dispose.
  */
 import { h } from "../lib/dom.js";
+import { formatCount, plural } from "../lib/format.js";
 import { icon, phaseLabel, uid } from "../lib/view.js";
 
 /** @typedef {import("../lib/jobstream.js").StepState | "failed"} StepState "failed": the install stage that failed. */
@@ -51,15 +52,6 @@ export function progressMeter(spec) {
 }
 
 /**
- * A `<progress>` with a visible label and detail text, built once (see `progressMeter` to update).
- * @param {ProgressSpec} spec
- * @returns {HTMLElement}
- */
-export function progressBar(spec) {
-  return progressMeter(spec).node;
-}
-
-/**
  * Whole percent of `done` in `total`, or null.
  * @param {number | null | undefined} done
  * @param {number | null | undefined} total
@@ -68,6 +60,26 @@ export function progressBar(spec) {
 export function percentOf(done, total) {
   if (typeof done !== "number" || typeof total !== "number" || total <= 0) return null;
   return Math.max(0, Math.min(100, Math.floor((done / total) * 100)));
+}
+
+/**
+ * ` (N%)` of `done` in `total`, or "" when there is no percent.
+ * @param {number} done
+ * @param {number} total
+ * @returns {string}
+ */
+export function percentSuffix(done, total) {
+  const p = percentOf(done, total);
+  return p === null ? "" : ` (${p}%)`;
+}
+
+/**
+ * The sealing detail: `N files`, or `N of M files (P%)` when the total is known.
+ * @param {{ done: number, total: number | null }} seal
+ * @returns {string}
+ */
+export function sealDetail(seal) {
+  return seal.total === null ? plural(seal.done, "file", "files") : `${formatCount(seal.done)} of ${plural(seal.total, "file", "files")}${percentSuffix(seal.done, seal.total)}`;
 }
 
 /** @type {Record<StepState, { icon: "check-circle" | "play-circle" | "slash" | "circle" | "x-circle", text: string }>} */

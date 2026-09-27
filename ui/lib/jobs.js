@@ -7,6 +7,15 @@
 /** @typedef {import("./context").AppState} AppState */
 
 /**
+ * @param {ActiveJob | null | undefined} job
+ * @returns {string | null} Its `run_id` or `acq_id`.
+ */
+export function activeJobId(job) {
+  if (!job) return null;
+  return job.kind === "run" ? job.run_id : job.acq_id;
+}
+
+/**
  * A value that changes only when the job, its case or its phase changes. `job_active` returns a
  * new but equal object on every poll; comparing keys keeps the UI (and its live region) quiet.
  * @param {ActiveJob | null | undefined} job
@@ -14,8 +23,7 @@
  */
 export function jobKey(job) {
   if (!job) return null;
-  const id = job.kind === "run" ? job.run_id : job.acq_id;
-  return `${job.kind}|${id}|${job.phase}|${job.case_path}`;
+  return `${job.kind}|${activeJobId(job)}|${job.phase}|${job.case_path}`;
 }
 
 /**
@@ -25,6 +33,18 @@ export function jobKey(job) {
  */
 export function setActiveJob(store, job) {
   if (jobKey(job) !== jobKey(store.get().activeJob)) store.set({ activeJob: job });
+}
+
+/**
+ * Reads `job_active` once in the background (right after a job started); a failure changes nothing.
+ * @param {{ job_active: () => Promise<ActiveJob | null> }} api
+ * @param {import("./store.js").Store<AppState>} store
+ */
+export function refreshActiveJob(api, store) {
+  api
+    .job_active()
+    .then((job) => setActiveJob(store, job))
+    .catch(() => {});
 }
 
 /**

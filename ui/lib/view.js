@@ -6,8 +6,10 @@
  */
 import { h } from "./dom.js";
 import { formatBytes, formatLocalTime, formatUtcTime, middleEllipsis, parseTimestamp } from "./format.js";
+import { routeHref } from "./router.js";
 
 /** @typedef {import("../types").RunStatus | import("../types").AcqStatus} JobStatus */
+/** @typedef {import("../types").Reason} Reason */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -69,14 +71,6 @@ const STATUS = {
 };
 
 /**
- * @param {JobStatus} status
- * @returns {string}
- */
-export function statusLabel(status) {
-  return STATUS[status]?.label ?? status;
-}
-
-/**
  * A status badge: icon + text + colour.
  * @param {JobStatus} status
  * @returns {HTMLElement}
@@ -87,6 +81,41 @@ export function statusBadge(status) {
 }
 
 /**
+ * The placeholder for a missing value.
+ * @returns {HTMLElement}
+ */
+export function dash() {
+  return h("span", { class: "muted" }, "—");
+}
+
+/**
+ * A result's reasons or warnings under a heading; nothing when the list is empty.
+ * @param {string} heading
+ * @param {readonly Reason[]} list
+ * @param {"reasons" | "warnings"} kind
+ * @returns {HTMLElement | null}
+ */
+export function reasonList(heading, list, kind) {
+  if (list.length === 0) return null;
+  return h(
+    "div",
+    { class: `stack-sm reason-list reason-list-${kind}` },
+    h("h3", null, heading),
+    h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))),
+  );
+}
+
+/**
+ * The breadcrumb above a screen's title: "Cases /", then, on the screens inside a case, its link and "/".
+ * @param {Node} [caseLink]
+ * @returns {HTMLElement}
+ */
+export function breadcrumb(caseLink) {
+  const sep = () => h("span", { "aria-hidden": "true" }, " / ");
+  return h("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, h("a", { href: routeHref("cases") }, "Cases"), sep(), caseLink && [caseLink, sep()]);
+}
+
+/**
  * Local time as text, with UTC on hover (DEVELOPMENT.md §4.4). The UTC time is also shown on
  * keyboard focus (the element is focusable; a CSS tooltip reads `data-utc`) and is part of the
  * accessible text for screen readers.
@@ -94,7 +123,7 @@ export function statusBadge(status) {
  * @returns {HTMLElement}
  */
 export function timeText(iso) {
-  if (!parseTimestamp(iso)) return h("span", { class: "muted" }, "—");
+  if (!parseTimestamp(iso)) return dash();
   const utc = formatUtcTime(iso);
   return h(
     "time",
@@ -128,7 +157,7 @@ export function pathText(path, max) {
  * @returns {HTMLElement}
  */
 export function sizeText(bytes) {
-  if (typeof bytes !== "number") return h("span", { class: "muted" }, "—");
+  if (typeof bytes !== "number") return dash();
   return h("span", { title: `${bytes.toLocaleString("en-US")} bytes` }, formatBytes(bytes));
 }
 

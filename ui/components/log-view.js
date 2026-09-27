@@ -12,8 +12,8 @@
  *   rows themselves are not a live region.
  * - Lines are evidence-derived text: set with `textContent` only.
  *
- * With `search` (the Run screen, ROADMAP S2), a search box finds the lines that contain a literal,
- * case-insensitive query (lib/logsearch.js):
+ * With `search` (the Run screen, ROADMAP S2), a search box finds the lines that match its query
+ * (lib/logsearch.js has the matching rules and the `MAX_QUERY_LENGTH` cap):
  * - Matches are highlighted in the rows in view with `<mark>` elements built from text nodes, never
  *   from markup. Only the rows in view are highlighted, so a search costs one pass over the lines
  *   and new lines are searched once, as they arrive.
@@ -23,7 +23,6 @@
  *   sideways too when the match is beyond the edge of a long line. Escape clears the box and
  *   unticks "Only matching lines". The box is not in a form, its keys do nothing else, and the
  *   Enter that commits an input-method composition is ignored.
- * - The query is at most `MAX_QUERY_LENGTH` (256) characters, which bounds the cost of a search.
  * - The status counts the lines the view holds; when that is not the whole log (lines dropped past
  *   the buffer, or only the backlog after a reload), it says so.
  * - The one live region reports the search too (the number of matching lines when the query

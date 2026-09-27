@@ -9,10 +9,10 @@
  * The events come from the job stream hub (lib/jobstream.js): the run started in this window, or
  * `job_attach` after a reload. A run that is not the active job is shown from its `run.json`.
  */
-import { appError, errorSlot } from "../components/app-error.js";
+import { appError, errorSlot, replaceError } from "../components/app-error.js";
 import { confirmDialog } from "../components/dialog.js";
 import { logView } from "../components/log-view.js";
-import { percentOf, progressMeter, stepList } from "../components/progress.js";
+import { percentSuffix, progressMeter, sealDetail, stepList } from "../components/progress.js";
 import { folderLabel } from "../lib/cases.js";
 import { fill, h, keyedSlot, setText } from "../lib/dom.js";
 import { elapsedSince, formatBytes, formatCount, formatElapsed, plural } from "../lib/format.js";
@@ -20,9 +20,8 @@ import { RUN_PHASES, stepStates } from "../lib/jobstream.js";
 import { jobKey } from "../lib/jobs.js";
 import { routeHref } from "../lib/router.js";
 import { watch } from "../lib/store.js";
-import { icon, inputTypeLabel, pathText, statusBadge, timeText, toolName } from "../lib/view.js";
+import { breadcrumb, dash, icon, inputTypeLabel, pathText, reasonList, statusBadge, timeText, toolName } from "../lib/view.js";
 
-/** @typedef {import("../types").Reason} Reason */
 /** @typedef {import("../types").RunFile} RunFile */
 /** @typedef {import("../types").RunRecord} RunRecord */
 /** @typedef {import("../types").RunStatus} RunStatus */
@@ -99,14 +98,7 @@ export function runScreen(ctx) {
   const node = h(
     "section",
     { class: "screen run-screen" },
-    h(
-      "nav",
-      { class: "breadcrumb", "aria-label": "Breadcrumb" },
-      h("a", { href: routeHref("cases") }, "Cases"),
-      h("span", { "aria-hidden": "true" }, " / "),
-      caseLink,
-      h("span", { "aria-hidden": "true" }, " / "),
-    ),
+    breadcrumb(caseLink),
     h("div", { class: "screen-head" }, h("div", { class: "title-row" }, title, statusSlot), h("div", { class: "actions" }, cancelButton)),
     body,
   );
@@ -219,7 +211,7 @@ export function runScreen(ctx) {
     const rows = [
       ["Tool", `${toolName(r.tool.id)} ${r.tool.version}`],
       ["Input", h("span", { class: "cell-input" }, h("span", { class: "tag", title: inputTypeLabel(r.input.type) }, r.input.type), pathText(r.input.path, 90))],
-      ["Label", r.label ?? h("span", { class: "muted" }, "—")],
+      ["Label", r.label ?? dash()],
       ["Created", timeText(r.created_at)],
       ["Run ID", h("span", { class: "mono" }, r.run_id)],
     ];
@@ -232,31 +224,21 @@ export function runScreen(ctx) {
    */
   function renderProgress(s) {
     if (s.hash) {
-      const pct = percentOf(s.hash.done, s.hash.total);
       hashMeter.update({
         label: "Hashing the input (SHA-256)",
         done: s.hash.done,
         total: s.hash.total,
-        detail: `${formatBytes(s.hash.done)} of ${formatBytes(s.hash.total)}${pct === null ? "" : ` (${pct}%)`}`,
+        detail: `${formatBytes(s.hash.done)} of ${formatBytes(s.hash.total)}${percentSuffix(s.hash.done, s.hash.total)}`,
       });
     }
-    if (s.seal) {
-      const pct = percentOf(s.seal.done, s.seal.total);
-      sealMeter.update({
-        label: "Sealing the report (report.sha256)",
-        done: s.seal.done,
-        total: s.seal.total,
-        detail:
-          s.seal.total === null ? `${plural(s.seal.done, "file", "files")}` : `${formatCount(s.seal.done)} of ${plural(s.seal.total, "file", "files")}${pct === null ? "" : ` (${pct}%)`}`,
-      });
-    }
+    if (s.seal) sealMeter.update({ label: "Sealing the report (report.sha256)", done: s.seal.done, total: s.seal.total, detail: sealDetail(s.seal) });
     const note = s.hash === null && s.seal === null && s.live;
     progressSlot.update(`${s.hash !== null}|${s.seal !== null}|${note}`, () => [s.hash !== null && hashMeter.node, s.seal !== null && sealMeter.node, note && progressNote]);
   }
 
-  /** @param {Exclude<RunStatus, "running"> | RunStatus} status */
+  /** @param {Exclude<RunStatus, "running">} status */
   function renderResult(status) {
-    if (!record || status === "running") return;
+    if (!record) return;
     const r = record;
     const finished = /** @type {RunFinished | null} */ (stream?.finished ?? null);
     const reasons = finished ? finished.reasons : r.status_reasons;
@@ -282,7 +264,7 @@ export function runScreen(ctx) {
     fill(
       resultCard,
       h("div", { class: "card-head" }, h("h2", { id: "run-result-heading" }, "Result"), statusBadge(status)),
-      h("p", null, OUTCOME[/** @type {Exclude<RunStatus, "running">} */ (status)]),
+      h("p", null, OUTCOME[status]),
       reasonList("Reasons", reasons, "reasons"),
       reasonList("Warnings", warnings, "warnings"),
       summary.length > 0 && h("dl", { class: "facts facts-compact" }, summary.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])),
@@ -380,7 +362,7 @@ export function runScreen(ctx) {
     try {
       await api.open_report({ case_path: casePath, run_id: runId });
     } catch (err) {
-      showResultError(err, "The report could not be opened.");
+      replaceError(resultCard, err, "The report could not be opened.");
     }
   }
 
@@ -389,7 +371,7 @@ export function runScreen(ctx) {
     try {
       await api.reveal_path({ path: record.command.cwd });
     } catch (err) {
-      showResultError(err, "The folder could not be revealed.");
+      replaceError(resultCard, err, "The folder could not be revealed.");
     }
   }
 
@@ -398,19 +380,8 @@ export function runScreen(ctx) {
     try {
       await api.open_text_file({ case_path: casePath, run_id: runId, which });
     } catch (err) {
-      showResultError(err, "The file could not be opened.");
+      replaceError(resultCard, err, "The file could not be opened.");
     }
-  }
-
-  /**
-   * @param {unknown} err
-   * @param {string} titleText
-   */
-  function showResultError(err, titleText) {
-    const slot = errorSlot();
-    slot.show(err, titleText);
-    resultCard.querySelector(".error-slot")?.remove();
-    resultCard.append(slot.node);
   }
 
   // ---- Job end without a `finished` event, and the elapsed-time tick ----
@@ -450,21 +421,6 @@ export function runScreen(ctx) {
       for (const fn of cleanups) fn();
     },
   };
-}
-
-/**
- * @param {string} heading
- * @param {readonly Reason[]} list
- * @param {"reasons" | "warnings"} kind
- */
-function reasonList(heading, list, kind) {
-  if (list.length === 0) return null;
-  return h(
-    "div",
-    { class: `stack-sm reason-list reason-list-${kind}` },
-    h("h3", null, heading),
-    h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))),
-  );
 }
 
 /** @param {RunRecord} r */

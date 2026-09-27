@@ -13,10 +13,9 @@ import {
   seedPhase,
   stepStates,
 } from "../../ui/lib/jobstream.js";
-import { createStore } from "../../ui/lib/store.js";
 import { ActiveJob, RunEvent } from "../../ui-dev/fixtures/contracts/index.js";
+import { appStore } from "./helpers.js";
 
-/** @typedef {import("../../ui/lib/context").AppState} AppState */
 /** @typedef {import("../../ui/types").ActiveJob} Job */
 /** @typedef {import("../../ui/types").RunEvent} Run */
 /** @typedef {import("../../ui/types").AcqEvent} Acq */
@@ -24,10 +23,6 @@ import { ActiveJob, RunEvent } from "../../ui-dev/fixtures/contracts/index.js";
 const RUN_JOB = /** @type {Extract<Job, { kind: "run" }>} */ (ActiveJob[0]);
 const ACQ_JOB = /** @type {Extract<Job, { kind: "acquisition" }>} */ (ActiveJob[1]);
 const FINISHED = /** @type {Extract<Run, { type: "finished" }>} */ (RunEvent[5]);
-
-/** @param {Job | null} activeJob */
-const appStore = (activeJob) =>
-  createStore(/** @type {AppState} */ ({ mode: "mock", appInfo: null, settings: null, tools: null, activeJob, timezones: null }));
 
 test("run events: phases, log lines, stdio tails, hash and seal progress, finished", () => {
   const s = newStream("run", "r1", "/c");
@@ -168,7 +163,7 @@ test("acquisition steps: the encryption steps appear only when encryption is cha
 });
 
 test("hub: a started job streams into its stream, keeps the active job's phase and clears it on finish", () => {
-  const store = appStore(null);
+  const store = appStore();
   /** @type {string[]} */
   const finishedHook = [];
   const jobs = createJobStreams(store, { onFinished: (s) => finishedHook.push(`${s.kind}:${s.id}`) });
@@ -194,7 +189,7 @@ test("hub: a started job streams into its stream, keeps the active job's phase a
 });
 
 test("hub: a failed start is abandoned, and a newer job's stream ignores the old channel", () => {
-  const jobs = createJobStreams(appStore(null));
+  const jobs = createJobStreams(appStore());
   const failed = jobs.begin("run", "/c");
   failed.abandon();
   assert.equal(jobs.current(), null);
@@ -208,7 +203,7 @@ test("hub: a failed start is abandoned, and a newer job's stream ignores the old
 });
 
 test("hub: attach after a reload seeds the backlog, then applies events that arrived meanwhile, in order", async () => {
-  const store = appStore(ACQ_JOB);
+  const store = appStore({ activeJob: ACQ_JOB });
   const jobs = createJobStreams(store);
   /** @type {((e: Run | Acq) => void) | null} */
   let channel = null;
@@ -250,7 +245,7 @@ test("hub: attach after a reload starts in the active job's phase, before any ph
   // Reloaded while the acquisition turns encryption off again: job_attach returns only the backlog,
   // and no phase event follows (the step may wait for the device passcode for a long time).
   const acqJob = { ...ACQ_JOB, phase: /** @type {const} */ ("restoring_encryption") };
-  const store = appStore(acqJob);
+  const store = appStore({ activeJob: acqJob });
   const jobs = createJobStreams(store);
   const quiet = { job_attach: async () => ({ backlog: ["Please confirm disabling the backup encryption…"] }) };
   const s = await jobs.attach(quiet, "acquisition", acqJob.acq_id, acqJob.case_path);
@@ -263,7 +258,7 @@ test("hub: attach after a reload starts in the active job's phase, before any ph
 
   // A run reloaded during analysis.
   const runJob = { ...RUN_JOB, phase: /** @type {const} */ ("analyzing") };
-  const runStore = appStore(runJob);
+  const runStore = appStore({ activeJob: runJob });
   const run = await createJobStreams(runStore).attach(quiet, "run", runJob.run_id, runJob.case_path);
   assert.equal(
     stepText(RUN_PHASES, run, new Set(["hashing_input"])),
@@ -274,7 +269,7 @@ test("hub: attach after a reload starts in the active job's phase, before any ph
 test("hub: attach reads job_active once subscribed; a phase event that already arrived wins", async () => {
   // The stored phase is from the last poll (up to 2 s old); job_active, read after subscribing, is
   // current, and it also updates the top bar.
-  const store = appStore({ ...ACQ_JOB, phase: "backing_up" });
+  const store = appStore({ activeJob: { ...ACQ_JOB, phase: "backing_up" } });
   const jobs = createJobStreams(store);
   let calls = 0;
   const api = {
@@ -290,7 +285,7 @@ test("hub: attach reads job_active once subscribed; a phase event that already a
   assert.equal(store.get().activeJob?.phase, "restoring_encryption");
 
   // A phase event delivered through the new subscription is newer than both.
-  const store2 = appStore({ ...ACQ_JOB, phase: "backing_up" });
+  const store2 = appStore({ activeJob: { ...ACQ_JOB, phase: "backing_up" } });
   const jobs2 = createJobStreams(store2);
   const api2 = {
     /** @param {unknown} _req @param {(e: Run | Acq) => void} onEvent */
@@ -305,7 +300,7 @@ test("hub: attach reads job_active once subscribed; a phase event that already a
   assert.equal(store2.get().activeJob?.phase, "validating");
 
   // job_active failing or naming another job leaves the stored phase.
-  const store3 = appStore({ ...ACQ_JOB, phase: "sealing" });
+  const store3 = appStore({ activeJob: { ...ACQ_JOB, phase: "sealing" } });
   const s3 = await createJobStreams(store3).attach(
     {
       job_attach: async () => ({ backlog: [] }),
@@ -322,7 +317,7 @@ test("hub: attach reads job_active once subscribed; a phase event that already a
 });
 
 test("hub: attach rejects when the job already ended and leaves no stream behind", async () => {
-  const jobs = createJobStreams(appStore(null));
+  const jobs = createJobStreams(appStore());
   const api = {
     job_attach: async () => {
       throw { code: "run_not_found", message: "Run r1 is not active.", detail: null };

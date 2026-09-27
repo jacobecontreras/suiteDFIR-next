@@ -12,7 +12,7 @@ import { backupFinder } from "../components/backup-finder.js";
 import { confirmDialog, modal } from "../components/dialog.js";
 import { modulePicker } from "../components/module-picker.js";
 import { canFindBackups, chosenBackupType } from "../lib/backups.js";
-import { folderLabel } from "../lib/cases.js";
+import { caseFileOf, folderLabel } from "../lib/cases.js";
 import { h, keepFocus } from "../lib/dom.js";
 import { isAppError } from "../lib/errors.js";
 import { field, selectInput, textInput } from "../lib/form.js";
@@ -20,12 +20,12 @@ import { formatCount, plural } from "../lib/format.js";
 import { handoff } from "../lib/handoff.js";
 import { buildRunRequest, canHash, initialInputType, needsPassword, passwordHint, passwordReason, startBlockers } from "../lib/newrun.js";
 import { routeHref } from "../lib/router.js";
-import { jobKey, setActiveJob } from "../lib/jobs.js";
+import { jobKey, refreshActiveJob } from "../lib/jobs.js";
 import { unknownNames } from "../lib/selection.js";
 import { watch } from "../lib/store.js";
 import { pickTimezone, rememberToolTimezones, timezoneList } from "../lib/timezones.js";
 import { TOOL_FEATURES, installedTools } from "../lib/tools.js";
-import { icon, inputTypeLabel, sizeText, toolName, uid } from "../lib/view.js";
+import { breadcrumb, icon, inputTypeLabel, sizeText, toolName, uid } from "../lib/view.js";
 
 /** @typedef {import("../types").CaseFile} CaseFile */
 /** @typedef {import("../types").InputType} InputType */
@@ -228,14 +228,7 @@ export function newRunScreen(ctx) {
   const node = h(
     "section",
     { class: "screen" },
-    h(
-      "nav",
-      { class: "breadcrumb", "aria-label": "Breadcrumb" },
-      h("a", { href: routeHref("cases") }, "Cases"),
-      h("span", { "aria-hidden": "true" }, " / "),
-      caseName,
-      h("span", { "aria-hidden": "true" }, " / "),
-    ),
+    breadcrumb(caseName),
     h("div", { class: "screen-head" }, h("h1", { tabindex: "-1" }, "New run")),
     body,
   );
@@ -247,11 +240,7 @@ export function newRunScreen(ctx) {
       const [cases, tools] = await Promise.all([api.cases_list(), api.tools_status()]);
       if (disposed) return;
       store.set({ tools });
-      const summary = cases.find((c) => c.path === casePath);
-      if (!summary?.case) {
-        throw { code: "case_not_found", message: "This case is not in the recent list, or its folder is missing.", detail: casePath };
-      }
-      caseFile = summary.case;
+      caseFile = caseFileOf(cases, casePath);
       caseName.textContent = caseFile.name;
       allTools = tools;
       installed = installedTools(tools);
@@ -907,10 +896,7 @@ export function newRunScreen(ctx) {
       const started = await api.run_start(req, stream.onEvent);
       stream.bind(started.run_id);
       clearPassword();
-      api
-        .job_active()
-        .then((job) => setActiveJob(store, job))
-        .catch(() => {});
+      refreshActiveJob(api, store);
       navigate(routeHref("run", { case: casePath, id: started.run_id }));
     } catch (err) {
       stream.abandon();

@@ -276,10 +276,12 @@ export function modulePicker(spec) {
     emit();
   }
 
-  search.addEventListener("input", () => {
+  function applyQuery() {
     tokens = queryTokens(search.value);
     applyFilter();
-  });
+  }
+
+  search.addEventListener("input", applyQuery);
   selectAll.addEventListener("click", () => setShown(true));
   selectNone.addEventListener("click", () => setShown(false));
 
@@ -329,8 +331,7 @@ export function modulePicker(spec) {
     },
     setQuery(query) {
       search.value = query;
-      tokens = queryTokens(query);
-      applyFilter();
+      applyQuery();
     },
     dispose() {},
   };
