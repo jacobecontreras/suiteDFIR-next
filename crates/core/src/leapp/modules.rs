@@ -53,11 +53,11 @@ use crate::process::{self, ExitInfo, SpawnSpec};
 use crate::run::status::AlwaysRun;
 
 /// Introspection is stopped and fails after this long (LEAPP-CLI.md §5 step 2).
-pub const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_secs(180);
 /// Fewer selectable modules than this means the introspection went wrong (LEAPP-CLI.md §5 step 4).
 pub const MIN_MODULES: usize = 500;
 /// The probe artifact's key, module file stem and profile entry.
-pub const PROBE_NAME: &str = "suitedfir_probe";
+const PROBE_NAME: &str = "suitedfir_probe";
 const PROBE_OUT_VAR: &str = "SUITEDFIR_PROBE_OUT";
 /// The probe output is a few hundred KB; anything much larger is not ours.
 const MAX_PROBE_OUTPUT: u64 = 32 << 20;
@@ -434,7 +434,7 @@ fn modules_file(
 /// Runs the introspection for the installed (or staged) `entry` of `tool` (see the module docs).
 /// `manifest` supplies the version and the profile format; `app_cache` holds the per-job temp dir.
 /// LEAPP's exit code is not used (it exits 0 on most failures, LEAPP-CLI.md Q3): the probe's
-/// output decides. Blocks until the tool has exited (at most [`TIMEOUT`] plus the kill grace).
+/// output decides. Blocks until the tool has exited (at most `TIMEOUT` plus the kill grace).
 ///
 /// **`entry` must be hash-verified**: this runs whatever it is given. `install` calls it only after
 /// the entry hash was checked; any other caller (e.g. a later re-introspection) must first pass

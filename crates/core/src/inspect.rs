@@ -13,7 +13,7 @@ use crate::contracts::{AppError, ErrorCode, InputInspection, InputKind, InputTyp
 use crate::fsutil;
 
 /// Either file marks a folder as an iTunes/Finder backup.
-pub const ITUNES_MARKERS: [&str; 2] = ["Manifest.db", "Manifest.plist"];
+pub(crate) const ITUNES_MARKERS: [&str; 2] = ["Manifest.db", "Manifest.plist"];
 
 /// File extensions (lowercase) of `raw` inputs: disk images and E01, read in place.
 const RAW_EXTENSIONS: [&str; 6] = ["e01", "dd", "img", "bin", "raw", "001"];
@@ -177,7 +177,7 @@ fn kind_compatible(kind: InputKind, input_type: InputType) -> bool {
 }
 
 /// `allowed_types`: the tool's `input_types` (in their order) that fit the kind of input.
-pub fn allowed_types(kind: InputKind, input_types: &[InputType]) -> Vec<InputType> {
+fn allowed_types(kind: InputKind, input_types: &[InputType]) -> Vec<InputType> {
     input_types
         .iter()
         .copied()
@@ -188,7 +188,7 @@ pub fn allowed_types(kind: InputKind, input_types: &[InputType]) -> Vec<InputTyp
 /// The type of a file from its extension (case-insensitive): `.zip` → zip, `.tar` → tar,
 /// `.gz`/`.tgz` → gz, disk images → raw, anything else → `file` if the tool takes single files
 /// (iLEAPP), else `None` (aLEAPP: not a valid input).
-pub fn detect_file_type(path: &Path, input_types: &[InputType]) -> Option<InputType> {
+fn detect_file_type(path: &Path, input_types: &[InputType]) -> Option<InputType> {
     let ext = path
         .extension()
         .map(|ext| ext.to_string_lossy().to_ascii_lowercase());
@@ -203,7 +203,7 @@ pub fn detect_file_type(path: &Path, input_types: &[InputType]) -> Option<InputT
 }
 
 /// Whether a folder is an iTunes/Finder backup (it has `Manifest.db` or `Manifest.plist`).
-pub fn is_itunes_backup(dir: &Path) -> io::Result<bool> {
+fn is_itunes_backup(dir: &Path) -> io::Result<bool> {
     for marker in ITUNES_MARKERS {
         if dir.join(marker).try_exists()? {
             return Ok(true);

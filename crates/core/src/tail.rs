@@ -15,7 +15,7 @@ use std::time::Duration;
 /// How often a run's `Screen_Output.html` is polled (ARCHITECTURE.md §6 step 5).
 pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// The longest line emitted, in bytes (including the `…` of a truncated line).
-pub const MAX_LINE_BYTES: usize = 8 * 1024;
+const MAX_LINE_BYTES: usize = 8 * 1024;
 /// The most lines in one batch (`RunEvent::Log`, CONTRACTS.md §11).
 pub const MAX_BATCH_LINES: usize = 500;
 /// How many stdout/stderr lines a `RunEvent::StdioTail` holds.
