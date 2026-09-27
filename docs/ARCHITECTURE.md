@@ -124,6 +124,7 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 | `manifest` | Parse the embedded `leapp-manifest.json`; `PlatformKey` detection. |
 | `leapp::install` | Download (HTTPS only, size-capped, progress) → verify asset hash → extract (zip entry only; AppImage via `--appimage-extract`) → verify the entry hash against the manifest (or record it where the manifest has `null`) → `install.json`. Offline import; `verify`. |
 | `leapp::modules` | Introspection run → `modules.json` (modules, always-run, timezones). |
+| `leapp::dev_override` | Debug-build dev override: module list from `fake-leapp --list-modules-json` (DEVELOPMENT.md §2). Compiled out of release builds. |
 | `process` | Spawn in a new session/job, env, cwd, stdin null, stdout/stderr to files; `cancel()` with escalation; `wait()` → `ExitInfo`; temp dir create/remove/sweep. `unix.rs` / `windows.rs`. |
 | `tail` | Poll-based tail of `Screen_Output.html` → plain-text lines, which the runner polls and sends as `log` batches; `last_lines` for the stdout/stderr tails. |
 | `settings`, `paths`, `case` | `settings.json`; app-dir bundle (passed in from the shell; the core never guesses OS dirs); case create/open/update/list/recent; run discovery. |
