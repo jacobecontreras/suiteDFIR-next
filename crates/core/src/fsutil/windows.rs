@@ -30,7 +30,7 @@ pub(super) fn set_read_only(path: &Path) -> io::Result<()> {
 /// short, bounded time. (A read-only target is refused by the caller before this is reached, so an
 /// access error here is transient.) NTFS journals the rename itself, so there is no directory sync.
 pub(super) fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
-    retry_transient(|| fs::rename(from, to), RENAME_RETRIES, RENAME_BACKOFF)
+    retry_counted(|| fs::rename(from, to), RENAME_RETRIES, RENAME_BACKOFF)
 }
 
 /// Runs `op`, and again while it fails with a transient sharing or access error until `budget` has
@@ -60,7 +60,7 @@ pub(super) fn retry_transient_within(
 
 /// Runs `op`, and again up to `retries` times while it fails with a transient sharing or access
 /// error, pausing `backoff` × the attempt number before each retry. Other errors end it at once.
-fn retry_transient(
+fn retry_counted(
     mut op: impl FnMut() -> io::Result<()>,
     retries: u32,
     backoff: Duration,
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
         // Counted, not timed: a non-transient error is not retried.
         let mut calls = 0;
-        let err = retry_transient(
+        let err = retry_counted(
             || {
                 calls += 1;
                 Err(io::Error::from(io::ErrorKind::NotFound))
@@ -262,7 +262,7 @@ mod tests {
             ERROR_LOCK_VIOLATION,
         ] {
             let mut calls = 0;
-            let err = retry_transient(
+            let err = retry_counted(
                 || {
                     calls += 1;
                     Err(io::Error::from_raw_os_error(i32::try_from(code).unwrap()))
@@ -276,7 +276,7 @@ mod tests {
         }
         // It stops as soon as the operation succeeds.
         let mut calls = 0;
-        retry_transient(
+        retry_counted(
             || {
                 calls += 1;
                 if calls < 3 {

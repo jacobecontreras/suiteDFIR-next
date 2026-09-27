@@ -46,20 +46,18 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use crate::contracts::{
-    AppError, ErrorCode, InputType, ModuleInfo, ModulesFile, Timestamp, ToolId, ToolManifest,
-    VersionedFile,
+    InputType, ModuleInfo, ModulesFile, Timestamp, ToolId, ToolManifest, VersionedFile,
 };
-use crate::hashing::to_hex;
 use crate::leapp::install::InstallError;
 use crate::process::{self, ExitInfo, SpawnSpec};
 use crate::run::status::AlwaysRun;
 
 /// Introspection is stopped and fails after this long (LEAPP-CLI.md §5 step 2).
-pub const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_secs(180);
 /// Fewer selectable modules than this means the introspection went wrong (LEAPP-CLI.md §5 step 4).
 pub const MIN_MODULES: usize = 500;
 /// The probe artifact's key, module file stem and profile entry.
-pub const PROBE_NAME: &str = "suitedfir_probe";
+const PROBE_NAME: &str = "suitedfir_probe";
 const PROBE_OUT_VAR: &str = "SUITEDFIR_PROBE_OUT";
 /// The probe output is a few hundred KB; anything much larger is not ours.
 const MAX_PROBE_OUTPUT: u64 = 32 << 20;
@@ -130,16 +128,6 @@ impl From<IntrospectionError> for InstallError {
     fn from(error: IntrospectionError) -> Self {
         InstallError::Introspection {
             message: error.message,
-            detail: error.detail,
-        }
-    }
-}
-
-impl From<IntrospectionError> for AppError {
-    fn from(error: IntrospectionError) -> Self {
-        AppError {
-            code: ErrorCode::IntrospectionFailed,
-            message: format!("Module introspection failed: {}", error.message),
             detail: error.detail,
         }
     }
@@ -446,7 +434,7 @@ fn modules_file(
 /// Runs the introspection for the installed (or staged) `entry` of `tool` (see the module docs).
 /// `manifest` supplies the version and the profile format; `app_cache` holds the per-job temp dir.
 /// LEAPP's exit code is not used (it exits 0 on most failures, LEAPP-CLI.md Q3): the probe's
-/// output decides. Blocks until the tool has exited (at most [`TIMEOUT`] plus the kill grace).
+/// output decides. Blocks until the tool has exited (at most `TIMEOUT` plus the kill grace).
 ///
 /// **`entry` must be hash-verified**: this runs whatever it is given. `install` calls it only after
 /// the entry hash was checked; any other caller (e.g. a later re-introspection) must first pass
@@ -477,20 +465,8 @@ pub fn introspect(
 /// `YYYYMMDD-HHMMSSZ-<tool>-<6 lowercase hex>`: shaped like a run id, as `process` requires for
 /// temp dirs (ARCHITECTURE.md §8).
 fn job_id(tool: ToolId, at: Timestamp) -> Result<String, IntrospectionError> {
-    let mut random = [0u8; 3];
-    getrandom::fill(&mut random)
-        .map_err(|e| IntrospectionError::new(format!("cannot get random bytes: {e}")))?;
-    let t = at.as_datetime();
-    Ok(format!(
-        "{:04}{:02}{:02}-{:02}{:02}{:02}Z-{tool}-{}",
-        t.year(),
-        u8::from(t.month()),
-        t.day(),
-        t.hour(),
-        t.minute(),
-        t.second(),
-        to_hex(&random)
-    ))
+    crate::run::record::new_run_id(tool, at)
+        .map_err(|e| IntrospectionError::new(format!("cannot get random bytes: {e}")))
 }
 
 /// The files in the temp dir `dir` (step 1).
@@ -719,7 +695,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::contracts::examples;
+    use crate::contracts::{ErrorCode, examples};
 
     fn plugin(name: &str, module_name: &str, category: &str) -> serde_json::Value {
         json!({"name": name, "module_name": module_name, "category": category,
@@ -886,8 +862,10 @@ mod tests {
         );
         assert!(apply(ToolId::Aleapp, probe(ToolId::Aleapp, 500)).is_ok());
         assert!(apply(ToolId::Aleapp, probe(ToolId::Aleapp, 499)).is_err());
-        let app: AppError = error.into();
-        assert_eq!(app.code, ErrorCode::IntrospectionFailed);
+        assert_eq!(
+            InstallError::from(error).code(),
+            ErrorCode::IntrospectionFailed
+        );
     }
 
     #[test]
@@ -1124,8 +1102,10 @@ mod tests {
             )),
             "{detail}"
         );
-        let app: AppError = error.into();
-        assert_eq!(app.code, ErrorCode::IntrospectionFailed);
+        assert_eq!(
+            InstallError::from(error).code(),
+            ErrorCode::IntrospectionFailed
+        );
 
         // Any other failure to run the probe keeps the generic message.
         fs::write(&layout.stderr, "Traceback (most recent call last):\n").unwrap();

@@ -13,7 +13,7 @@ use crate::contracts::{AppError, ErrorCode, InputInspection, InputKind, InputTyp
 use crate::fsutil;
 
 /// Either file marks a folder as an iTunes/Finder backup.
-pub const ITUNES_MARKERS: [&str; 2] = ["Manifest.db", "Manifest.plist"];
+pub(crate) const ITUNES_MARKERS: [&str; 2] = ["Manifest.db", "Manifest.plist"];
 
 /// File extensions (lowercase) of `raw` inputs: disk images and E01, read in place.
 const RAW_EXTENSIONS: [&str; 6] = ["e01", "dd", "img", "bin", "raw", "001"];
@@ -177,7 +177,7 @@ fn kind_compatible(kind: InputKind, input_type: InputType) -> bool {
 }
 
 /// `allowed_types`: the tool's `input_types` (in their order) that fit the kind of input.
-pub fn allowed_types(kind: InputKind, input_types: &[InputType]) -> Vec<InputType> {
+fn allowed_types(kind: InputKind, input_types: &[InputType]) -> Vec<InputType> {
     input_types
         .iter()
         .copied()
@@ -188,7 +188,7 @@ pub fn allowed_types(kind: InputKind, input_types: &[InputType]) -> Vec<InputTyp
 /// The type of a file from its extension (case-insensitive): `.zip` → zip, `.tar` → tar,
 /// `.gz`/`.tgz` → gz, disk images → raw, anything else → `file` if the tool takes single files
 /// (iLEAPP), else `None` (aLEAPP: not a valid input).
-pub fn detect_file_type(path: &Path, input_types: &[InputType]) -> Option<InputType> {
+fn detect_file_type(path: &Path, input_types: &[InputType]) -> Option<InputType> {
     let ext = path
         .extension()
         .map(|ext| ext.to_string_lossy().to_ascii_lowercase());
@@ -203,7 +203,7 @@ pub fn detect_file_type(path: &Path, input_types: &[InputType]) -> Option<InputT
 }
 
 /// Whether a folder is an iTunes/Finder backup (it has `Manifest.db` or `Manifest.plist`).
-pub fn is_itunes_backup(dir: &Path) -> io::Result<bool> {
+fn is_itunes_backup(dir: &Path) -> io::Result<bool> {
     for marker in ITUNES_MARKERS {
         if dir.join(marker).try_exists()? {
             return Ok(true);
@@ -322,6 +322,7 @@ mod tests {
     use super::*;
 
     use crate::contracts::{ToolId, examples};
+    use crate::fsutil::test_support::try_symlink_dir;
 
     /// `base` joined with a `/`-separated relative path, one component at a time, so the result
     /// is spelled with the OS separator (as `std::path::absolute` returns it on Windows).
@@ -473,22 +474,6 @@ mod tests {
         assert!(check_overlap(&lab.root.join("evidence"), &ctx).is_ok());
     }
 
-    /// Creates a directory symlink, or returns false (with a message) where the OS does not allow
-    /// it: Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
-    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
-        match fsutil::test_support::symlink_dir(target, link) {
-            Ok(()) => true,
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED symlink overlap checks: creating symlinks needs Developer Mode or \
-                     admin (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                false
-            }
-            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
-        }
-    }
-
     #[test]
     fn overlap_catches_a_linked_runs_folder() {
         // `<case>/runs` was moved elsewhere and linked back; the input contains the link's target.
@@ -533,14 +518,7 @@ mod tests {
         let case = p(&lab.root, "cases/Junction");
         fs::create_dir_all(&case).unwrap();
         let runs = case.join("runs");
-        let output = std::process::Command::new("cmd")
-            .arg("/c")
-            .arg("mklink")
-            .arg("/J")
-            .arg(&runs)
-            .arg(&target)
-            .output()
-            .unwrap();
+        let output = fsutil::test_support::junction(&runs, &target);
         assert!(
             output.status.success(),
             "mklink /J failed: {}{}",
