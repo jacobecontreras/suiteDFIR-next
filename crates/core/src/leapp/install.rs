@@ -1311,6 +1311,11 @@ mod tests {
             }
         }
 
+        /// The usual case: the entry `ileapp`, pinned to the hash of `ENTRY_BYTES`.
+        fn good(asset: &[u8], urls: Vec<String>) -> Self {
+            Self::new(asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), urls)
+        }
+
         fn tools_dir(&self) -> PathBuf {
             self.root.path().join("leapp")
         }
@@ -1318,6 +1323,14 @@ mod tests {
         fn assert_nothing_left(&self) {
             assert_eq!(entries(self.root.path()), Vec::<String>::new());
         }
+    }
+
+    /// `asset` written to `asset.zip` in a fresh temp dir (returned too, to keep it alive).
+    fn asset_file(asset: &[u8]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("asset.zip");
+        fs::write(&src, asset).unwrap();
+        (dir, src)
     }
 
     fn good_zip() -> Vec<u8> {
@@ -1329,12 +1342,7 @@ mod tests {
         let asset = good_zip();
         let (base, server) = serve(vec![Reply::Body(asset.clone())]);
         let url = format!("{base}/ileapp-test.zip");
-        let case = Case::new(
-            &asset,
-            "ileapp",
-            Some(sha256_of(ENTRY_BYTES)),
-            vec![url.clone()],
-        );
+        let case = Case::good(&asset, vec![url.clone()]);
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let mut run = Run::default();
@@ -1407,7 +1415,7 @@ mod tests {
         let asset = good_zip();
         let (base, server) = serve(vec![Reply::Status(404), Reply::Body(asset.clone())]);
         let urls = vec![format!("{base}/missing.zip"), format!("{base}/mirror.zip")];
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), urls.clone());
+        let case = Case::good(&asset, urls.clone());
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let record = run
@@ -1435,7 +1443,7 @@ mod tests {
         tampered[0] ^= 1;
         let (base, server) = serve(vec![Reply::Body(tampered), Reply::Body(asset.clone())]);
         let urls = vec![format!("{base}/bad.zip"), format!("{base}/mirror.zip")];
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), urls.clone());
+        let case = Case::good(&asset, urls.clone());
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let record = run
@@ -1469,7 +1477,7 @@ mod tests {
             body: asset[..asset.len() / 2].to_vec(),
             hold,
         }]);
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let case = Case::good(&asset, vec![base]);
         let tools_dir = case.tools_dir();
         let started = Instant::now();
         let error = Run::default()
@@ -1496,7 +1504,7 @@ mod tests {
             body: asset[..10].to_vec(),
             hold,
         }]);
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let case = Case::good(&asset, vec![base]);
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let cancel = Arc::clone(&run.cancel);
@@ -1522,12 +1530,9 @@ mod tests {
         server.join().unwrap();
 
         // Before an offline import starts.
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let run = Run::default();
+        let (_dir, src) = asset_file(&asset);
+        let mut run = Run::default();
         run.cancel.store(true, Ordering::Relaxed);
-        let mut run = run;
         let error = run
             .install(pinned(&tools_dir, &case.manifest), Source::File(&src))
             .unwrap_err();
@@ -1539,9 +1544,7 @@ mod tests {
     #[test]
     fn the_copy_and_extract_loops_stop_on_cancel() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
+        let (dir, src) = asset_file(&asset);
         let manifest = tool_manifest(&asset, "ileapp", None);
         let pinned_asset = &manifest.platforms[&PlatformKey::MacosAarch64];
         let cancelled = AtomicBool::new(true);
@@ -1556,10 +1559,8 @@ mod tests {
     #[test]
     fn leftovers_of_an_interrupted_install_are_removed() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let tool_dir = pinned.tool_dir();
@@ -1620,7 +1621,7 @@ mod tests {
         let last = tampered.len() - 1;
         tampered[last] ^= 0xff;
         let (base, server) = serve(vec![Reply::Body(tampered)]);
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let case = Case::good(&asset, vec![base]);
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let error = run
@@ -1747,9 +1748,7 @@ mod tests {
             "C:evil",
         ] {
             let asset = zip_bytes(&[(entry, ENTRY_BYTES)]);
-            let dir = tempfile::tempdir().unwrap();
-            let src = dir.path().join("asset.zip");
-            fs::write(&src, &asset).unwrap();
+            let (_dir, src) = asset_file(&asset);
             let case = Case::new(&asset, entry, Some(sha256_of(ENTRY_BYTES)), Vec::new());
             let tools_dir = case.tools_dir();
             let error = Run::default()
@@ -1761,10 +1760,8 @@ mod tests {
         }
         // A symlink named like the entry.
         let asset = zip_bytes(&[("ileapp@", b"")]);
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let error = Run::default()
             .install(pinned(&tools_dir, &case.manifest), Source::File(&src))
@@ -1774,7 +1771,7 @@ mod tests {
         // An archive without the entry.
         let asset = zip_bytes(&[("other", ENTRY_BYTES)]);
         fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let error = Run::default()
             .install(pinned(&tools_dir, &case.manifest), Source::File(&src))
@@ -1790,7 +1787,7 @@ mod tests {
         let src = dir.path().join("downloaded elsewhere.zip");
         fs::write(&src, &asset).unwrap();
         crate::fsutil::set_read_only(&src).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let mut run = Run::default();
@@ -1820,7 +1817,7 @@ mod tests {
         let asset = good_zip();
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("wrong.zip");
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         // Same size, different bytes; then a different size.
@@ -1846,10 +1843,8 @@ mod tests {
     #[test]
     fn a_failed_introspection_installs_nothing() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let error = install(
             pinned(&tools_dir, &case.manifest),
@@ -1889,10 +1884,8 @@ mod tests {
     #[test]
     fn existing_versions_survive_a_failed_install_and_a_reinstall_replaces() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let other = pinned.tool_dir().join("v2025.1.0");
@@ -1920,10 +1913,8 @@ mod tests {
     #[test]
     fn tampering_fails_verification() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         Run::default().install(pinned, Source::File(&src)).unwrap();
@@ -1946,10 +1937,8 @@ mod tests {
     #[test]
     fn install_states() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
 
@@ -2018,9 +2007,7 @@ mod tests {
     #[test]
     fn a_null_manifest_entry_hash_is_recorded_and_verified_against_the_record() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
+        let (_dir, src) = asset_file(&asset);
         // A zip with a null entry hash is invalid in a real manifest, but the null-hash path is the
         // same for AppImages; this exercises it on every OS.
         let case = Case::new(&asset, "ileapp", None, Vec::new());
