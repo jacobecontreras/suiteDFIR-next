@@ -12,7 +12,7 @@
 import { appError, errorSlot, replaceError } from "../components/app-error.js";
 import { confirmDialog } from "../components/dialog.js";
 import { logView } from "../components/log-view.js";
-import { percentOf, progressMeter, stepList } from "../components/progress.js";
+import { percentSuffix, progressMeter, sealDetail, stepList } from "../components/progress.js";
 import { folderLabel } from "../lib/cases.js";
 import { fill, h, keyedSlot, setText } from "../lib/dom.js";
 import { elapsedSince, formatBytes, formatCount, formatElapsed, plural } from "../lib/format.js";
@@ -224,24 +224,14 @@ export function runScreen(ctx) {
    */
   function renderProgress(s) {
     if (s.hash) {
-      const pct = percentOf(s.hash.done, s.hash.total);
       hashMeter.update({
         label: "Hashing the input (SHA-256)",
         done: s.hash.done,
         total: s.hash.total,
-        detail: `${formatBytes(s.hash.done)} of ${formatBytes(s.hash.total)}${pct === null ? "" : ` (${pct}%)`}`,
+        detail: `${formatBytes(s.hash.done)} of ${formatBytes(s.hash.total)}${percentSuffix(s.hash.done, s.hash.total)}`,
       });
     }
-    if (s.seal) {
-      const pct = percentOf(s.seal.done, s.seal.total);
-      sealMeter.update({
-        label: "Sealing the report (report.sha256)",
-        done: s.seal.done,
-        total: s.seal.total,
-        detail:
-          s.seal.total === null ? `${plural(s.seal.done, "file", "files")}` : `${formatCount(s.seal.done)} of ${plural(s.seal.total, "file", "files")}${pct === null ? "" : ` (${pct}%)`}`,
-      });
-    }
+    if (s.seal) sealMeter.update({ label: "Sealing the report (report.sha256)", done: s.seal.done, total: s.seal.total, detail: sealDetail(s.seal) });
     const note = s.hash === null && s.seal === null && s.live;
     progressSlot.update(`${s.hash !== null}|${s.seal !== null}|${note}`, () => [s.hash !== null && hashMeter.node, s.seal !== null && sealMeter.node, note && progressNote]);
   }

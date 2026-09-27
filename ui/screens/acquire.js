@@ -18,7 +18,7 @@
 import { appError, errorSlot, replaceError } from "../components/app-error.js";
 import { confirmDialog } from "../components/dialog.js";
 import { logView } from "../components/log-view.js";
-import { percentOf, progressMeter, stepList } from "../components/progress.js";
+import { progressMeter, sealDetail, stepList } from "../components/progress.js";
 import { restoreEncryptionDialog } from "../components/restore-dialog.js";
 import {
   acqBlockers,
@@ -43,7 +43,7 @@ import { folderLabel } from "../lib/cases.js";
 import { fill, h, keepFocus, keyedSlot, setText } from "../lib/dom.js";
 import { toAppError } from "../lib/errors.js";
 import { field, textInput } from "../lib/form.js";
-import { elapsedSince, formatBytes, formatCount, formatElapsed, plural } from "../lib/format.js";
+import { elapsedSince, formatBytes, formatElapsed, plural } from "../lib/format.js";
 import { handoff } from "../lib/handoff.js";
 import { ACQ_PHASES, stepStates } from "../lib/jobstream.js";
 import { jobKey, setActiveJob } from "../lib/jobs.js";
@@ -872,15 +872,7 @@ export function acquireScreen(ctx) {
    */
   function renderProgress(s) {
     if (s.percent !== null) backupMeter.update({ label: "Backup", done: s.percent, total: 100, detail: `${s.percent}%` });
-    if (s.seal) {
-      const pct = percentOf(s.seal.done, s.seal.total);
-      sealMeter.update({
-        label: "Sealing the backup (backup.sha256)",
-        done: s.seal.done,
-        total: s.seal.total,
-        detail: s.seal.total === null ? plural(s.seal.done, "file", "files") : `${formatCount(s.seal.done)} of ${plural(s.seal.total, "file", "files")}${pct === null ? "" : ` (${pct}%)`}`,
-      });
-    }
+    if (s.seal) sealMeter.update({ label: "Sealing the backup (backup.sha256)", done: s.seal.done, total: s.seal.total, detail: sealDetail(s.seal) });
     // Until the backup reports progress (after a reload, only its next report shows it).
     const beforeBackupEnd = s.phase === null || s.phase === "preparing" || s.phase === "enabling_encryption" || s.phase === "backing_up";
     const note = s.percent === null && s.seal === null && s.live && beforeBackupEnd;
