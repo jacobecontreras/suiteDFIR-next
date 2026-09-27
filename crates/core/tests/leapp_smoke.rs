@@ -36,7 +36,6 @@
 //! Each test prints a summary to stderr directly, so it shows even though the test harness
 //! captures `println!`/`eprintln!` output of passing tests.
 
-use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -844,23 +843,18 @@ fn password_prompt_behaviour(smoke: &Smoke) {
         out.join("stdout.log"),
         out.join("stderr.log"),
     );
-    spec.args = [
-        "-t",
-        "itunes",
-        "-i",
-        "",
-        "-o",
-        "",
-        "--custom_output_folder",
-        "report",
-        "-tz",
-        "UTC",
-    ]
-    .iter()
-    .map(OsString::from)
-    .collect();
-    spec.args[3] = input.clone().into_os_string();
-    spec.args[5] = out.clone().into_os_string();
+    spec.args = vec![
+        "-t".into(),
+        "itunes".into(),
+        "-i".into(),
+        input.clone().into_os_string(),
+        "-o".into(),
+        out.clone().into_os_string(),
+        "--custom_output_folder".into(),
+        "report".into(),
+        "-tz".into(),
+        "UTC".into(),
+    ];
     spec.temp_dir = Some(temp);
     // Long enough for iLEAPP to start and reach the prompt (a few seconds) many times over.
     spec.timeout = Some(Duration::from_secs(if cfg!(windows) { 45 } else { 180 }));
