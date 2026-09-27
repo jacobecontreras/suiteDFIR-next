@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 use suitedfir_core::contracts::{IdeviceToolsManifest, PlatformKey, RecordHost, ToolBundle};
 use suitedfir_core::hashing;
 use suitedfir_core::idevice::{Idevice, IdeviceConfig, ToolLookup, ToolName, embedded_manifest};
+use suitedfir_core::manifest;
 
 pub const FAKE: &str = env!("CARGO_BIN_EXE_fake-idevice");
 pub const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
@@ -24,14 +25,7 @@ pub const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
 
 /// This machine's platform key.
 pub fn host_platform() -> PlatformKey {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => PlatformKey::MacosAarch64,
-        ("macos", "x86_64") => PlatformKey::MacosX86_64,
-        ("windows", "x86_64") => PlatformKey::WindowsX86_64,
-        ("windows", "aarch64") => PlatformKey::WindowsAarch64,
-        ("linux", "aarch64") => PlatformKey::LinuxAarch64,
-        _ => PlatformKey::LinuxX86_64,
-    }
+    manifest::host_platform().expect("this host has a platform key")
 }
 
 /// The host that the tests' records name.
