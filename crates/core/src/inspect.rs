@@ -322,6 +322,7 @@ mod tests {
     use super::*;
 
     use crate::contracts::{ToolId, examples};
+    use crate::fsutil::test_support::try_symlink_dir;
 
     /// `base` joined with a `/`-separated relative path, one component at a time, so the result
     /// is spelled with the OS separator (as `std::path::absolute` returns it on Windows).
@@ -473,22 +474,6 @@ mod tests {
         assert!(check_overlap(&lab.root.join("evidence"), &ctx).is_ok());
     }
 
-    /// Creates a directory symlink, or returns false (with a message) where the OS does not allow
-    /// it: Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
-    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
-        match fsutil::test_support::symlink_dir(target, link) {
-            Ok(()) => true,
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED symlink overlap checks: creating symlinks needs Developer Mode or \
-                     admin (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                false
-            }
-            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
-        }
-    }
-
     #[test]
     fn overlap_catches_a_linked_runs_folder() {
         // `<case>/runs` was moved elsewhere and linked back; the input contains the link's target.
@@ -533,14 +518,7 @@ mod tests {
         let case = p(&lab.root, "cases/Junction");
         fs::create_dir_all(&case).unwrap();
         let runs = case.join("runs");
-        let output = std::process::Command::new("cmd")
-            .arg("/c")
-            .arg("mklink")
-            .arg("/J")
-            .arg(&runs)
-            .arg(&target)
-            .output()
-            .unwrap();
+        let output = fsutil::test_support::junction(&runs, &target);
         assert!(
             output.status.success(),
             "mklink /J failed: {}{}",

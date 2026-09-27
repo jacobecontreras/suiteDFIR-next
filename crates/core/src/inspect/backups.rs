@@ -371,6 +371,8 @@ mod tests {
 
     use plist::{Dictionary, Value};
 
+    use crate::fsutil::test_support::{try_symlink_dir, try_symlink_file};
+
     const UDID_A: &str = "00008101-000A1B2C3D4E001E";
     const UDID_B: &str = "00008030-001229C01146402E";
     const UDID_C: &str = "5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c01234567";
@@ -787,53 +789,10 @@ mod tests {
         let elsewhere = tmp.path().join("elsewhere");
         fs::create_dir(&elsewhere).unwrap();
         fs::write(elsewhere.join("big"), vec![0u8; 4096]).unwrap();
-        match fsutil::test_support::symlink_dir(&elsewhere, &dir.join("linked")) {
-            Ok(()) => {}
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED link check: creating symlinks needs Developer Mode or admin \
-                     (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                return;
-            }
-            Err(e) => panic!("symlink: {e}"),
+        if !try_symlink_dir(&elsewhere, &dir.join("linked")) {
+            return;
         }
         assert_eq!(find(&[root]).unwrap()[0].size_bytes, Some(size));
-    }
-
-    /// Creates a link to a folder, or returns false (with a message) where the OS does not allow it:
-    /// Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
-    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
-        match fsutil::test_support::symlink_dir(target, link) {
-            Ok(()) => true,
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED link checks: creating symlinks needs Developer Mode or admin \
-                     (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                false
-            }
-            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
-        }
-    }
-
-    /// Creates a link to a file, or returns false (with a message) where the OS does not allow it.
-    fn try_symlink_file(target: &Path, link: &Path) -> bool {
-        #[cfg(unix)]
-        let made = std::os::unix::fs::symlink(target, link);
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_file(target, link);
-        match made {
-            Ok(()) => true,
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED link checks: creating symlinks needs Developer Mode or admin \
-                     (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                false
-            }
-            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
-        }
     }
 
     /// A backup outside the default folder, linked into it (twice), is not listed: the finder
@@ -981,14 +940,7 @@ mod tests {
         }
         .write(&outside);
         let junction = root.join(UDID_B);
-        let output = std::process::Command::new("cmd")
-            .arg("/c")
-            .arg("mklink")
-            .arg("/J")
-            .arg(&junction)
-            .arg(&outside)
-            .output()
-            .unwrap();
+        let output = fsutil::test_support::junction(&junction, &outside);
         if !output.status.success() {
             eprintln!(
                 "SKIPPED junction check: mklink /J failed: {}{}",

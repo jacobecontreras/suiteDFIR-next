@@ -889,6 +889,7 @@ fn tree_size(path: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fsutil::test_support::try_symlink_dir;
 
     const RUN: &str = "20260924-183005Z-ileapp-3f9a1c";
     const ACQ: &str = "20260924-171200Z-ios-9c01de";
@@ -973,22 +974,6 @@ mod tests {
         assert!(root.join("not-a-job").join("keep").is_file());
     }
 
-    /// Creates a directory symlink, or returns false (with a message) where the OS does not allow
-    /// it: Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
-    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
-        match crate::fsutil::test_support::symlink_dir(target, link) {
-            Ok(()) => true,
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED symlink check: creating symlinks needs Developer Mode or admin \
-                     (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                false
-            }
-            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
-        }
-    }
-
     #[test]
     fn sweep_does_not_follow_symlinks_inside_a_temp_dir() {
         let cache = tempfile::tempdir().unwrap();
@@ -1046,14 +1031,9 @@ mod tests {
     fn a_junction_temp_root_is_refused() {
         let cache = tempfile::tempdir().unwrap();
         let outside = precious_dir();
-        let status = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(cache.path().join("tmp"))
-            .arg(outside.path())
-            .stdout(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(status.success(), "mklink /J failed: {status}");
+        let output =
+            crate::fsutil::test_support::junction(&cache.path().join("tmp"), outside.path());
+        assert!(output.status.success(), "mklink /J failed: {output:?}");
         assert_linked_root_refused(cache.path(), outside.path());
     }
 
