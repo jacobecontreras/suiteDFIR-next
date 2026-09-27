@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use common::{Lab, UDID};
+use common::{Lab, UDID, all_files, host, is_read_only};
 use suitedfir_core::acquire::{
     self, AcqContext, AcqControl, AcqError, AcqOutcome, BACKUP_MANIFEST, RestoreRefusal,
 };
@@ -19,22 +19,13 @@ use suitedfir_core::case::{self, CreatedCase};
 use suitedfir_core::contracts::{
     AcqCommandPurpose, AcqEvent, AcqPhase, AcqRequest, AcqRestoreEncryptionResult, AcqStatus,
     AcquisitionRecord, DeviceChangeKind, DevicePromptKind, EncryptionRestoreRecord, ErrorCode,
-    IdeviceToolSource, PasswordChannel, PreflightLevel, RecordHost, RestoreState, SealStatus,
-    Timestamp, ToolVerification, examples, parse_versioned,
+    IdeviceToolSource, PasswordChannel, PreflightLevel, RestoreState, SealStatus, Timestamp,
+    ToolVerification, examples, parse_versioned,
 };
 use suitedfir_core::hashing;
 use suitedfir_core::idevice::{Idevice, Password};
 
 const PASSWORD: &str = "k7-Examiner-Pw!";
-
-fn host() -> RecordHost {
-    RecordHost {
-        os: "testos".to_owned(),
-        os_version: "1.0".to_owned(),
-        arch: std::env::consts::ARCH.to_owned(),
-        hostname: "LAB-TEST-01".to_owned(),
-    }
-}
 
 fn new_case(lab: &Lab) -> CreatedCase {
     case::create(lab.root.path(), &examples::case_fields()).unwrap()
@@ -160,7 +151,7 @@ fn assert_final(
     assert_eq!(codes(&record.warnings), warnings, "{context}");
     // Finalized: read-only, as returned, with the end time.
     let file = dir.join("acquisition.json");
-    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(is_read_only(&file));
     assert_eq!(read_record(&dir), *record);
     assert!(record.ended_at.is_some() && record.duration_ms.is_some());
     assert_eq!(record.recovered_at, None);
@@ -940,12 +931,7 @@ fn a_cancel_while_validating_stops_the_seal() {
     assert_eq!(record.output.seal.manifest, None);
     let dir = acq_dir(&outcome);
     assert!(!dir.join(BACKUP_MANIFEST).exists());
-    assert!(
-        fs::metadata(dir.join("acquisition.json"))
-            .unwrap()
-            .permissions()
-            .readonly()
-    );
+    assert!(is_read_only(&dir.join("acquisition.json")));
     assert!(matches!(events.last(), Some(AcqEvent::Finished { .. })));
     lab.assert_no_temp_dirs();
 }
@@ -1051,12 +1037,7 @@ fn crash_after_enable_is_recovered() {
     assert_eq!(record.encryption.will_encrypt_after_enable, Some(true));
     assert_ne!(record.encryption.restored_after, RestoreState::Restored);
     let dir = acquire::discover(&case.path).unwrap().remove(0).dir;
-    assert!(
-        fs::metadata(dir.join("acquisition.json"))
-            .unwrap()
-            .permissions()
-            .readonly()
-    );
+    assert!(is_read_only(&dir.join("acquisition.json")));
     assert_eq!(
         acquire::summary(&acquire::discover(&case.path).unwrap()[0]).warnings,
         ["encryption_left_enabled"]
@@ -1172,7 +1153,7 @@ fn a_later_restore_writes_encryption_restore_json() {
             .any(|l| l.prompt == Some(DevicePromptKind::PasscodeForEncryption))
     );
     let file = dir.join("encryption-restore.json");
-    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(is_read_only(&file));
     let restore: EncryptionRestoreRecord = parse_versioned(&fs::read(&file).unwrap()).unwrap();
     assert_eq!(restore.acq_id, acq_id);
     assert_eq!(restore.argv[1..], ["-u", UDID, "encryption", "off"]);
@@ -1219,10 +1200,7 @@ fn a_failed_later_restore_can_be_retried() {
     assert_eq!(listed(), offered);
     let read_attempt = |name: &str| -> EncryptionRestoreRecord {
         let file = dir.join(name);
-        assert!(
-            fs::metadata(&file).unwrap().permissions().readonly(),
-            "{name}"
-        );
+        assert!(is_read_only(&file), "{name}");
         parse_versioned(&fs::read(&file).unwrap()).unwrap()
     };
 
@@ -1507,23 +1485,6 @@ impl log::Log for CaptureLog {
 }
 
 static LOGGER: CaptureLog = CaptureLog;
-
-/// Every file under `dir`, with its bytes.
-fn all_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
-    let mut files = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                files.push((path.clone(), fs::read(&path).unwrap()));
-            }
-        }
-    }
-    files
-}
 
 #[test]
 fn the_password_never_leaks() {

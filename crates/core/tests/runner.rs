@@ -13,12 +13,12 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use common::FAKE_LEAPP;
+use common::{FAKE_LEAPP, all_files, host, is_read_only};
 use suitedfir_core::case::{self, CreatedCase};
 use suitedfir_core::contracts::{
     AppError, EntryVerifiedAgainst, ErrorCode, HashStatus, InputType, InstallSource, ModuleMode,
-    ModuleSelection, Reason, RecordHost, RunEvent, RunPhase, RunRecord, RunRequest, RunStatus,
-    SealStatus, Settings, StdStream, ToolId, examples, parse_versioned,
+    ModuleSelection, Reason, RunEvent, RunPhase, RunRecord, RunRequest, RunStatus, SealStatus,
+    Settings, StdStream, ToolId, examples, parse_versioned,
 };
 use suitedfir_core::hashing;
 use suitedfir_core::manifest;
@@ -30,15 +30,6 @@ use suitedfir_core::settings;
 const PASSWORD: &str = "e1a-Backup-Pw!";
 /// An acquisition id for inputs inside a case's `acquisitions/`.
 const ACQ_ID: &str = "20260924-171200Z-ios-9c01de";
-
-fn host() -> RecordHost {
-    RecordHost {
-        os: "testos".to_owned(),
-        os_version: "1.0".to_owned(),
-        arch: std::env::consts::ARCH.to_owned(),
-        hostname: "LAB-TEST-01".to_owned(),
-    }
-}
 
 /// App dirs, a known case and an `fs` input folder, all in a short-named temp dir (the Windows test
 /// machine has long paths disabled).
@@ -228,7 +219,7 @@ fn assert_final(
     assert_eq!(codes(&record.warnings), warnings, "{context}");
     // Finalized: read-only, as returned, with the end time.
     let file = dir.join("run.json");
-    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(is_read_only(&file));
     assert_eq!(read_record(&dir), *record);
     assert!(record.ended_at.is_some() && record.duration_ms.is_some());
     assert_eq!(record.recovered_at, None);
@@ -874,23 +865,14 @@ fn the_backup_password_never_leaks() {
     assert_eq!(argv[at + 1], "<redacted>");
     assert!(!format!("{events:?} {outcome:?}").contains(PASSWORD));
     // Nothing in the run folder holds it.
-    let mut pending = vec![run_dir(&outcome)];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                let bytes = fs::read(&path).unwrap();
-                assert!(
-                    !bytes
-                        .windows(PASSWORD.len())
-                        .any(|w| w == PASSWORD.as_bytes()),
-                    "{} holds the password",
-                    path.display()
-                );
-            }
-        }
+    for (path, bytes) in all_files(&run_dir(&outcome)) {
+        assert!(
+            !bytes
+                .windows(PASSWORD.len())
+                .any(|w| w == PASSWORD.as_bytes()),
+            "{} holds the password",
+            path.display()
+        );
     }
 }
 
@@ -953,12 +935,7 @@ fn a_final_record_that_cannot_be_written_is_recovered_later() {
     let record = read_record(&dir);
     assert_eq!(record.status, RunStatus::Interrupted);
     assert_eq!(codes(&record.status_reasons), ["app_interrupted"]);
-    assert!(
-        fs::metadata(dir.join("run.json"))
-            .unwrap()
-            .permissions()
-            .readonly()
-    );
+    assert!(is_read_only(&dir.join("run.json")));
 }
 
 // ---- prepare and spawn failures ----
