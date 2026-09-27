@@ -476,7 +476,8 @@ mod tests {
 /// `platform_for` return today. Frozen: later bundles do not edit this module.
 #[cfg(test)]
 mod z0 {
-    use super::*;
+    use super::{host_platform, platform_for};
+    use crate::contracts::PlatformKey;
 
     /// This host's `std::env::consts::{OS, ARCH}` and its expected platform, per compile target.
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -510,7 +511,7 @@ mod z0 {
         (std::env::consts::OS, std::env::consts::ARCH, None);
 
     #[test]
-    fn host_platform_is_platform_for_the_std_consts() {
+    fn z0_host_platform_is_platform_for_the_std_consts() {
         let (os, arch, platform) = HOST;
         assert_eq!((std::env::consts::OS, std::env::consts::ARCH), (os, arch));
         assert_eq!(host_platform(), platform);
@@ -521,7 +522,7 @@ mod z0 {
     }
 
     #[test]
-    fn platform_for_maps_exactly_six_pairs() {
+    fn z0_platform_for_maps_exactly_six_pairs() {
         let mapped = [
             ("macos", "aarch64", PlatformKey::MacosAarch64),
             ("macos", "x86_64", PlatformKey::MacosX86_64),
