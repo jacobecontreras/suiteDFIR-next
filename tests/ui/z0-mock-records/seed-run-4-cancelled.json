@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "run_id": "20260922-101530Z-aleapp-#1",
+  "label": null,
+  "status": "cancelled",
+  "status_reasons": [
+    {
+      "code": "cancelled_by_user",
+      "message": "Cancelled by the examiner"
+    }
+  ],
+  "warnings": [],
+  "created_at": "2026-09-22T10:15:30Z",
+  "started_at": "2026-09-22T10:15:31Z",
+  "ended_at": "2026-09-22T10:22:30Z",
+  "recovered_at": null,
+  "duration_ms": 420000,
+  "app": {
+    "name": "suiteDFIR",
+    "version": "0.2.0"
+  },
+  "host": {
+    "os": "macos",
+    "os_version": "15.6",
+    "arch": "aarch64",
+    "hostname": "LAB-MAC-01"
+  },
+  "case_snapshot": {
+    "case_id": "5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c",
+    "name": "Operation Nightjar",
+    "case_number": "2026-0142",
+    "examiner": "J. Doe",
+    "agency": "County Forensics Lab"
+  },
+  "tool": {
+    "id": "aleapp",
+    "version": "v2026.4.1",
+    "platform": "macos-aarch64",
+    "asset_name": "aleapp-v2026.4.1-macOS_Apple_Silicon.zip",
+    "asset_sha256": "d99f2d05dbde20ee997de477c38443d4f019d60326a8c6b9456058c6cf590386",
+    "entry_sha256": "71dda0d3326d5f5f22a081a296fa2b09292f071680084ab5154d7429e73c2e06",
+    "entry_verified_against": "manifest",
+    "install_source": "download"
+  },
+  "input": {
+    "path": "/Volumes/Evidence/Pixel-7.tar",
+    "kind": "file",
+    "type": "tar",
+    "type_detected": "tar",
+    "size_bytes": 13314398617,
+    "itunes_encrypted": null,
+    "acquisition_id": null,
+    "hash": {
+      "algorithm": "sha256",
+      "status": "cancelled",
+      "value": null,
+      "started_at": "2026-09-22T10:15:31Z",
+      "completed_at": null
+    }
+  },
+  "options": {
+    "timezone": null,
+    "timezone_supported": false,
+    "password_supplied": false,
+    "keychain_path": null,
+    "keychain_sha256": null
+  },
+  "modules": {
+    "mode": "all",
+    "profile_name": null,
+    "requested": [],
+    "resolved": "<every tool_modules name, sorted>",
+    "unknown": [],
+    "always_run": [
+      "usagestatsVersion"
+    ],
+    "available_count": 1288
+  },
+  "command": {
+    "argv": [
+      "/Users/examiner/Library/Application Support/com.suitedfir.desktop/leapp/aleapp/v2026.4.1/bin/aleapp",
+      "-t",
+      "tar",
+      "-i",
+      "/Volumes/Evidence/Pixel-7.tar",
+      "-o",
+      "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/20260922-101530Z-aleapp-#1",
+      "--custom_output_folder",
+      "report",
+      "-d",
+      "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/20260922-101530Z-aleapp-#1/case.lcasedata"
+    ],
+    "cwd": "/Users/examiner/Documents/suiteDFIR Cases/Operation Nightjar/runs/20260922-101530Z-aleapp-#1"
+  },
+  "process": {
+    "exit_code": null,
+    "signal": 15,
+    "exited_at": "2026-09-22T10:22:10Z",
+    "cancel_requested": true,
+    "escalated_to_kill": false
+  },
+  "leapp_result": {
+    "lava_data_found": false,
+    "processing_status": null,
+    "leapp_version_reported": null,
+    "index_html_found": false,
+    "module_counts": null,
+    "error_modules": []
+  },
+  "output": {
+    "report_dir": "report",
+    "seal": {
+      "status": "sealed",
+      "manifest": "report.sha256",
+      "manifest_sha256": "16c6428a0dd24eeb087bcb072aee9a16d37d29aa661f6b16cddbec25d4f2c9aa",
+      "file_count": 214,
+      "total_bytes": 3456789
+    }
+  },
+  "logs": {
+    "stdout": "leapp.stdout.log",
+    "stderr": "leapp.stderr.log",
+    "screen_output": "report/_HTML/_Script_Logs/Screen_Output.html"
+  }
+}
