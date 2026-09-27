@@ -819,14 +819,13 @@ impl Fake {
             snapshot: snapshot.to_owned(),
         };
         let interval = self.pacing.interval;
+        layout(self.scenario == Scenario::Incomplete, "new").write(&udid_dir)?;
         match self.scenario {
             scenario if scenario.slow_backup() => {
-                layout(false, "new").write(&udid_dir)?;
                 self.store.write_pid()?;
                 Ok(self.slow_backup(&udid_dir, encrypted))
             }
             Scenario::BackupFail | Scenario::BackupFailEncrypted => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 60, interval) {
                     return Ok(aborted(1));
                 }
@@ -839,7 +838,6 @@ impl Fake {
                 Ok(-105)
             }
             Scenario::Incomplete => {
-                layout(true, "new").write(&udid_dir)?;
                 if stream_progress(0, 100, interval) {
                     return Ok(aborted(3));
                 }
@@ -848,7 +846,6 @@ impl Fake {
                 Ok(0)
             }
             Scenario::CancelOnDevice => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 30, interval) {
                     return Ok(aborted(1));
                 }
@@ -858,7 +855,6 @@ impl Fake {
                 Ok(-1)
             }
             Scenario::Disconnect => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 40, interval) {
                     return Ok(aborted(1));
                 }
@@ -870,7 +866,6 @@ impl Fake {
                 Ok(-1)
             }
             _ => {
-                layout(false, "new").write(&udid_dir)?;
                 if stream_progress(0, 100, interval) {
                     return Ok(aborted(1));
                 }
@@ -1004,15 +999,6 @@ impl Layout {
     fn write(&self, udid_dir: &Path) -> Result<(), String> {
         let fail = |e: &dyn std::fmt::Display| format!("{}: {e}", udid_dir.display());
         fs::create_dir_all(udid_dir).map_err(|e| fail(&e))?;
-        let text = |value: &str| plist::Value::String(value.to_owned());
-        let dict = |items: Vec<(&str, plist::Value)>| {
-            plist::Value::Dictionary(
-                items
-                    .into_iter()
-                    .map(|(key, value)| (key.to_owned(), value))
-                    .collect(),
-            )
-        };
         dict(vec![
             ("Device Name", text("Fake iPhone")),
             ("Display Name", text("Fake iPhone")),
@@ -1060,10 +1046,25 @@ impl Layout {
     }
 }
 
+// ---- plist values ----
+
+fn text(value: &str) -> plist::Value {
+    plist::Value::String(value.to_owned())
+}
+
+/// A dictionary with the keys in the order given.
+fn dict<'a>(items: impl IntoIterator<Item = (&'a str, plist::Value)>) -> plist::Value {
+    plist::Value::Dictionary(
+        items
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value))
+            .collect(),
+    )
+}
+
 // ---- ideviceinfo values ----
 
 fn device_info(simple: bool) -> plist::Value {
-    let text = |value: &str| plist::Value::String(value.to_owned());
     // The pre-session subset (`-s`) lacks the serial number and the phone identifiers.
     let mut items = vec![
         ("BuildVersion", text("22G86")),
@@ -1084,12 +1085,7 @@ fn device_info(simple: bool) -> plist::Value {
             ("WiFiAddress", text("a4:c3:f0:00:00:01")),
         ]);
     }
-    plist::Value::Dictionary(
-        items
-            .into_iter()
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect(),
-    )
+    dict(items)
 }
 
 /// The data partition grows with `data_used` beyond the default capacity.
@@ -1097,17 +1093,12 @@ fn disk_usage(data_used: u64) -> plist::Value {
     let number = |value: u64| plist::Value::Integer(value.into());
     let capacity = DATA_CAPACITY.max(data_used);
     let system = 8 * 1024 * 1024 * 1024;
-    plist::Value::Dictionary(
-        [
-            ("TotalDiskCapacity", number(capacity.saturating_add(system))),
-            ("TotalSystemCapacity", number(system)),
-            ("TotalDataCapacity", number(capacity)),
-            ("TotalDataAvailable", number(capacity - data_used)),
-        ]
-        .into_iter()
-        .map(|(key, value)| (key.to_owned(), value))
-        .collect(),
-    )
+    dict([
+        ("TotalDiskCapacity", number(capacity.saturating_add(system))),
+        ("TotalSystemCapacity", number(system)),
+        ("TotalDataCapacity", number(capacity)),
+        ("TotalDataAvailable", number(capacity - data_used)),
+    ])
 }
 
 // ---- Unix signal handling ----

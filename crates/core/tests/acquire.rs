@@ -11,30 +11,21 @@ use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use common::{Lab, UDID};
+use common::{Lab, UDID, all_files, host, is_read_only};
 use suitedfir_core::acquire::{
     self, AcqContext, AcqControl, AcqError, AcqOutcome, BACKUP_MANIFEST, RestoreRefusal,
 };
 use suitedfir_core::case::{self, CreatedCase};
 use suitedfir_core::contracts::{
-    AcqCommandPurpose, AcqEvent, AcqPhase, AcqRequest, AcqStatus, AcquisitionRecord,
-    DeviceChangeKind, DevicePromptKind, EncryptionRestoreRecord, ErrorCode, IdeviceToolSource,
-    PasswordChannel, PreflightLevel, RecordHost, RestoreState, SealStatus, Timestamp,
+    AcqCommandPurpose, AcqEvent, AcqPhase, AcqRequest, AcqRestoreEncryptionResult, AcqStatus,
+    AcquisitionRecord, DeviceChangeKind, DevicePromptKind, EncryptionRestoreRecord, ErrorCode,
+    IdeviceToolSource, PasswordChannel, PreflightLevel, RestoreState, SealStatus, Timestamp,
     ToolVerification, examples, parse_versioned,
 };
 use suitedfir_core::hashing;
-use suitedfir_core::idevice::Password;
+use suitedfir_core::idevice::{Idevice, Password};
 
 const PASSWORD: &str = "k7-Examiner-Pw!";
-
-fn host() -> RecordHost {
-    RecordHost {
-        os: "testos".to_owned(),
-        os_version: "1.0".to_owned(),
-        arch: std::env::consts::ARCH.to_owned(),
-        hostname: "LAB-TEST-01".to_owned(),
-    }
-}
 
 fn new_case(lab: &Lab) -> CreatedCase {
     case::create(lab.root.path(), &examples::case_fields()).unwrap()
@@ -57,6 +48,21 @@ fn request(case: &CreatedCase, password: Option<&str>) -> AcqRequest {
         encryption_password: password.map(str::to_owned),
         restore_encryption: true,
     }
+}
+
+/// A later restore with [`PASSWORD`], ignoring the tool's output lines.
+fn restore_later(
+    idevice: &Idevice,
+    case: &CreatedCase,
+    acq_id: &str,
+) -> Result<AcqRestoreEncryptionResult, AcqError> {
+    acquire::restore_later(
+        idevice,
+        &case.path,
+        acq_id,
+        PASSWORD.to_owned(),
+        &mut |_| {},
+    )
 }
 
 /// Runs an acquisition to the end; `hook` sees every event (and may cancel through the control).
@@ -145,7 +151,7 @@ fn assert_final(
     assert_eq!(codes(&record.warnings), warnings, "{context}");
     // Finalized: read-only, as returned, with the end time.
     let file = dir.join("acquisition.json");
-    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(is_read_only(&file));
     assert_eq!(read_record(&dir), *record);
     assert!(record.ended_at.is_some() && record.duration_ms.is_some());
     assert_eq!(record.recovered_at, None);
@@ -292,7 +298,7 @@ fn success() {
             .unwrap()
             .contains("Backup Successful.")
     );
-    assert_eq!(record.seal_file_count(), 6);
+    assert_eq!(record.output.seal.file_count, Some(6));
     // Progress: overall only, increasing, ending at 100, at most 4 per second.
     let progress: Vec<u8> = events
         .iter()
@@ -329,17 +335,6 @@ fn success() {
             .as_deref(),
         Some(record.acq_id.as_str())
     );
-}
-
-/// `seal.file_count`, for brevity.
-trait SealCount {
-    fn seal_file_count(&self) -> u64;
-}
-
-impl SealCount for AcquisitionRecord {
-    fn seal_file_count(&self) -> u64 {
-        self.output.seal.file_count.unwrap()
-    }
 }
 
 #[test]
@@ -466,7 +461,11 @@ fn sync_lock() {
         ],
         &[],
     );
-    assert_eq!(record.seal_file_count(), 0, "backup/ exists but is empty");
+    assert_eq!(
+        record.output.seal.file_count,
+        Some(0),
+        "backup/ exists but is empty"
+    );
     assert!(
         log_lines(&events)
             .iter()
@@ -488,6 +487,15 @@ fn cancel_when_backing_up(event: &AcqEvent, control: &AcqControl) {
         && lines.iter().any(|l| l == "Full backup mode.")
     {
         control.cancel();
+    }
+}
+
+/// Cancels on the `Phase` event of `phase`.
+fn cancel_at(phase: AcqPhase) -> impl Fn(&AcqEvent, &AcqControl) {
+    move |event, control| {
+        if matches!(event, AcqEvent::Phase { phase: p } if *p == phase) {
+            control.cancel();
+        }
     }
 }
 
@@ -831,16 +839,7 @@ fn cancel_during_restore_is_ignored() {
         &lab,
         &case,
         request(&case, Some(PASSWORD)),
-        |event, control| {
-            if matches!(
-                event,
-                AcqEvent::Phase {
-                    phase: AcqPhase::RestoringEncryption
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(AcqPhase::RestoringEncryption),
     );
     let record = assert_final(&lab, &outcome, &events, AcqStatus::Succeeded, &[], &[]);
     assert_eq!(record.encryption.restored_after, RestoreState::Restored);
@@ -893,16 +892,7 @@ fn a_cancel_while_preparing_skips_the_device_changes() {
         &lab,
         &case,
         request(&case, Some(PASSWORD)),
-        |event, control| {
-            if matches!(
-                event,
-                AcqEvent::Phase {
-                    phase: AcqPhase::Preparing
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(AcqPhase::Preparing),
     );
     let record = assert_final(
         &lab,
@@ -926,16 +916,12 @@ fn a_cancel_while_preparing_skips_the_device_changes() {
 fn a_cancel_while_validating_stops_the_seal() {
     let lab = Lab::new("success");
     let case = new_case(&lab);
-    let (outcome, events) = acquire(&lab, &case, request(&case, None), |event, control| {
-        if matches!(
-            event,
-            AcqEvent::Phase {
-                phase: AcqPhase::Validating
-            }
-        ) {
-            control.cancel();
-        }
-    });
+    let (outcome, events) = acquire(
+        &lab,
+        &case,
+        request(&case, None),
+        cancel_at(AcqPhase::Validating),
+    );
     let record = &outcome.record;
     assert_eq!(outcome.write_error, None);
     // The backup had finished: the status stands, only the seal stopped.
@@ -945,12 +931,7 @@ fn a_cancel_while_validating_stops_the_seal() {
     assert_eq!(record.output.seal.manifest, None);
     let dir = acq_dir(&outcome);
     assert!(!dir.join(BACKUP_MANIFEST).exists());
-    assert!(
-        fs::metadata(dir.join("acquisition.json"))
-            .unwrap()
-            .permissions()
-            .readonly()
-    );
+    assert!(is_read_only(&dir.join("acquisition.json")));
     assert!(matches!(events.last(), Some(AcqEvent::Finished { .. })));
     lab.assert_no_temp_dirs();
 }
@@ -1056,12 +1037,7 @@ fn crash_after_enable_is_recovered() {
     assert_eq!(record.encryption.will_encrypt_after_enable, Some(true));
     assert_ne!(record.encryption.restored_after, RestoreState::Restored);
     let dir = acquire::discover(&case.path).unwrap().remove(0).dir;
-    assert!(
-        fs::metadata(dir.join("acquisition.json"))
-            .unwrap()
-            .permissions()
-            .readonly()
-    );
+    assert!(is_read_only(&dir.join("acquisition.json")));
     assert_eq!(
         acquire::summary(&acquire::discover(&case.path).unwrap()[0]).warnings,
         ["encryption_left_enabled"]
@@ -1177,7 +1153,7 @@ fn a_later_restore_writes_encryption_restore_json() {
             .any(|l| l.prompt == Some(DevicePromptKind::PasscodeForEncryption))
     );
     let file = dir.join("encryption-restore.json");
-    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(is_read_only(&file));
     let restore: EncryptionRestoreRecord = parse_versioned(&fs::read(&file).unwrap()).unwrap();
     assert_eq!(restore.acq_id, acq_id);
     assert_eq!(restore.argv[1..], ["-u", UDID, "encryption", "off"]);
@@ -1194,14 +1170,7 @@ fn a_later_restore_writes_encryption_restore_json() {
     let listed = acquire::summary(&acquire::discover(&case.path).unwrap()[0]);
     assert_eq!(listed.warnings, ["encryption_restore_failed"]);
     // Another later restore is not applicable: encryption was already turned off.
-    let err = acquire::restore_later(
-        &idevice,
-        &case.path,
-        &acq_id,
-        PASSWORD.to_owned(),
-        &mut |_| {},
-    )
-    .unwrap_err();
+    let err = restore_later(&idevice, &case, &acq_id).unwrap_err();
     assert_eq!(err.code(), ErrorCode::RestoreNotApplicable);
     assert!(matches!(
         err,
@@ -1229,26 +1198,14 @@ fn a_failed_later_restore_can_be_retried() {
     let listed = || acquire::summary(&acquire::discover(&case.path).unwrap()[0]).warnings;
     let offered = ["encryption_restore_failed", "encryption_left_enabled"];
     assert_eq!(listed(), offered);
-    let later = |idevice: &suitedfir_core::idevice::Idevice| {
-        acquire::restore_later(
-            idevice,
-            &case.path,
-            &acq_id,
-            PASSWORD.to_owned(),
-            &mut |_| {},
-        )
-    };
     let read_attempt = |name: &str| -> EncryptionRestoreRecord {
         let file = dir.join(name);
-        assert!(
-            fs::metadata(&file).unwrap().permissions().readonly(),
-            "{name}"
-        );
+        assert!(is_read_only(&file), "{name}");
         parse_versioned(&fs::read(&file).unwrap()).unwrap()
     };
 
     // 1. The device still refuses: the attempt is recorded, and the restore is still offered.
-    let failed = later(&lab.reopen("restore_fail")).unwrap();
+    let failed = restore_later(&lab.reopen("restore_fail"), &case, &acq_id).unwrap();
     assert!(!failed.restored);
     assert_eq!(failed.will_encrypt_after, Some(true));
     let first = read_attempt("encryption-restore.json");
@@ -1258,7 +1215,7 @@ fn a_failed_later_restore_can_be_retried() {
     let first_bytes = fs::read(dir.join("encryption-restore.json")).unwrap();
 
     // 2. A retry succeeds: its own file; the first one is untouched.
-    let retried = later(&lab.reopen("success")).unwrap();
+    let retried = restore_later(&lab.reopen("success"), &case, &acq_id).unwrap();
     assert!(retried.restored);
     let second = read_attempt("encryption-restore-2.json");
     assert!(second.restored);
@@ -1271,7 +1228,7 @@ fn a_failed_later_restore_can_be_retried() {
     assert_eq!(listed(), ["encryption_restore_failed"], "the offer is gone");
 
     // 3. A third attempt is refused, and writes nothing.
-    let err = later(&lab.reopen("success")).unwrap_err();
+    let err = restore_later(&lab.reopen("success"), &case, &acq_id).unwrap_err();
     assert!(
         matches!(
             err,
@@ -1299,14 +1256,7 @@ fn a_later_restore_without_a_free_attempt_file_does_not_touch_the_device() {
     // A name that leaves no next number (anything under an attempt name counts as taken).
     fs::write(dir.join("encryption-restore-4294967295.json"), "x").unwrap();
     let calls_before = lab.calls().len();
-    let err = acquire::restore_later(
-        &lab.reopen("success"),
-        &case.path,
-        &outcome.record.acq_id,
-        PASSWORD.to_owned(),
-        &mut |_| {},
-    )
-    .unwrap_err();
+    let err = restore_later(&lab.reopen("success"), &case, &outcome.record.acq_id).unwrap_err();
     assert!(matches!(err, AcqError::NoFreeId { .. }), "{err}");
     let new_calls = &lab.calls()[calls_before..];
     assert!(
@@ -1322,14 +1272,7 @@ fn a_later_restore_without_a_free_attempt_file_does_not_touch_the_device() {
 fn a_later_restore_is_refused_without_an_encryption_warning() {
     let lab = Lab::new("success");
     let (case, outcome, _) = simple(&lab, None);
-    let err = acquire::restore_later(
-        &lab.idevice,
-        &case.path,
-        &outcome.record.acq_id,
-        PASSWORD.to_owned(),
-        &mut |_| {},
-    )
-    .unwrap_err();
+    let err = restore_later(&lab.idevice, &case, &outcome.record.acq_id).unwrap_err();
     assert!(
         matches!(
             err,
@@ -1345,14 +1288,7 @@ fn a_later_restore_is_refused_without_an_encryption_warning() {
         !calls.iter().any(|c| c.iter().any(|a| a == "off")),
         "{calls:?}"
     );
-    let err = acquire::restore_later(
-        &lab.idevice,
-        &case.path,
-        "20270101-000000Z-ios-000000",
-        PASSWORD.to_owned(),
-        &mut |_| {},
-    )
-    .unwrap_err();
+    let err = restore_later(&lab.idevice, &case, "20270101-000000Z-ios-000000").unwrap_err();
     assert_eq!(err.code(), ErrorCode::AcqNotFound);
 }
 
@@ -1550,23 +1486,6 @@ impl log::Log for CaptureLog {
 
 static LOGGER: CaptureLog = CaptureLog;
 
-/// Every file under `dir`, with its bytes.
-fn all_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
-    let mut files = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                files.push((path.clone(), fs::read(&path).unwrap()));
-            }
-        }
-    }
-    files
-}
-
 #[test]
 fn the_password_never_leaks() {
     let _ = log::set_logger(&LOGGER);
@@ -1601,14 +1520,7 @@ fn the_password_never_leaks() {
     )
     .unwrap();
     assert!(!needle.is_in(&format!("{restored:?}")));
-    let refused = acquire::restore_later(
-        &idevice,
-        &case.path,
-        &outcome.record.acq_id,
-        PASSWORD.to_owned(),
-        &mut |_| {},
-    )
-    .unwrap_err();
+    let refused = restore_later(&idevice, &case, &outcome.record.acq_id).unwrap_err();
     let app: suitedfir_core::contracts::AppError = refused.into();
     assert!(!needle.is_in(&format!("{app} {app:?}")), "errors");
     let short =
