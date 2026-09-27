@@ -1376,7 +1376,7 @@ pub fn restore_later(
     let applicable = record
         .warnings
         .iter()
-        .any(|w| w.code == "encryption_left_enabled" || w.code == "encryption_state_unknown");
+        .any(|w| record::RESTORE_OFFER_CODES.contains(&w.code.as_str()));
     if !applicable {
         return Err(AcqError::RestoreNotApplicable(
             RestoreRefusal::NoEncryptionWarning,

@@ -620,8 +620,11 @@ pub fn discover(case_dir: &Path) -> Result<Vec<DiscoveredAcq>, AcqError> {
     Ok(found)
 }
 
-/// The warning codes that offer "Turn backup encryption off" on the Case screen.
-const RESTORE_OFFER_CODES: [&str; 2] = ["encryption_left_enabled", "encryption_state_unknown"];
+/// The warning codes that offer "Turn backup encryption off" on the Case screen ([`summary`]) and
+/// that make a later restore applicable ([`super::restore_later`], else `restore_not_applicable`).
+/// This one list defines both the offer and the refusal, so they always change together.
+pub(crate) const RESTORE_OFFER_CODES: [&str; 2] =
+    ["encryption_left_enabled", "encryption_state_unknown"];
 
 /// The listing entry of an acquisition (`CaseDetail.acquisitions`, the `finished` event). Its
 /// `warnings` are the record's codes, except that once a later restore recorded `restored: true`,
