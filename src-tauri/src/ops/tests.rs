@@ -24,7 +24,7 @@ use suitedfir_core::runner::RunControl;
 use super::AttachSubscriber;
 use crate::opener::testing::Opened;
 use crate::state::{Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber, TmpUsers};
-use crate::testing::{Lab, UDID, lab_state, write_backup};
+use crate::testing::{Lab, UDID, lab_state, stand_in_lab, write_backup};
 
 const WAIT: Duration = Duration::from_secs(90);
 
@@ -554,15 +554,8 @@ fn a_later_restore_frees_the_slot_when_it_returns() {
 /// an install that starts during a sweep waits for it.
 #[test]
 fn tool_install_registers_with_the_temp_sweep() {
-    let placeholder = tempfile::Builder::new().prefix("sdr").tempdir().unwrap();
-    let stand_in = crate::testing::aleapp_stand_in(placeholder.path());
-    let lab = crate::testing::lab(crate::testing::LabOptions {
-        leapp_override: vec![ToolId::Ileapp],
-        manifest: stand_in.manifest,
-        download_from: Some(stand_in.zip.clone()),
-        ..Default::default()
-    });
-    let state = &lab.state;
+    let stand_in = stand_in_lab("success");
+    let state = &stand_in.lab.state;
     // During the install (its events), a sweep is refused.
     let mut sweep_refused = Vec::new();
     state
@@ -1096,14 +1089,8 @@ fn tools_without_the_dev_override_are_not_installed() {
 /// created: no run folder, no temp dir.
 #[test]
 fn a_tampered_tool_is_refused_before_a_run_and_nothing_is_created() {
-    let placeholder = tempfile::Builder::new().prefix("sdr").tempdir().unwrap();
-    let stand_in = crate::testing::aleapp_stand_in(placeholder.path());
-    let lab = crate::testing::lab(crate::testing::LabOptions {
-        leapp_override: vec![ToolId::Ileapp],
-        manifest: stand_in.manifest,
-        download_from: Some(stand_in.zip.clone()),
-        ..Default::default()
-    });
+    let stand_in = stand_in_lab("success");
+    let lab = &stand_in.lab;
     let state = &lab.state;
     let status = state
         .tool_install(ToolId::Aleapp, super::InstallFrom::Download, &mut |_| {})
@@ -1112,8 +1099,8 @@ fn a_tampered_tool_is_refused_before_a_run_and_nothing_is_created() {
     let entry = PathBuf::from(status.install_dir.unwrap())
         .join("bin")
         .join(format!("fake-leapp-probe{}", crate::testing::EXE));
-    let case = new_case(&lab);
-    let input = evidence(&lab);
+    let case = new_case(lab);
+    let input = evidence(lab);
     let request = || RunRequest {
         tool: ToolId::Aleapp,
         timezone: None,

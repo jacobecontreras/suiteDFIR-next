@@ -30,7 +30,7 @@ use tauri::test::{INVOKE_KEY, get_ipc_response, mock_builder, mock_context, noop
 use tauri::webview::InvokeRequest;
 
 use crate::opener::testing::Opened;
-use crate::testing::{LabOptions, UDID, aleapp_stand_in, lab, write_backup};
+use crate::testing::{UDID, stand_in_lab, write_backup};
 
 const RECORDED: &str = include_str!("../../tests/ui/recorded-invokes.json");
 const CONTRACTS: &str = include_str!("../../docs/CONTRACTS.md");
@@ -144,17 +144,10 @@ fn wait_for_finished(sent: &Sent, channels: &[u32]) {
 #[test]
 fn every_recorded_invoke_succeeds_through_the_real_handlers() {
     // The aLEAPP stand-in: a probe-answering fake-leapp copy, pinned by a test manifest.
-    let placeholder = tempfile::Builder::new().prefix("sdr").tempdir().unwrap();
-    let stand_in = aleapp_stand_in(placeholder.path());
-    let zip_path = stand_in.zip.clone();
-    let lab = lab(LabOptions {
-        leapp_override: vec![ToolId::Ileapp],
-        manifest: stand_in.manifest,
-        download_from: Some(zip_path.clone()),
-        idevice_scenario: "not_paired".to_owned(),
-    });
+    let stand_in = stand_in_lab("not_paired");
+    let lab = &stand_in.lab;
     let root = lab.root.path().to_path_buf();
-    fs::copy(&zip_path, root.join("aleapp-replay.zip")).unwrap();
+    fs::copy(&stand_in.zip, root.join("aleapp-replay.zip")).unwrap();
     for input in ["fs", "slow"] {
         let dir = root.join("evidence").join(input);
         fs::create_dir_all(&dir).unwrap();
@@ -477,5 +470,4 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
             Opened::Open(acq_dir.join("acquisition.json")),
         ]
     );
-    drop(placeholder);
 }
