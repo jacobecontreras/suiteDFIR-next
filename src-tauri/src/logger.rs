@@ -25,7 +25,7 @@ const REDACTED: &str = "<redacted>";
 pub struct FileLogger {
     max_bytes: u64,
     level: LevelFilter,
-    file: Mutex<Option<File>>,
+    file: Mutex<File>,
 }
 
 impl FileLogger {
@@ -46,7 +46,7 @@ impl FileLogger {
         Ok(Self {
             max_bytes,
             level,
-            file: Mutex::new(Some(file)),
+            file: Mutex::new(file),
         })
     }
 
@@ -55,10 +55,7 @@ impl FileLogger {
     pub fn write_line(&self, level: log::Level, target: &str, message: &str) {
         let line = format!("{} {level:<5} {target}: {message}", Timestamp::now());
         let line = redact(&line);
-        let mut guard = self.file.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(file) = guard.as_mut() else {
-            return;
-        };
+        let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
         // Only this logger writes the file (under this lock), so its end is where the line goes.
         let _ = file.seek(SeekFrom::End(0));
         let size = file.metadata().map(|m| m.len()).unwrap_or(0);
@@ -89,9 +86,7 @@ impl Log for FileLogger {
     }
 
     fn flush(&self) {
-        if let Some(file) = self.file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            let _ = file.flush();
-        }
+        let _ = self.file.lock().unwrap_or_else(|e| e.into_inner()).flush();
     }
 }
 
