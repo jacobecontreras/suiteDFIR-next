@@ -11,11 +11,11 @@ use crate::case::{self, CaseError, RUN_FILE, RUNS_DIR};
 use crate::contracts::{
     AppError, CaseFile, CaseSnapshot, ContractError, ErrorCode, HashAlgorithm, HashStatus,
     InputHash, InputKind, Reason, RecordApp, RecordHost, RunCommand, RunInput, RunLogs, RunModules,
-    RunOptions, RunOutput, RunRecord, RunStatus, RunTool, Seal, SealStatus, Timestamp, ToolId,
+    RunOptions, RunOutput, RunRecord, RunStatus, RunTool, SealStatus, Timestamp, ToolId,
     VersionedFile, parse_versioned,
 };
 use crate::fsutil;
-use crate::hashing::to_hex;
+use crate::hashing::{self, to_hex};
 
 /// The product name recorded in `app.name` (ARCHITECTURE.md D20).
 pub const APP_NAME: &str = "suiteDFIR";
@@ -296,13 +296,7 @@ pub(crate) fn record_from(setup: RunSetup) -> RunRecord {
         leapp_result: None,
         output: RunOutput {
             report_dir: REPORT_DIR.to_owned(),
-            seal: Seal {
-                status: SealStatus::Pending,
-                manifest: None,
-                manifest_sha256: None,
-                file_count: None,
-                total_bytes: None,
-            },
+            seal: hashing::unsealed(SealStatus::Pending),
         },
         logs: RunLogs {
             stdout: STDOUT_LOG.to_owned(),

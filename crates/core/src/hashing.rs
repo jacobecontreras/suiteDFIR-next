@@ -143,13 +143,7 @@ impl SealOutcome {
                 file_count: Some(self.file_count),
                 total_bytes: Some(self.total_bytes),
             },
-            _ => Seal {
-                status: SealStatus::Cancelled,
-                manifest: None,
-                manifest_sha256: None,
-                file_count: None,
-                total_bytes: None,
-            },
+            _ => unsealed(SealStatus::Cancelled),
         }
     }
 
@@ -176,6 +170,18 @@ impl SealOutcome {
             });
         }
         warnings
+    }
+}
+
+/// An `output.seal` with no manifest (`pending`, `skipped_no_output`, `failed` or `cancelled`):
+/// `status` and nulls.
+pub fn unsealed(status: SealStatus) -> Seal {
+    Seal {
+        status,
+        manifest: None,
+        manifest_sha256: None,
+        file_count: None,
+        total_bytes: None,
     }
 }
 

@@ -939,7 +939,7 @@ impl RunJob {
             self.set_phase(RunPhase::SealingReport, on_event);
             self.seal(&mut seal_warnings, on_event)
         } else {
-            skipped_seal()
+            hashing::unsealed(SealStatus::SkippedNoOutput)
         };
 
         self.finish(record, &outcome, &seal_warnings, traceback, on_event)
@@ -1184,13 +1184,7 @@ impl RunJob {
             }
             Err(e) => {
                 log::warn!("run {}: sealing the report failed: {e}", self.run_id());
-                Seal {
-                    status: SealStatus::Failed,
-                    manifest: None,
-                    manifest_sha256: None,
-                    file_count: None,
-                    total_bytes: None,
-                }
+                hashing::unsealed(SealStatus::Failed)
             }
         }
     }
@@ -1206,7 +1200,7 @@ impl RunJob {
     ) -> RunOutcome {
         self.set_phase(RunPhase::Finalizing, on_event);
         if record.output.seal.status == SealStatus::Pending {
-            record.output.seal = skipped_seal();
+            record.output.seal = hashing::unsealed(SealStatus::SkippedNoOutput);
         }
         let verdict = status::evaluate(&StatusInput {
             outcome,
@@ -1305,16 +1299,6 @@ fn apply_hash(record: &mut RunRecord, hashing: &mut InputHashing) {
             hash.status = HashStatus::Failed;
         }
         None => hash.status = HashStatus::Failed,
-    }
-}
-
-fn skipped_seal() -> Seal {
-    Seal {
-        status: SealStatus::SkippedNoOutput,
-        manifest: None,
-        manifest_sha256: None,
-        file_count: None,
-        total_bytes: None,
     }
 }
 
