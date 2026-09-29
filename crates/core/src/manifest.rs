@@ -167,24 +167,10 @@ pub fn asset_for(tool: &ToolManifest, platform: Option<PlatformKey>) -> Option<&
     platform.and_then(|platform| tool.platforms.get(&platform))
 }
 
-/// This host's platform, from the compile-time target, or `None` for an OS/CPU pair that has no
-/// pinned builds.
-pub const fn host_platform() -> Option<PlatformKey> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some(PlatformKey::MacosAarch64)
-    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        Some(PlatformKey::MacosX86_64)
-    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        Some(PlatformKey::WindowsX86_64)
-    } else if cfg!(all(target_os = "windows", target_arch = "aarch64")) {
-        Some(PlatformKey::WindowsAarch64)
-    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some(PlatformKey::LinuxX86_64)
-    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
-        Some(PlatformKey::LinuxAarch64)
-    } else {
-        None
-    }
+/// This host's platform, from the compile-time target (`std::env::consts::{OS, ARCH}`), or `None`
+/// for an OS/CPU pair that has no pinned builds.
+pub fn host_platform() -> Option<PlatformKey> {
+    platform_for(std::env::consts::OS, std::env::consts::ARCH)
 }
 
 /// The platform for an OS and CPU as spelled by `std::env::consts::{OS, ARCH}`.
