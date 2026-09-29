@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use suitedfir_core::acquire::AcqControl;
 use suitedfir_core::contracts::{
     AcqEvent, ActiveJob, AppError, ErrorCode, LeappManifest, PlatformKey, RecordHost, RunEvent,
-    Settings, Timestamp, ToolId,
+    Settings, Timestamp, ToolId, ToolManifest,
 };
 use suitedfir_core::idevice::{Idevice, IdeviceConfig};
 use suitedfir_core::leapp::install::Pinned;
@@ -136,6 +136,15 @@ impl AppState {
             Arc::new(Idevice::new(config));
     }
 
+    /// A tool's entry in the pinned manifest.
+    pub(crate) fn tool_manifest(&self, tool: ToolId) -> Result<&ToolManifest, AppError> {
+        self.manifest.tools.get(&tool).ok_or_else(|| AppError {
+            code: ErrorCode::Internal,
+            message: format!("The tool manifest has no entry for {tool}"),
+            detail: None,
+        })
+    }
+
     /// A tool as pinned for this host, in the tools dir in effect.
     pub fn with_pinned<T>(
         &self,
@@ -143,11 +152,7 @@ impl AppState {
         settings: &Settings,
         f: impl FnOnce(Pinned<'_>) -> T,
     ) -> Result<T, AppError> {
-        let manifest = self.manifest.tools.get(&tool).ok_or_else(|| AppError {
-            code: ErrorCode::Internal,
-            message: format!("The tool manifest has no entry for {tool}"),
-            detail: None,
-        })?;
+        let manifest = self.tool_manifest(tool)?;
         let tools_dir = self.paths.tools_dir(settings);
         Ok(f(Pinned {
             tools_dir: &tools_dir,

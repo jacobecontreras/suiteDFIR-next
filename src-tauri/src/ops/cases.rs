@@ -9,7 +9,7 @@ use suitedfir_core::contracts::{
     AppError, CaseCreateRequest, CaseDetail, CaseFields, CaseFile, CaseSummary, CaseUpdateRequest,
     ErrorCode, InputInspectRequest, InputInspection, IosBackup, ModuleInfo, PathRequest,
     ProfileExportRequest, ProfileImportRequest, ProfileInfo, ProfileRef, ProfileSaveRequest,
-    RunRecord, RunRef, Timestamp, ToolId, parse_versioned,
+    RunRecord, RunRef, Timestamp, ToolId, ToolManifest, parse_versioned,
 };
 use suitedfir_core::fsutil;
 use suitedfir_core::inspect::{self, OverlapContext, backups};
@@ -44,6 +44,14 @@ impl AppState {
             acquisitions,
             recovered,
         })
+    }
+
+    /// A tool's manifest entry for input inspection and profiles ("Unknown tool" if it has none).
+    fn known_tool(&self, tool: ToolId) -> Result<&ToolManifest, AppError> {
+        self.manifest
+            .tools
+            .get(&tool)
+            .ok_or_else(|| app_error(ErrorCode::Internal, "Unknown tool", Some(tool.to_string())))
     }
 
     pub fn cases_list(&self) -> Vec<CaseSummary> {
@@ -167,13 +175,7 @@ impl AppState {
     pub fn input_inspect(&self, req: &InputInspectRequest) -> Result<InputInspection, AppError> {
         let settings = self.settings();
         let (case_dir, _) = policy::known_case(&settings, &req.case_path)?;
-        let manifest = self.manifest.tools.get(&req.tool).ok_or_else(|| {
-            app_error(
-                ErrorCode::Internal,
-                "Unknown tool",
-                Some(req.tool.to_string()),
-            )
-        })?;
+        let manifest = self.known_tool(req.tool)?;
         let known: Vec<PathBuf> = settings.recent_cases.iter().map(PathBuf::from).collect();
         let app_dirs = self.paths.app_dirs(&settings);
         let temp_root = self.paths.temp_root();
@@ -200,9 +202,7 @@ impl AppState {
     // ---- profiles ----
 
     fn profile_store(&self, tool: ToolId) -> Result<ProfileStore, AppError> {
-        let manifest = self.manifest.tools.get(&tool).ok_or_else(|| {
-            app_error(ErrorCode::Internal, "Unknown tool", Some(tool.to_string()))
-        })?;
+        let manifest = self.known_tool(tool)?;
         Ok(ProfileStore::new(
             self.paths.profiles_dir(tool),
             ProfileFormat::from_manifest(tool, manifest),

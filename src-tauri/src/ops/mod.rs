@@ -15,8 +15,8 @@ use std::path::Path;
 
 use suitedfir_core::contracts::{
     AppError, AppInfo, AppInfoPaths, ErrorCode, InstallEvent, ModulesFile, Settings,
-    SettingsUpdateRequest, ToolId, ToolManifest, ToolModules, ToolState, ToolStatus,
-    ToolsDirUpdate, parse_versioned,
+    SettingsUpdateRequest, ToolId, ToolModules, ToolState, ToolStatus, ToolsDirUpdate,
+    parse_versioned,
 };
 use suitedfir_core::leapp::install::{self, MODULES_FILE, Source};
 use suitedfir_core::leapp::modules;
@@ -96,16 +96,6 @@ impl AppState {
     }
 
     // ---- tools ----
-
-    fn tool_manifest(&self, tool: ToolId) -> Result<&ToolManifest, AppError> {
-        self.manifest.tools.get(&tool).ok_or_else(|| {
-            app_error(
-                ErrorCode::Internal,
-                format!("The tool manifest has no entry for {tool}"),
-                None,
-            )
-        })
-    }
 
     /// A tool's state. Without `verify` it is cheap (no hashing): an installed tool is
     /// `installed_unverified` unless it was verified in this session.
