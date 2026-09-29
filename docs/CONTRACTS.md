@@ -4,6 +4,8 @@
 
 File formats on disk and the UI↔core API. **The Rust types in `crates/core/src/contracts/` are the source of truth**; this document, `ui/types.d.ts` and the generated examples in `ui-dev/fixtures/contracts/` must match them (CI enforces the examples, see DEVELOPMENT.md §4.7).
 
+Tests parse parts of this document (`crates/core/src/contracts/tests.rs`, `src-tauri/src/replay.rs`, `tests/ui/helpers.js`), so its headings, code blocks and table rows keep their shape.
+
 ## 1. Conventions
 
 - **Encoding and keys:** JSON everywhere, UTF-8, `snake_case` keys on disk and inside IPC payloads. (Only top-level Tauri command *argument names* are camelCase on the JS side: `req`, `onEvent`.)
@@ -114,8 +116,7 @@ Maintained by `cargo xtask pin-leapp`. Hand edits only for `urls` mirrors and fo
 ```
 
 - **`name`:** the artifact key. It is what profiles contain and what LEAPP matches.
-- **`always_run`:** maps an `InputType` (or `default`) to artifact names that run regardless of selection. It is derived per tool by the core's encoded rules, which are verified by E3 (LEAPP-CLI.md §5):
-  - For aLEAPP, the names are those of plugins whose `module_name` is `usagestatsVersion`.
+- **`always_run`:** maps an `InputType` (or `default`) to artifact names that run regardless of selection. It is derived per tool by the core's encoded rules (LEAPP-CLI.md §5):
   - These names are **not** in `modules`.
 - **`modules`:** excludes everything the tool's own `main()` excludes from selection. Sorted by `category`, then `display_name` (case-insensitive).
 - **`timezones`:** `pytz.all_timezones` from the binary (iLEAPP). `null` for aLEAPP.
@@ -341,7 +342,8 @@ The initial record carries every known field. The unknown ones are:
    | Code | When |
    |---|---|
    | `stderr_traceback` | stderr contains `Traceback (most recent call last)` |
-   | `input_hash_failed`, `input_hash_cancelled` | a cancel arrived after exit |
+   | `input_hash_failed` | hashing the input failed |
+   | `input_hash_cancelled` | a cancel arrived after exit |
    | `seal_failed` | |
    | `symlinks_in_report` | count; symlinks are not followed or listed |
    | `unencodable_filename` | Windows names that are not valid Unicode |
@@ -547,11 +549,8 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 
 - **`version` and `release`:** `version` is the libimobiledevice version: the tools' `--version` output and `acquisition.json` `tools.version`. `release` names the tool build: the bundles are assets of the prerelease `idevice-tools-<release>` and are named `idevice-tools-<release>-<platform>.zip`. It is `version`, or `version` with a suffix for a rebuild of the same sources (`1.4.0-p2` adds the source patches, IDEVICE-CLI.md §1).
 - **What gets pinned:** hashes are of the **unsigned** build outputs. `fetch-idevice-tools` enforces them.
-- **Runtime verification** (`ToolVerification`):
-  - `manifest`: file hashes equal these values (unsigned/debug builds).
-  - `code_signature`: macOS signed builds pass `codesign --verify --strict` with a requirement for a Developer ID signature of the app's own team (so an ad-hoc or foreign signature fails).
-  - `recorded_only`: otherwise.
-- **Sources:** `sources` lists every tarball the build consumes (TLS, curl if built). The libplist asset has no GitHub digest, so its pinned hash is computed from the tarball itself.
+- **Runtime verification:** see the `ToolVerification` values in §13.1.
+- **Sources:** `sources` lists every tarball the build consumes (TLS, curl if built). The libplist asset has no GitHub digest, so its hash was computed from the downloaded tarball (IDEVICE-CLI.md §1).
 - **Linux:** `system_platforms` use tools found on `PATH` (hashes recorded).
 
 ### 13.3 `acquisition.json` (the acquisition audit record)
@@ -621,10 +620,10 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 - `process` describes the backup command.
 - Times follow §7.1.
 - Passwords never appear anywhere; they travel only via env (`password_channel: "env"`).
-- **Initial record:** follows §7.2 (`commands: []`, `device_changes: []`, `process`/`backup_result` `null`, seal `pending`, `restored_after` `not_requested` or `not_attempted`).
+- **Initial record:** follows §7.2 (`commands: []`; `device_changes: []`, or the `pair_record_created` entry when the app paired the device in this app session; `process`/`backup_result` `null`; seal `pending`; `restored_after` `not_requested` or `not_attempted`).
 - **During the job:** the record is **rewritten atomically after every device-changing command**: enable, backup start (sync lock), restore.
 - **`device-info.plist`:** holds the full post-pairing `ideviceinfo -x` output. Its hash is in `device.info_file_sha256`, and it is covered by no other manifest.
-- **Exit codes:** `idevicebackup2` exits with a truncated negative code (Unix `(-N) & 0xFF`, so 0 is possible on failure; Windows sees a negative value). Status therefore relies on messages and layout, never on the numeric value alone.
+- **Exit codes:** `idevicebackup2` can exit 0 on failure (IDEVICE-CLI.md §3), so status relies on messages and layout, never on the numeric value alone.
 
 **Nullable fields** (written as `null`, never omitted). Every other field is never `null`.
 - Top level: `label`, `started_at`, `ended_at`, `recovered_at` and `duration_ms`, as in §7.1.
@@ -677,7 +676,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
    | Code | Meaning |
    |---|---|
    | `encryption_restore_failed` | |
-   | `encryption_left_enabled` | encryption was enabled by the examiner and not confirmed disabled |
+   | `encryption_left_enabled` | encryption may still be on: the restore failed, or the examiner enabled it and no restore ran |
    | `encryption_state_unknown` | |
    | `backup_encryption_preexisting` | `WillEncrypt` was already true, so parsing needs the owner's password |
    | `device_file_errors` | count of `Received an error message from device:` lines |
