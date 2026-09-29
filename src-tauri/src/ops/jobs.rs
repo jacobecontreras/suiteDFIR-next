@@ -3,7 +3,7 @@
 
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::thread;
 
 use suitedfir_core::case;
@@ -34,7 +34,8 @@ impl AppState {
     /// case must be known; the tool is verified right before the run; `runner::start` does every
     /// other check of ARCHITECTURE.md §6 step 1 and creates the run folder. The slot is reserved
     /// meanwhile, without holding its lock. The run itself goes on on its own thread, its events
-    /// to `subscriber` (and later subscribers of `job_attach`).
+    /// to `subscriber` (and later subscribers of `job_attach`); this returns once that thread has
+    /// written the initial `run.json` (step 2).
     pub fn run_start(
         self: &Arc<Self>,
         req: RunRequest,
@@ -78,18 +79,23 @@ impl AppState {
         let guard = JobGuard::new(Arc::clone(self), id.clone());
         let control = job.control();
         let thread_id = id.clone();
+        let (prepared_tx, prepared_rx) = mpsc::channel::<()>();
         let spawned = thread::Builder::new()
             .name(format!("run-{id}"))
             .spawn(move || {
                 let ran = panic::catch_unwind(AssertUnwindSafe(|| {
-                    job.run(&mut |event: RunEvent| {
+                    let mut emit = |event: RunEvent| {
                         // The slot is free before the UI hears `finished` (ARCHITECTURE.md §6
                         // step 10).
                         if event.is_finished() {
                             guard.free();
                         }
                         stream.emit(&event);
-                    })
+                    };
+                    let prepared = job.prepare(&mut emit);
+                    // Step 2 is done: `run_start` may return.
+                    drop(prepared_tx);
+                    prepared.run(&mut emit)
                 }));
                 match ran {
                     Ok(outcome) => {
@@ -132,6 +138,9 @@ impl AppState {
                 Some(e.to_string()),
             ));
         }
+        // The UI reads the run (`run_get`) as soon as it has the id, so wait for step 2 and its
+        // initial `run.json`. The sender is dropped then, or earlier if the thread panicked.
+        let _ = prepared_rx.recv();
         Ok(started)
     }
 

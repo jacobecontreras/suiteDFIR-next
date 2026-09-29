@@ -870,6 +870,29 @@ fn a_run_opens_its_files_and_reveals_its_folder() {
 }
 
 #[test]
+fn a_run_can_be_read_as_soon_as_run_start_returns() {
+    // The UI opens the Run screen, and so calls `run_get`, right after `run_start` returns.
+    let lab = lab_state();
+    let state = &lab.state;
+    let case = new_case(&lab);
+    let input = evidence(&lab);
+    for _ in 0..5 {
+        let (subscriber, events) = collector::<RunEvent>();
+        let run = state
+            .run_start(run_request(&case, &input), subscriber)
+            .unwrap();
+        let record = state
+            .run_get(&RunRef {
+                case_path: case.to_string_lossy().into_owned(),
+                run_id: run.run_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(record.run_id, run.run_id);
+        wait_finished(&events, run_finished);
+    }
+}
+
+#[test]
 fn an_acquisition_opens_its_files() {
     let lab = lab_state();
     let state = &lab.state;
