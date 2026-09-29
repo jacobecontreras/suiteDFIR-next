@@ -23,11 +23,11 @@ use suitedfir_core::hashing::sha256_file;
 
 /// The repository whose prereleases hold the bundles.
 const RELEASE_REPO: &str = "jacobecontreras/suiteDFIR-next";
-const API_BASE: &str = "https://api.github.com";
+pub(crate) const API_BASE: &str = "https://api.github.com";
 /// The tools suiteDFIR runs (docs/IDEVICE-CLI.md §2).
 const TOOLS: [&str; 4] = ["idevice_id", "ideviceinfo", "idevicepair", "idevicebackup2"];
 /// Upper bounds for the release metadata and for one bundle (a bundle is a few MB).
-const MAX_RELEASE_JSON_BYTES: u64 = 8 << 20;
+pub(crate) const MAX_RELEASE_JSON_BYTES: u64 = 8 << 20;
 const MAX_BUNDLE_BYTES: u64 = 128 << 20;
 /// Network timeouts: connecting, waiting for the response headers, and reading a whole body.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -143,18 +143,18 @@ pub(crate) fn read_manifest(path: &Path) -> Result<IdeviceToolsManifest, String>
 }
 
 /// The prerelease that holds the tool bundles of the build `release` (the manifest's `release`).
-pub(crate) fn release_tag(release: &str) -> String {
+fn release_tag(release: &str) -> String {
     format!("idevice-tools-{release}")
 }
 
 /// The asset name of the tool bundle of the build `release` for `platform`.
-pub(crate) fn bundle_asset_name(release: &str, platform: PlatformKey) -> String {
+fn bundle_asset_name(release: &str, platform: PlatformKey) -> String {
     format!("idevice-tools-{release}-{platform}.zip")
 }
 
 /// `release` is `version` or `version-<suffix>` with a suffix of ASCII letters, digits and dots
 /// (it becomes part of a tag in a URL path).
-pub(crate) fn check_release(manifest: &IdeviceToolsManifest) -> Result<(), String> {
+fn check_release(manifest: &IdeviceToolsManifest) -> Result<(), String> {
     let release = &manifest.release;
     let ok = match release.strip_prefix(manifest.version.as_str()) {
         Some("") => !release.is_empty(),
@@ -203,7 +203,7 @@ pub(crate) fn is_plain_name(name: &str) -> bool {
 /// The bundle name must be a plain `.zip` file name (it becomes a path under
 /// `src-tauri/binaries/`); every file name must be a plain name, the four tools must be present,
 /// and anything else must be a Windows DLL.
-pub(crate) fn check_bundle_files(bundle: &ToolBundle, platform: PlatformKey) -> Result<(), String> {
+fn check_bundle_files(bundle: &ToolBundle, platform: PlatformKey) -> Result<(), String> {
     if !is_plain_name(&bundle.bundle) || !bundle.bundle.ends_with(".zip") {
         return Err(format!(
             "bundle name {:?} is not a plain .zip file name",
@@ -368,7 +368,11 @@ fn select_asset(release: &serde_json::Value, name: &str) -> Result<(String, u64)
 }
 
 /// Copies `reader` to `writer` and fails unless exactly `size` bytes arrived.
-fn copy_exact(reader: &mut impl Read, writer: &mut impl Write, size: u64) -> Result<(), String> {
+pub(crate) fn copy_exact(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    size: u64,
+) -> Result<(), String> {
     let written = io::copy(reader, writer).map_err(|e| e.to_string())?;
     if written != size {
         return Err(format!("got {written} bytes, the release lists {size}"));
