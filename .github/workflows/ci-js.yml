@@ -1,5 +1,5 @@
 # UI type checking and tests (DEVELOPMENT.md §6). Runs on non-draft pull requests and pushes to main
-# that touch the UI or its tooling.
+# that touch the UI or its tooling, or docs/CONTRACTS.md (tests/ui/helpers.js parses it).
 name: ci-js
 
 on:
@@ -13,6 +13,7 @@ on:
       - "package-lock.json"
       - "tsconfig.json"
       - ".node-version"
+      - "docs/CONTRACTS.md"
       - ".github/workflows/ci-js.yml"
   push:
     branches: [main]
@@ -24,6 +25,7 @@ on:
       - "package-lock.json"
       - "tsconfig.json"
       - ".node-version"
+      - "docs/CONTRACTS.md"
       - ".github/workflows/ci-js.yml"
   workflow_dispatch:
 
