@@ -606,10 +606,31 @@ mod tests {
         "idevicepair-aarch64-apple-darwin",
     ];
 
+    /// The four tools' macOS file names, spelled out: the tests check `TOOLS`, so they do not take
+    /// the names from it.
+    const MAC: [&str; 4] = ["idevice_id", "ideviceinfo", "idevicepair", "idevicebackup2"];
+
+    /// The committed `idevice-tools.json`.
+    fn committed_manifest() -> IdeviceToolsManifest {
+        read_manifest(&crate::repo_root().join("idevice-tools.json")).unwrap()
+    }
+
+    /// A bundle named `bundle` with the files `names`, all with the same dummy hash.
+    fn bundle_named(bundle: &str, names: &[&str]) -> ToolBundle {
+        let hash = "a".repeat(64);
+        ToolBundle {
+            bundle: bundle.into(),
+            bundle_sha256: hash.clone(),
+            files: names
+                .iter()
+                .map(|n| ((*n).to_owned(), hash.clone()))
+                .collect(),
+        }
+    }
+
     #[test]
     fn committed_manifest_pins_every_bundle() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let manifest = read_manifest(&root.join("idevice-tools.json")).unwrap();
+        let manifest = committed_manifest();
         let platforms: Vec<_> = manifest.platforms.keys().copied().collect();
         assert_eq!(
             platforms,
@@ -635,8 +656,7 @@ mod tests {
     /// libimobiledevice version the tools report).
     #[test]
     fn the_tag_and_asset_names_come_from_the_release() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let manifest = read_manifest(&root.join("idevice-tools.json")).unwrap();
+        let manifest = committed_manifest();
         assert_eq!(manifest.version, "1.4.0");
         assert_eq!(manifest.release, "1.4.0-p2");
         assert_eq!(release_tag(&manifest.release), "idevice-tools-1.4.0-p2");
@@ -664,8 +684,7 @@ mod tests {
 
     #[test]
     fn the_release_is_the_version_or_a_suffixed_version() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let mut manifest = read_manifest(&root.join("idevice-tools.json")).unwrap();
+        let mut manifest = committed_manifest();
         for (release, ok) in [
             ("1.4.0", true),
             ("1.4.0-p1", true),
@@ -750,30 +769,21 @@ mod tests {
 
     #[test]
     fn bundle_file_names_are_checked() {
-        let hash = "a".repeat(64);
-        let bundle = |names: &[&str]| ToolBundle {
-            bundle: "b.zip".into(),
-            bundle_sha256: hash.clone(),
-            files: names
-                .iter()
-                .map(|n| ((*n).to_owned(), hash.clone()))
-                .collect(),
-        };
-        let mac = ["idevice_id", "ideviceinfo", "idevicepair", "idevicebackup2"];
+        let bundle = |names: &[&str]| bundle_named("b.zip", names);
         let win = [
             "idevice_id.exe",
             "ideviceinfo.exe",
             "idevicepair.exe",
             "idevicebackup2.exe",
         ];
-        check_bundle_files(&bundle(&mac), PlatformKey::MacosAarch64).unwrap();
+        check_bundle_files(&bundle(&MAC), PlatformKey::MacosAarch64).unwrap();
         check_bundle_files(&bundle(&win), PlatformKey::WindowsX86_64).unwrap();
         let with_dll = [&win[..], &["libx-1.dll"]].concat();
         check_bundle_files(&bundle(&with_dll), PlatformKey::WindowsX86_64).unwrap();
 
         // A missing tool, the wrong platform's names, stray files and path-like names fail.
-        assert!(check_bundle_files(&bundle(&mac[..3]), PlatformKey::MacosAarch64).is_err());
-        assert!(check_bundle_files(&bundle(&mac), PlatformKey::WindowsX86_64).is_err());
+        assert!(check_bundle_files(&bundle(&MAC[..3]), PlatformKey::MacosAarch64).is_err());
+        assert!(check_bundle_files(&bundle(&MAC), PlatformKey::WindowsX86_64).is_err());
         for extra in [
             "libx.dylib",
             "../x.dll",
@@ -788,18 +798,16 @@ mod tests {
                 "{extra}"
             );
         }
-        let dll_on_mac = [&mac[..], &["libx-1.dll"]].concat();
+        let dll_on_mac = [&MAC[..], &["libx-1.dll"]].concat();
         assert!(check_bundle_files(&bundle(&dll_on_mac), PlatformKey::MacosAarch64).is_err());
 
-        let mut bad_hash = bundle(&mac);
+        let mut bad_hash = bundle(&MAC);
         bad_hash.files.insert("idevice_id".into(), "A".repeat(64));
         assert!(check_bundle_files(&bad_hash, PlatformKey::MacosAarch64).is_err());
     }
 
     #[test]
     fn the_bundle_name_must_be_a_plain_zip_name() {
-        let hash = "a".repeat(64);
-        let mac = ["idevice_id", "ideviceinfo", "idevicepair", "idevicebackup2"];
         for (name, ok) in [
             ("idevice-tools-1.4.0-macos-aarch64.zip", true),
             ("../x.zip", false),
@@ -810,14 +818,7 @@ mod tests {
             ("..", false),
             ("x.tar.gz", false),
         ] {
-            let bundle = ToolBundle {
-                bundle: name.into(),
-                bundle_sha256: hash.clone(),
-                files: mac
-                    .iter()
-                    .map(|n| ((*n).to_owned(), hash.clone()))
-                    .collect(),
-            };
+            let bundle = bundle_named(name, &MAC);
             assert_eq!(
                 check_bundle_files(&bundle, PlatformKey::MacosAarch64).is_ok(),
                 ok,

@@ -719,8 +719,7 @@ mod tests {
 
     #[test]
     fn the_committed_manifest_follows_the_templates() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let manifest = read_manifest(&root.join(MANIFEST_FILE)).unwrap();
+        let manifest = read_manifest(&crate::repo_root().join(MANIFEST_FILE)).unwrap();
         for facts in &TOOLS {
             let entry = &manifest.tools[&facts.tool];
             let expected = tool_manifest(facts, &entry.version, entry.platforms.clone());

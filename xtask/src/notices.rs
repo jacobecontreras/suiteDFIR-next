@@ -1450,7 +1450,7 @@ mod tests {
     /// network; this only checks the parts that do not).
     #[test]
     fn the_committed_notices_cover_the_pinned_inputs() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let root = crate::repo_root();
         let notices = fs::read_to_string(root.join(OUTPUT)).unwrap();
         let manifest = idevice_tools::read_manifest(&root.join("idevice-tools.json")).unwrap();
         for source in &manifest.sources {
