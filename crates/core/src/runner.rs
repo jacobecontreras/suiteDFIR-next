@@ -6,8 +6,9 @@
 //! - [`installed_tool`] (or, in debug builds, [`dev_override_tool`]) verifies the tool before every
 //!   run and loads its module list.
 //! - [`start`] is lifecycle step 1: every check, each failing with its `AppError` and creating
-//!   nothing; then it creates `runs/<run_id>/` so `run_start` can answer with the id.
-//! - [`RunJob::run`] is steps 2-10: prepare (initial `run.json`, `case.lcasedata`, the run's
+//!   nothing; then it creates `runs/<run_id>/`, which gives the run its id.
+//! - [`RunJob::run`] is steps 2-10, as [`RunJob::prepare`] then [`PreparedRun::run`] (`run_start`
+//!   answers after `prepare`): prepare (initial `run.json`, `case.lcasedata`, the run's
 //!   profile, the per-run temp dir), hash the input on its own thread concurrently with LEAPP,
 //!   spawn LEAPP, stream `Screen_Output.html` in `log` batches of at most 500 lines, drain after
 //!   the exit and send each stdio tail once, wait for the input hash, analyze the report, seal it
@@ -674,6 +675,7 @@ impl fmt::Debug for RunJob {
 }
 
 /// A run after step 2 ([`RunJob::prepare`]). [`PreparedRun::run`] does the rest.
+#[must_use = "only `PreparedRun::run` finalizes the run's record and temp dir"]
 pub struct PreparedRun {
     job: RunJob,
     record: RunRecord,

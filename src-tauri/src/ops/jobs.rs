@@ -35,7 +35,8 @@ impl AppState {
     /// other check of ARCHITECTURE.md §6 step 1 and creates the run folder. The slot is reserved
     /// meanwhile, without holding its lock. The run itself goes on on its own thread, its events
     /// to `subscriber` (and later subscribers of `job_attach`); this returns once that thread has
-    /// written the initial `run.json` (step 2).
+    /// done step 2, which normally writes the initial `run.json` (not when preparing fails before
+    /// the write), or has ended.
     pub fn run_start(
         self: &Arc<Self>,
         req: RunRequest,
