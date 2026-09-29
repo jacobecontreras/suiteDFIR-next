@@ -8,13 +8,7 @@
 //! - [`start`] is lifecycle step 1: every check, each failing with its `AppError` and creating
 //!   nothing; then it creates `runs/<run_id>/`, which gives the run its id.
 //! - [`RunJob::run`] is steps 2-10, as [`RunJob::prepare`] then [`PreparedRun::run`] (`run_start`
-//!   answers after `prepare`): prepare (initial `run.json`, `case.lcasedata`, the run's
-//!   profile, the per-run temp dir), hash the input on its own thread concurrently with LEAPP,
-//!   spawn LEAPP, stream `Screen_Output.html` in `log` batches of at most 500 lines, drain after
-//!   the exit and send each stdio tail once, wait for the input hash, analyze the report, seal it
-//!   into `report.sha256`, and finalize `run.json` (atomic, then read-only).
-//! - [`RunControl::cancel`]: before the exit it stops the process tree (and hashing); a cancel that
-//!   arrives after the exit only stops input hashing (warning `input_hash_cancelled`).
+//!   answers after `prepare`).
 //!
 //! The one-active-job rule, the event channel and the log backlog are the shell's. The iTunes
 //! backup password lives in the job only until LEAPP is spawned; it reaches LEAPP through argv
