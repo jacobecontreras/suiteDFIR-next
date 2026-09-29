@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use crate::contracts::{
     AppError, DevicePromptKind, DeviceSummary, DevicesResult, ErrorCode, IdeviceToolsState,
-    IdeviceToolsStatus, PairState, PlatformKey, StdStream, Timestamp,
+    IdeviceToolsStatus, PairState, StdStream, Timestamp,
 };
 use crate::fsutil;
 use crate::process::{self, ExitInfo, SpawnSpec};
@@ -239,10 +239,6 @@ impl Idevice {
 
     pub fn app_cache(&self) -> &Path {
         &self.config.app_cache
-    }
-
-    pub fn platform(&self) -> Option<PlatformKey> {
-        self.config.lookup.platform
     }
 
     /// The located tools, verified when first located; later calls reuse them. A failure is not
@@ -667,10 +663,6 @@ impl Session {
         }
     }
 
-    pub fn tools(&self) -> &Arc<IdeviceTools> {
-        &self.tools
-    }
-
     /// A spawn spec for `name` with `args`, its logs in the scratch dir.
     fn spec(&self, name: ToolName, args: &[String]) -> (SpawnSpec, PathBuf, PathBuf) {
         let n = self.counter.fetch_add(1, Ordering::Relaxed);
@@ -990,7 +982,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn password_debug_is_redacted_and_bytes_are_cleared() {
+    fn password_debug_is_redacted() {
         let password = Password::new("hunter22".to_owned());
         assert_eq!(format!("{password:?}"), "Password(<redacted>)");
         assert_eq!(password.chars(), 8);
@@ -998,10 +990,6 @@ mod tests {
         assert!(!password.is_in("hunter2"));
         assert_eq!(password.env_value(), OsString::from("hunter22"));
         assert_eq!(Password::new("pässwörd".to_owned()).chars(), 8);
-        let mut bytes = Password::new("secret".to_owned());
-        // What drop does, observed before the memory is freed.
-        bytes.0.fill(0);
-        assert!(bytes.0.iter().all(|&b| b == 0));
     }
 
     #[test]

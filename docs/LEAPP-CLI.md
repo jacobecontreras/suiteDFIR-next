@@ -64,7 +64,7 @@ aLEAPP **v2026.4.1**:
     | aLEAPP v2026.4.1 | **2.42** | not inspected; runs with 2.43 (below) |
 
     - These are the highest glibc symbol versions that any bundled library requires, read from the ELF version references of every shared object in the PyInstaller archives. iLEAPP bundles glibc's own `libmvec.so.1`, which requires `libm.so.6` `GLIBC_2.43` (and `GLIBC_PRIVATE`). `libtinfo.so.6` and the `termios` extension require 2.42. `libpython3.14.so.1.0`, `libssl`, `libsqlite3`, `libstdc++` and others require 2.38.
-    - **Too old, VERIFIED:** `ubuntu:22.04` (glibc 2.35), leapp-smoke run 36170550467, both tools. `--appimage-extract` works there as an unprivileged user, but the inner binary exits 255: `[PYI-…:ERROR] Failed to load Python shared library '…/_MEI…/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version 'GLIBC_2.38' not found`. Introspection reports this as `introspection_failed`, saying which glibc the build needs.
+    - **Too old, VERIFIED:** `ubuntu:22.04` (glibc 2.35), leapp-smoke run 36170550467, both tools. `--appimage-extract` works there as an unprivileged user, but the inner binary exits 255: `[PYI-…:ERROR] Failed to load Python shared library '…/_MEI…/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version 'GLIBC_2.38' not found`.
     - **New enough, VERIFIED:** `ubuntu:26.04` (glibc 2.43, `ldd (Ubuntu GLIBC 2.43-2ubuntu2.4) 2.43`), leapp-smoke run 36176500110. Both tools install via `--appimage-extract` as an unprivileged user and introspect with the same module lists as macOS arm64 and Windows x64 (iLEAPP 1138, aLEAPP 1287, identical list digests). The extracted entries hash to `c23c4bdc…ed44` (iLEAPP) and `c12e82ce…90fd` (aLEAPP), now pinned in the manifest.
     - **linux-aarch64, VERIFIED (E3):** in `ubuntu:26.04` on an arm64 runner (leapp-smoke run 36193682690) both tools install, introspect with the same list digests, and pass every smoke run. Their extracted entries hash to `e7b64127…575d` (iLEAPP) and `5ad769aa…3e53` (aLEAPP), now pinned in the manifest. Their minimum glibc was not inspected.
     - When a pinned Linux build fails to load (glibc too old), introspection reports `introspection_failed` and a run reports `spawn_failed`, both saying which glibc the build needs.
@@ -116,49 +116,12 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off chec
 **Procedure:**
 
 1. Create a temp dir containing:
-   - `probe_artifacts/suitedfir_probe.py` (embedded in `leapp::modules`). The dict keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function:
-     ```python
-     __artifacts_v2__ = {
-         "suitedfir_probe": {
-             "name": "suiteDFIR probe",
-             "description": "Lists the artifacts of this build for suiteDFIR",
-             "author": "suiteDFIR",
-             "creation_date": "2026-09-25",
-             "last_update_date": "2026-09-25",
-             "requirements": "none",
-             "category": "suiteDFIR",
-             "notes": "",
-             "paths": ("*/suitedfir_probe.marker",),
-             "output_types": [],
-             "artifact_icon": "list",
-             "function": "suitedfir_probe",
-         }
-     }
-
-
-     def suitedfir_probe(files_found, report_folder, seeker, wrap_text, *args):
-         import json, os
-         from scripts.plugin_loader import PluginLoader
-         out = {"plugins": [
-             {"name": p.name, "module_name": p.module_name, "category": p.category,
-              "display_name": (p.artifact_info or {}).get("name"),
-              "description": (p.artifact_info or {}).get("description")}
-             for p in PluginLoader().plugins]}
-         try:
-             import pytz
-             out["timezones"] = list(pytz.all_timezones)
-         except Exception:
-             out["timezones"] = None
-         path = os.environ["SUITEDFIR_PROBE_OUT"]
-         with open(path + ".partial", "w", encoding="utf-8") as f:
-             json.dump(out, f)
-         os.replace(path + ".partial", path)
-     ```
+   - `probe_artifacts/suitedfir_probe.py`: the `PROBE_SOURCE` constant in `crates/core/src/leapp/modules.rs`. Its `__artifacts_v2__` keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function; its `paths` match `*/suitedfir_probe.marker`. It writes every `PluginLoader().plugins` entry (name, module_name, category, and the `artifact_info` name and description) and `pytz.all_timezones` (or null) to `$SUITEDFIR_PROBE_OUT`, through a `.partial` file and a rename.
      `PluginLoader()` without arguments loads only the built-in artifacts, so the probe does not list itself.
    - `input/suitedfir_probe.marker` (non-empty dir, avoiding the exit-2 case).
    - An empty `out/`.
    - `probe.<ext>` = `{"leapp": "<tool>", "format_version": 1, "plugins": ["suitedfir_probe"]}`.
-2. Run `<entry> -t fs -i <tmp>/input -o <tmp>/out --custom_output_folder probe --custom_artifacts_path <tmp>/probe_artifacts -m <tmp>/probe.<ext>` through `process` (same session/job and temp rules) with `SUITEDFIR_PROBE_OUT` set. The temp dir is `<app_cache>/tmp/<id>` with a run-id-shaped `id` (`YYYYMMDD-HHMMSSZ-<ileapp|aleapp>-<6 lowercase hex>`), which the `process` temp-dir functions require; it is only a directory name under `<app_cache>/tmp`, so it never collides with a real run's folder. Timeout 180 s, then cancel and fail with `introspection_failed`. The exit code is not used; the probe's output decides.
+2. Run `<entry> -t fs -i <tmp>/input -o <tmp>/out --custom_output_folder probe --custom_artifacts_path <tmp>/probe_artifacts -m <tmp>/probe.<ext>` through `process` (same session/job and temp rules) with `SUITEDFIR_PROBE_OUT` set, in a per-job temp dir named like a run id (ARCHITECTURE.md §8). Timeout 180 s, then cancel and fail with `introspection_failed`. The exit code is not used; the probe's output decides.
 3. Read the JSON, drop the probe itself, and apply the tool's rules:
    - **iLEAPP v2026.4.2:**
      - Selection excludes `module_name == "iTunesBackupInfo"`, `name == "last_build"`, and `module_name == "logarchive" and name != "logarchive"`.

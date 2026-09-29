@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { bottomScrollTop, isAtBottom, poolSize, visibleRange } from "../../ui/lib/virtual.js";
+import { bottomScrollTop, isAtBottom, visibleRange } from "../../ui/lib/virtual.js";
 
 const ROW = 20;
 
@@ -66,13 +66,11 @@ test("isAtBottom allows half a row of rounding, not more", () => {
 });
 
 test("the number of row elements depends on the viewport only, not on the line count", () => {
-  assert.equal(poolSize(380, ROW, 10), 19 + 1 + 20);
-  assert.equal(poolSize(0, ROW, 0), 1);
-  assert.equal(poolSize(380, 0, 10), 0);
   for (const count of [100, 100_000, 1_000_000]) {
     for (const scrollTop of [0, 12_345, count * ROW]) {
       const r = visibleRange({ count, rowHeight: ROW, scrollTop, viewportHeight: 380, overscan: 10 });
-      assert.ok(r.end - r.start <= poolSize(380, ROW, 10), `count ${count}, scrollTop ${scrollTop}`);
+      // A full 380 px viewport (19 rows), a partial row at the edges and 10 rows of overscan on each side.
+      assert.ok(r.end - r.start <= 19 + 1 + 2 * 10, `count ${count}, scrollTop ${scrollTop}`);
       assert.equal(r.offset, r.start * ROW);
     }
   }

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use super::AcqError;
 use crate::contracts::{
     AcqStatus, AcqSummary, AcquisitionRecord, EncryptionRestoreRecord, Reason, SealStatus,
-    Timestamp, VersionedFile, parse_versioned,
+    Timestamp, parse_versioned,
 };
 use crate::fsutil;
 
@@ -37,11 +37,6 @@ const ACQ_ID_ATTEMPTS: u32 = 16;
 
 // ---- ids and folders ----
 
-/// A new acquisition id, `YYYYMMDD-HHMMSSZ-ios-<6 lowercase hex>` (UTC).
-pub fn new_acq_id(created_at: Timestamp) -> io::Result<String> {
-    crate::idevice::new_ios_id(created_at)
-}
-
 /// Whether `id` has the acquisition id format with a real date and time. Commands check this
 /// before using an id as a folder name (ARCHITECTURE.md §9).
 pub fn is_acq_id(id: &str) -> bool {
@@ -67,7 +62,7 @@ pub fn create_acq_dir(
     let root = case_dir.join(ACQUISITIONS_DIR);
     fs::create_dir_all(&root).map_err(|e| AcqError::io(&root, e))?;
     for _ in 0..ACQ_ID_ATTEMPTS {
-        let acq_id = new_acq_id(created_at).map_err(|e| AcqError::io(&root, e))?;
+        let acq_id = crate::idevice::new_ios_id(created_at).map_err(|e| AcqError::io(&root, e))?;
         let dir = root.join(&acq_id);
         match fs::create_dir(&dir) {
             Ok(()) => return Ok((acq_id, dir)),
@@ -367,12 +362,8 @@ fn read_record(file: &Path) -> Result<AcquisitionRecord, AcqError> {
 
 // ---- later-restore attempts ----
 //
-// Every `acq_restore_encryption` attempt writes its own read-only record, with the schema of
-// `EncryptionRestoreRecord`: `encryption-restore.json` for the first, then
-// `encryption-restore-2.json`, `-3.json`, … (CONTRACTS.md §13.3 "Later restore"). The name is
-// reserved before the device is touched ([`reserve_restore_attempt`]) and the file is created with
-// no-replace semantics ([`write_restore_attempt`]), so a file is never overwritten or rewritten.
-// `acquisition.json` is never touched.
+// One read-only file per attempt (CONTRACTS.md §13.3 "Later restore"); `acquisition.json` is never
+// touched.
 
 /// The file name of later-restore attempt `n` (1-based): `encryption-restore.json` for 1,
 /// `encryption-restore-<n>.json` after that.
@@ -407,7 +398,6 @@ pub fn restore_attempt_number(name: &str) -> Option<u32> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RestoreAttempt {
     pub number: u32,
-    pub file: PathBuf,
     pub record: EncryptionRestoreRecord,
 }
 
@@ -442,11 +432,9 @@ pub fn restore_attempts(acq_dir: &Path, acq_id: &str) -> Result<Vec<RestoreAttem
                 parse_versioned::<EncryptionRestoreRecord>(&bytes).map_err(|e| e.to_string())
             });
         match parsed {
-            Ok(record) if record.acq_id == acq_id => attempts.push(RestoreAttempt {
-                number,
-                file,
-                record,
-            }),
+            Ok(record) if record.acq_id == acq_id => {
+                attempts.push(RestoreAttempt { number, record })
+            }
             Ok(record) => log::warn!(
                 "ignoring {}: it names acquisition {:?}",
                 file.display(),
@@ -544,16 +532,6 @@ pub fn write_restore_attempt(
     Ok(file.clone())
 }
 
-/// [`reserve_restore_attempt`] then [`write_restore_attempt`].
-pub fn write_restore_record(
-    acq_dir: &Path,
-    record: &EncryptionRestoreRecord,
-) -> Result<PathBuf, AcqError> {
-    check_folder(acq_dir, &record.acq_id)?;
-    let slot = reserve_restore_attempt(acq_dir)?;
-    write_restore_attempt(acq_dir, &slot, record)
-}
-
 // ---- reading ----
 
 /// An acquisition found in a case folder.
@@ -638,8 +616,14 @@ pub fn discover(case_dir: &Path) -> Result<Vec<DiscoveredAcq>, AcqError> {
     Ok(found)
 }
 
-/// The warning codes that offer "Turn backup encryption off" on the Case screen.
-const RESTORE_OFFER_CODES: [&str; 2] = ["encryption_left_enabled", "encryption_state_unknown"];
+/// The warning codes of an encryption left on. They decide which codes [`summary`] leaves out
+/// after a later restore recorded `restored: true`, and when [`super::restore_later`] refuses with
+/// `restore_not_applicable` (no such code in the record). The Case screen's "Turn backup
+/// encryption off" offer uses its own list in `ui/lib/acquire.js` (`ENCRYPTION_LEFT_ON`, checked by
+/// `needsEncryptionOff`, with both codes again in `encryptionLeftOnText`), which must stay in step
+/// with this one.
+pub(crate) const RESTORE_OFFER_CODES: [&str; 2] =
+    ["encryption_left_enabled", "encryption_state_unknown"];
 
 /// The listing entry of an acquisition (`CaseDetail.acquisitions`, the `finished` event). Its
 /// `warnings` are the record's codes, except that once a later restore recorded `restored: true`,
@@ -717,9 +701,6 @@ pub fn acquisition_id_for_input<P: AsRef<Path>>(
     Ok(None)
 }
 
-/// The `schema_version` written in new records.
-pub(crate) const SCHEMA_VERSION: u32 = AcquisitionRecord::SCHEMA_VERSION;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,7 +757,7 @@ mod tests {
 
     #[test]
     fn acq_ids_have_the_contract_format() {
-        let id = new_acq_id(at("2026-09-24T17:12:00Z")).unwrap();
+        let id = crate::idevice::new_ios_id(at("2026-09-24T17:12:00Z")).unwrap();
         assert!(id.starts_with("20260924-171200Z-ios-"), "{id}");
         assert_eq!(id.len(), ACQ_ID.len());
         assert!(is_acq_id(&id));
@@ -1188,6 +1169,15 @@ mod tests {
         record
     }
 
+    /// [`reserve_restore_attempt`] then [`write_restore_attempt`].
+    fn write_restore_record(
+        acq_dir: &Path,
+        record: &EncryptionRestoreRecord,
+    ) -> Result<PathBuf, AcqError> {
+        let slot = reserve_restore_attempt(acq_dir)?;
+        write_restore_attempt(acq_dir, &slot, record)
+    }
+
     fn make_all_writable(dir: &Path) {
         for entry in fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
@@ -1409,5 +1399,98 @@ mod tests {
         assert_eq!(fs::read(dir.join(ACQ_FILE)).unwrap(), record_bytes);
         assert_eq!(discover(case.path()).unwrap()[0].record, found[0].record);
         make_all_writable(&dir);
+    }
+}
+
+/// Z0b characterization (SIMPLIFY.md §3): what case-open recovery writes, through
+/// [`recover_case`], as at main 24af32c: the exact `app_interrupted` reason and the exact
+/// encryption warnings. Frozen: later bundles do not edit this module.
+#[cfg(test)]
+mod z0 {
+    use super::*;
+
+    use crate::contracts::{AcqCommandPurpose, RestoreState, Seal, examples};
+    use crate::fsutil::test_support::make_writable;
+
+    const ACQ_ID: &str = "20260924-171200Z-ios-9c01de";
+
+    fn reason(code: &str, message: &str) -> Reason {
+        Reason {
+            code: code.to_owned(),
+            message: message.to_owned(),
+        }
+    }
+
+    /// The §13.3 example as a crash left it: running, after the enable and the backup's start.
+    fn crashed(will_encrypt_after_enable: Option<bool>) -> AcquisitionRecord {
+        let mut record = examples::acquisition_record();
+        record.status = AcqStatus::Running;
+        record.status_reasons = Vec::new();
+        record.warnings = Vec::new();
+        record.ended_at = None;
+        record.duration_ms = None;
+        record.process = None;
+        record.backup_result = None;
+        record
+            .commands
+            .retain(|c| c.purpose != AcqCommandPurpose::RestoreEncryption);
+        record.encryption.enabled_by_examiner = will_encrypt_after_enable == Some(true);
+        record.encryption.will_encrypt_after_enable = will_encrypt_after_enable;
+        record.encryption.restored_after = RestoreState::NotAttempted;
+        record.encryption.will_encrypt_after_restore = None;
+        record.output.seal = Seal {
+            status: SealStatus::Pending,
+            manifest: None,
+            manifest_sha256: None,
+            file_count: None,
+            total_bytes: None,
+        };
+        record
+    }
+
+    fn recovered(record: &AcquisitionRecord) -> AcquisitionRecord {
+        let case = tempfile::tempdir().unwrap();
+        let dir = acq_dir(case.path(), ACQ_ID);
+        fs::create_dir_all(&dir).unwrap();
+        write_initial(&dir, record).unwrap();
+        let now = Timestamp::parse("2026-09-25T08:00:00Z").unwrap();
+        assert_eq!(recover_case(case.path(), None, now).unwrap(), [ACQ_ID]);
+        let back = load(case.path(), ACQ_ID).unwrap();
+        make_writable(&dir.join(ACQ_FILE));
+        assert_eq!(back.recovered_at, Some(now));
+        assert_eq!(back.output.seal.status, SealStatus::Interrupted);
+        back
+    }
+
+    #[test]
+    fn z0_recovery_reason_and_warnings() {
+        let interrupted = reason(
+            "app_interrupted",
+            "The app stopped before the acquisition finished; the record was recovered when the \
+             case was next opened",
+        );
+        // Enabled by the examiner, not restored.
+        let left_on = recovered(&crashed(Some(true)));
+        assert_eq!(left_on.status, AcqStatus::Interrupted);
+        assert_eq!(left_on.status_reasons, std::slice::from_ref(&interrupted));
+        assert_eq!(
+            left_on.warnings,
+            [reason(
+                "encryption_left_enabled",
+                "Backup encryption was turned on by the examiner and was not confirmed to be off \
+                 again; turn it off with the backup password"
+            )]
+        );
+        // The enable ran, but WillEncrypt was never read afterwards.
+        let unknown = recovered(&crashed(None));
+        assert_eq!(unknown.status_reasons, [interrupted]);
+        assert_eq!(
+            unknown.warnings,
+            [reason(
+                "encryption_state_unknown",
+                "The device's backup-encryption setting could not be confirmed after it was \
+                 changed; turn it off with the backup password if it is on"
+            )]
+        );
     }
 }

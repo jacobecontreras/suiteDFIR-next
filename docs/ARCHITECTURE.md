@@ -41,7 +41,7 @@ Principles, in priority order:
 | F10 | **Settings:** cases root folder; default examiner, agency and timezone; tools-directory override (for locked-down machines); clean temp files; about/licenses. |
 | F11 | **iOS backup acquisition over USB** (libimobiledevice), described in §6b and [IDEVICE-CLI.md](IDEVICE-CLI.md). <ul><li>**Devices:** list connected iOS devices with name, model, iOS version and serial; pairing/trust flow with clear on-device instructions.</li><li>**Encryption:** show the device's backup-encryption state. Optionally enable encryption with an examiner-chosen password; encrypted backups contain more data. Optionally restore the setting afterwards (default on).</li><li>**Backup:** full backup into the case, with live progress and cancel. Success is validated from the backup contents.</li><li>**Record:** `acquisition.json` audit record plus a `backup.sha256` manifest.</li><li>**Handoff:** "Parse with iLEAPP" opens New run prefilled with the backup.</li><li>**Platforms:** macOS (bundled tools), Windows x64 (bundled tools; needs Apple Mobile Device Service), Linux (system-installed tools).</li></ul> |
 
-### Phase 1: Should (after E2 and E3 are merged, before the release candidate)
+### Phase 1: Should
 
 | ID | Feature |
 |---|---|
@@ -100,11 +100,9 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 │                               lives in ui-dev/, never bundled)           │
 │                     ▲ Channel<RunEvent | InstallEvent>                   │
 │  ───────────────────┼──────────────────────────────────────────────────  │
-│  src-tauri: commands/*.rs (thin) ─► AppState (settings, active run,      │
-│             backlog, instance lock, quit guard)                          │
-│  crates/core: contracts manifest leapp::{install,modules} inspect case   │
-│               settings paths fsutil hashing run::{record,status,argv,    │
-│               profile,casedata} process tail runner idevice acquire      │
+│  src-tauri: commands.rs ─► ops/ (thin) ─► AppState (settings, active     │
+│             job, backlog, instance lock, quit guard)                     │
+│  crates/core: all logic (§5.1)                                           │
 └───────────────┬──────────────────────────────────────────────────────────┘
                 │ spawn: new session / job object, stdin=null, no window
                 ▼
@@ -118,24 +116,25 @@ Each decision is final for phase 1 unless the owner reopens it. Do not relitigat
 
 ### 5.1 `crates/core` (library, no Tauri dependency)
 
-| Module | Responsibility | Task |
-|---|---|---|
-| `contracts` | All serde types from CONTRACTS.md. | M0.3 |
-| `fsutil` | `write_json_atomic`, read-only marking, path-overlap checks (canonicalize for comparison only), `free_space` (`fsutil/unix.rs`, `fsutil/windows.rs`). | M0.3 (+C1) |
-| `hashing` | `sha256_file` (M0.3). Progress/cancel variant and `seal_tree(dir, manifest_path, cancel, progress)` (progress feeds the `seal_progress` events), used for `report.sha256` and `backup.sha256` (C3). | M0.3, C3 |
-| `manifest` | Parse the embedded `leapp-manifest.json`; `PlatformKey` detection. | A1 |
-| `leapp::install` | Download (HTTPS only, size-capped, progress) → verify asset hash → extract (zip entry only; AppImage via `--appimage-extract`) → verify the entry hash against the manifest (or record it where the manifest has `null`) → `install.json`. Offline import; `verify`. | A2 |
-| `leapp::modules` | Introspection run → `modules.json` (modules, always-run, timezones). | A3 |
-| `process` | Spawn in a new session/job, env, cwd, stdin null, stdout/stderr to files; `cancel()` with escalation; `wait()` → `ExitInfo`; temp dir create/remove/sweep. `unix.rs` / `windows.rs`. | B2 |
-| `tail` | Poll-based tail of `Screen_Output.html` → plain-text line batches. | B3 |
-| `settings`, `paths`, `case` | `settings.json`; app-dir bundle (passed in from the shell; the core never guesses OS dirs); case create/open/update/list/recent; run discovery. | C1 |
-| `run::{record,status,argv,profile,casedata}` | `run.json` lifecycle and recovery; status rules; argv building and redaction; profiles; `.lcasedata`. | C2 |
-| `inspect` | Input inspection and type detection; iTunes backup and `IsEncrypted`; (S1) backup discovery. | C3 |
-| `runner` | One run end-to-end (§6) via a callback; no Tauri types. | E1a |
-| `idevice` | Locate the tools (bundled sidecar dir passed in by the shell, or system PATH on Linux; binary hashes); `list_devices`, `device_info`, `pair`/`validate`, `will_encrypt`, `set_encryption`; output parsing per IDEVICE-CLI.md. | X2 |
-| `acquire` | One acquisition end-to-end (§6b) via a callback: `acquisition.json` lifecycle, discovery and recovery (`CaseDetail.acquisitions`), preflight, backup process, progress/prompt parsing, validation, seal; encryption enable/restore and later restore. | X3a, X3b |
-| `bin/fake-leapp` | Test double of a LEAPP onefile binary (DEVELOPMENT.md §4.8). Never bundled. | B1 |
-| `bin/fake-idevice` | Test double of the four libimobiledevice tools, selected by argv[0] or the first argument (DEVELOPMENT.md §4.8). Never bundled. | X2 |
+| Module | Responsibility |
+|---|---|
+| `contracts` | All serde types from CONTRACTS.md. |
+| `fsutil` | `write_json_atomic`, read-only marking, path-overlap checks (canonicalize for comparison only), `free_space` (`fsutil/unix.rs`, `fsutil/windows.rs`). |
+| `hashing` | `sha256_file`. Progress/cancel variant and `seal_tree(dir, manifest_path, cancel, progress)` (progress feeds the `seal_progress` events), used for `report.sha256` and `backup.sha256`. |
+| `manifest` | Parse the embedded `leapp-manifest.json`; `PlatformKey` detection. |
+| `leapp::install` | Download (HTTPS only, size-capped, progress) → verify asset hash → extract (zip entry only; AppImage via `--appimage-extract`) → verify the entry hash against the manifest (or record it where the manifest has `null`) → `install.json`. Offline import; `verify`. |
+| `leapp::modules` | Introspection run → `modules.json` (modules, always-run, timezones). |
+| `leapp::dev_override` | Debug-build dev override: module list from `fake-leapp --list-modules-json` (DEVELOPMENT.md §2). Compiled out of release builds. |
+| `process` | Spawn in a new session/job, env, cwd, stdin null, stdout/stderr to files; `cancel()` with escalation; `wait()` → `ExitInfo`; temp dir create/remove/sweep. `unix.rs` / `windows.rs`. |
+| `tail` | Poll-based tail of `Screen_Output.html` → plain-text lines, which the runner polls and sends as `log` batches; `last_lines` for the stdout/stderr tails. |
+| `settings`, `paths`, `case` | `settings.json`; app-dir bundle (passed in from the shell; the core never guesses OS dirs); case create/open/update/list/recent; run discovery. |
+| `run::{record,status,argv,profile,casedata}` | `run.json` lifecycle and recovery; status rules; argv building and redaction; profiles; `.lcasedata`. |
+| `inspect` | Input inspection and type detection; iTunes backup and `IsEncrypted`; (S1) backup discovery. |
+| `runner` | One run end-to-end (§6) via a callback; no Tauri types. |
+| `idevice` | Locate the tools (bundled sidecar dir passed in by the shell, or system PATH on Linux; binary hashes); `list_devices`, `device_info`, `pair`/`validate`, `will_encrypt`, `set_encryption`; output parsing per IDEVICE-CLI.md. |
+| `acquire` | One acquisition end-to-end (§6b) via a callback: `acquisition.json` lifecycle, discovery and recovery (`CaseDetail.acquisitions`), preflight, backup process, progress/prompt parsing, validation, seal; encryption enable/restore and later restore. |
+| `bin/fake-leapp` | Test double of a LEAPP onefile binary (DEVELOPMENT.md §4.8). Never bundled. |
+| `bin/fake-idevice` | Test double of the four libimobiledevice tools, selected by argv[0] or the first argument (DEVELOPMENT.md §4.8). Never bundled. |
 
 ### 5.2 `src-tauri` (binary)
 
@@ -164,7 +163,7 @@ Screens: Cases, Case, New run, Run, Settings, Acquire, plus the module-picker co
 ## 6. Run lifecycle
 
 1. **Validate** (`run_start`; any failure returns an `AppError` and creates nothing):
-   - no active run;
+   - no active job (D25);
    - the tool is installed, and the entry hash matches the manifest (or `install.json` where the manifest value is `null`);
    - the input exists and is readable;
    - the type is allowed for this tool and input kind;
@@ -269,15 +268,8 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 
 **Recovery** on `case_open`: a `running` acquisition that is not this process's active job becomes `interrupted` (discovery and recovery are owned by the `acquire` module). If the record shows encryption was enabled by the examiner and not confirmed restored, add warning `encryption_left_enabled`, or `encryption_state_unknown` if the enable outcome was unknown. The Case screen shows a "Turn backup encryption off" action.
 
-**Later restore** (`acq_restore_encryption {case_path, acq_id, password}`):
-- Allowed only when:
-  - the record has one of those two warnings;
-  - no earlier attempt recorded `restored: true`;
-  - the device is connected and paired.
-- A failed attempt can be retried.
-- Runs step 8 on its own.
-- Each attempt writes its own read-only file next to the (already read-only) `acquisition.json`, and never overwrites one: `encryption-restore.json`, then `encryption-restore-2.json`, `-3.json`, … (CONTRACTS.md §13.3).
-- After a successful attempt, the Case screen stops offering "Turn backup encryption off": `AcqSummary.warnings` leaves out the two codes. `acquisition.json` still carries them.
+**Later restore** (`acq_restore_encryption {case_path, acq_id, password}`): runs step 8 on its own. It is allowed only when the record has one of those two warnings, no earlier attempt recorded `restored: true`, and the device is connected and paired; a failed attempt can be retried (preconditions: the CONTRACTS.md §13.5 `acq_restore_encryption` row). Each attempt writes its own read-only `encryption-restore[-N].json` next to `acquisition.json` (CONTRACTS.md §13.3).
+After a successful attempt, `AcqSummary.warnings` leaves out the two codes, so the Case screen stops offering "Turn backup encryption off"; `acquisition.json` still carries them.
 
 ## 7. Process model details
 
@@ -311,7 +303,7 @@ App directories come from Tauri path APIs (identifier `com.suitedfir.desktop`):
 <app_log>/suitedfir.log              app log, truncated at 5 MB, never contains secrets
 ```
 
-Module introspection (LEAPP-CLI.md §5) also uses a per-job temp dir, with a run-id-shaped name (`YYYYMMDD-HHMMSSZ-<ileapp|aleapp>-<6 lowercase hex>`); it is only a directory name under `<app_cache>/tmp`, so it never collides with a real run's folder.
+Module introspection (LEAPP-CLI.md §5) also uses a per-job temp dir, with a run-id-shaped name (`YYYYMMDD-HHMMSSZ-<ileapp|aleapp>-<6 lowercase hex>`), as the `process` temp-dir functions require; it is only a directory name under `<app_cache>/tmp`, so it never collides with a real run's folder.
 
 The tools dir (`<app_data>/leapp` by default) can be overridden in settings for machines where AppLocker/WDAC allows execution only from approved paths. It may not be inside a case folder.
 
@@ -404,13 +396,13 @@ A **known case folder** is a path in `settings.recent_cases` whose `case.json` p
   - Rust std handles long paths for file operations, but the process cwd must be < 248 chars.
 - **iOS acquisition prerequisites:**
   - macOS: none (usbmuxd is built in).
-  - Windows: the Apple Mobile Device Service (Apple Devices app or iTunes). The app detects its absence and links to installation guidance. The tools use ANSI file APIs, so acquisition folders must be ASCII and short (§6b step 4).
+  - Windows: the Apple Mobile Device Service (Apple Devices app or iTunes). The app detects its absence and links to installation guidance. Acquisition folders must be ASCII-only and short (§6b step 4).
   - Host pair records are created by pairing and live in `/var/db/lockdown` (macOS; not readable by the app), `%ProgramData%\Apple\Lockdown` (Windows), or `/var/lib/lockdown` (Linux). The app records `host_id`/`system_buid` but never edits these stores.
   - Linux: the distro packages `usbmuxd` and `libimobiledevice-utils` (or equivalent), with the daemon running. The app detects missing tools and shows the install command for common distros.
 - **Linux:**
   - webkit2gtk-4.1 is required (bundled in the AppImage).
   - Builds use an `ubuntu:22.04` container (glibc baseline).
-  - Document the `WEBKIT_DISABLE_DMABUF_RENDERER=1` fallback in the user guide.
+  - The user guide documents the `WEBKIT_DISABLE_DMABUF_RENDERER=1` fallback.
 
 ## 11. Phase-2 hooks (informational, do not build)
 

@@ -12,7 +12,7 @@ use crate::contracts::{
 use crate::fsutil;
 
 /// `recent_cases` holds at most this many entries.
-pub const MAX_RECENT_CASES: usize = 50;
+const MAX_RECENT_CASES: usize = 50;
 
 /// The timezone default on first run (ARCHITECTURE.md D19: case → settings → UTC).
 const DEFAULT_TIMEZONE: &str = "UTC";
@@ -94,7 +94,7 @@ pub fn save(path: &Path, settings: &Settings) -> Result<(), SettingsError> {
 }
 
 /// Makes `case_path` the most recent case: removes any other spelling of the same path, puts it
-/// first and keeps at most [`MAX_RECENT_CASES`] entries.
+/// first and keeps at most `MAX_RECENT_CASES` entries.
 pub fn touch_recent(settings: &mut Settings, case_path: &str) {
     forget_recent(settings, case_path);
     settings.recent_cases.insert(0, case_path.to_owned());

@@ -49,11 +49,6 @@ impl AppPaths {
         self.app_cache.join("tmp")
     }
 
-    /// `<app_cache>/tmp/<run_id>`, a run's temp directory.
-    pub fn run_temp_dir(&self, run_id: &str) -> PathBuf {
-        self.temp_root().join(run_id)
-    }
-
     /// `<app_log>/suitedfir.log`.
     pub fn log_file(&self) -> PathBuf {
         self.app_log.join("suitedfir.log")
@@ -105,10 +100,6 @@ mod tests {
             Path::new("/data/profiles/aleapp")
         );
         assert_eq!(p.temp_root(), Path::new("/cache/tmp"));
-        assert_eq!(
-            p.run_temp_dir("20260924-183005Z-ileapp-3f9a1c"),
-            Path::new("/cache/tmp/20260924-183005Z-ileapp-3f9a1c")
-        );
         assert_eq!(p.log_file(), Path::new("/log/suitedfir.log"));
     }
 

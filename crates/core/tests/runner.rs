@@ -7,15 +7,18 @@
 //! inside a case's acquisitions, the event rules (log batches of at most 500 lines, each stdio tail
 //! once, progress events) and that the backup password never leaks.
 
+mod common;
+
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use common::{FAKE_LEAPP, all_files, host, is_read_only};
 use suitedfir_core::case::{self, CreatedCase};
 use suitedfir_core::contracts::{
     AppError, EntryVerifiedAgainst, ErrorCode, HashStatus, InputType, InstallSource, ModuleMode,
-    ModuleSelection, Reason, RecordHost, RunEvent, RunPhase, RunRecord, RunRequest, RunStatus,
-    SealStatus, Settings, StdStream, ToolId, examples, parse_versioned,
+    ModuleSelection, Reason, RunEvent, RunPhase, RunRecord, RunRequest, RunStatus, SealStatus,
+    Settings, StdStream, ToolId, examples, parse_versioned,
 };
 use suitedfir_core::hashing;
 use suitedfir_core::manifest;
@@ -24,19 +27,9 @@ use suitedfir_core::run::profile::{ProfileFormat, ProfileStore};
 use suitedfir_core::runner::{self, RunContext, RunControl, RunOutcome};
 use suitedfir_core::settings;
 
-const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
 const PASSWORD: &str = "e1a-Backup-Pw!";
 /// An acquisition id for inputs inside a case's `acquisitions/`.
 const ACQ_ID: &str = "20260924-171200Z-ios-9c01de";
-
-fn host() -> RecordHost {
-    RecordHost {
-        os: "testos".to_owned(),
-        os_version: "1.0".to_owned(),
-        arch: std::env::consts::ARCH.to_owned(),
-        hostname: "LAB-TEST-01".to_owned(),
-    }
-}
 
 /// App dirs, a known case and an `fs` input folder, all in a short-named temp dir (the Windows test
 /// machine has long paths disabled).
@@ -132,11 +125,7 @@ impl Lab {
     }
 
     fn assert_no_temp_dirs(&self) {
-        let tmp = self.paths.temp_root();
-        let left: Vec<_> = fs::read_dir(&tmp)
-            .map(|entries| entries.map(|e| e.unwrap().file_name()).collect())
-            .unwrap_or_default();
-        assert!(left.is_empty(), "left in {}: {left:?}", tmp.display());
+        common::assert_empty_or_missing(&self.paths.temp_root());
     }
 
     /// An iTunes-style backup folder at `dir` (`Manifest.plist` with `IsEncrypted`).
@@ -230,7 +219,7 @@ fn assert_final(
     assert_eq!(codes(&record.warnings), warnings, "{context}");
     // Finalized: read-only, as returned, with the end time.
     let file = dir.join("run.json");
-    assert!(fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(is_read_only(&file));
     assert_eq!(read_record(&dir), *record);
     assert!(record.ended_at.is_some() && record.duration_ms.is_some());
     assert_eq!(record.recovered_at, None);
@@ -314,6 +303,13 @@ fn scenario_row(
     );
     let record = assert_final(&lab, &outcome, &events, status, reasons, warnings);
     (lab, record, events)
+}
+
+/// Runs `request` in the `success` scenario to the end and checks that it succeeded cleanly.
+fn run_success(lab: &Lab, tool: ToolId, request: RunRequest) -> (RunOutcome, RunRecord) {
+    let (outcome, events) = run(lab.context(tool, "success", &[]), request, |_, _| {});
+    let record = assert_final(lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    (outcome, record)
 }
 
 // ---- CONTRACTS.md §7.4, one test per row ----
@@ -495,6 +491,15 @@ fn cancel_on_first_log(event: &RunEvent, control: &RunControl) {
     }
 }
 
+/// Cancels on the `Phase` event of `phase`.
+fn cancel_at(phase: RunPhase) -> impl Fn(&RunEvent, &RunControl) {
+    move |event, control| {
+        if matches!(event, RunEvent::Phase { phase: p } if *p == phase) {
+            control.cancel();
+        }
+    }
+}
+
 #[test]
 fn slow_with_cancel() {
     let lab = Lab::new();
@@ -555,6 +560,20 @@ fn file_input(lab: &Lab, len: u64) -> PathBuf {
 /// (NTFS allocates the extended size; that CPU hashes more slowly than the fastest Macs).
 const LONG_HASH_BYTES: u64 = if cfg!(windows) { 2 << 30 } else { 4 << 30 };
 
+/// The `(bytes_done, bytes_total)` of every hash progress event.
+fn hash_progress<'a>(events: impl IntoIterator<Item = &'a RunEvent>) -> Vec<(u64, u64)> {
+    events
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::HashProgress {
+                bytes_done,
+                bytes_total,
+            } => Some((*bytes_done, *bytes_total)),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn the_input_is_hashed_concurrently_with_leapp() {
     let lab = Lab::new();
@@ -603,32 +622,14 @@ fn the_input_is_hashed_concurrently_with_leapp() {
             .iter()
             .position(|e| matches!(e, RunEvent::Log { .. }))
             .expect("LEAPP logged after the first hash progress");
-    let progress_while_running: Vec<(u64, u64)> = running[log_after..]
-        .iter()
-        .filter_map(|e| match e {
-            RunEvent::HashProgress {
-                bytes_done,
-                bytes_total,
-            } => Some((*bytes_done, *bytes_total)),
-            _ => None,
-        })
-        .collect();
+    let progress_while_running = hash_progress(running[log_after..].iter().copied());
     assert!(
         progress_while_running
             .iter()
             .any(|(done, total)| done < total),
         "no hash progress between LEAPP's log batches: {progress_while_running:?}"
     );
-    let progress: Vec<(u64, u64)> = events
-        .iter()
-        .filter_map(|e| match e {
-            RunEvent::HashProgress {
-                bytes_done,
-                bytes_total,
-            } => Some((*bytes_done, *bytes_total)),
-            _ => None,
-        })
-        .collect();
+    let progress = hash_progress(&events);
     assert_eq!(progress.last(), Some(&(LONG_HASH_BYTES, LONG_HASH_BYTES)));
     assert_eq!(record.input.size_bytes, Some(LONG_HASH_BYTES));
 }
@@ -643,16 +644,7 @@ fn a_cancel_after_the_exit_only_stops_hashing() {
     let (outcome, events) = run(
         lab.context(ToolId::Ileapp, "success", &[("FAKE_LEAPP_LINES", "1")]),
         request,
-        |event, control| {
-            if matches!(
-                event,
-                RunEvent::Phase {
-                    phase: RunPhase::HashingInput
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(RunPhase::HashingInput),
     );
     let record = assert_final(
         &lab,
@@ -679,16 +671,7 @@ fn a_cancel_while_preparing_never_starts_leapp() {
     let (outcome, events) = run(
         lab.context(ToolId::Ileapp, "success", &[]),
         request,
-        |event, control| {
-            if matches!(
-                event,
-                RunEvent::Phase {
-                    phase: RunPhase::Preparing
-                }
-            ) {
-                control.cancel();
-            }
-        },
+        cancel_at(RunPhase::Preparing),
     );
     let record = assert_final(
         &lab,
@@ -739,12 +722,7 @@ fn custom_and_profile_modules_write_the_run_profile() {
     request.modules = ModuleSelection::Custom {
         modules: vec!["sms".to_owned(), "callHistory".to_owned(), "sms".to_owned()],
     };
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (outcome, record) = run_success(&lab, ToolId::Ileapp, request);
     assert_eq!(record.modules.mode, ModuleMode::Custom);
     assert_eq!(record.modules.resolved, ["sms", "callHistory"]);
     let dir = run_dir(&outcome);
@@ -802,12 +780,7 @@ fn an_explicit_timezone_and_a_keychain() {
     let mut request = lab.fs_request(ToolId::Ileapp);
     request.timezone = Some("Europe/Berlin".to_owned());
     request.keychain_path = Some(keychain.to_string_lossy().into_owned());
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert_eq!(record.options.timezone.as_deref(), Some("Europe/Berlin"));
     assert_eq!(
         record.options.keychain_path.as_deref(),
@@ -837,12 +810,7 @@ fn an_input_inside_the_cases_acquisitions_records_its_id() {
     let backup = acq.join("backup").join("00008101-000A1B2C3D4E001E");
     lab.itunes_backup(&backup, false);
     let request = lab.request(ToolId::Ileapp, &backup, InputType::Itunes);
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert_eq!(record.input.acquisition_id.as_deref(), Some(ACQ_ID));
     assert_eq!(record.input.itunes_encrypted, Some(false));
     assert_eq!(record.input.type_detected, Some(InputType::Itunes));
@@ -897,23 +865,14 @@ fn the_backup_password_never_leaks() {
     assert_eq!(argv[at + 1], "<redacted>");
     assert!(!format!("{events:?} {outcome:?}").contains(PASSWORD));
     // Nothing in the run folder holds it.
-    let mut pending = vec![run_dir(&outcome)];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                let bytes = fs::read(&path).unwrap();
-                assert!(
-                    !bytes
-                        .windows(PASSWORD.len())
-                        .any(|w| w == PASSWORD.as_bytes()),
-                    "{} holds the password",
-                    path.display()
-                );
-            }
-        }
+    for (path, bytes) in all_files(&run_dir(&outcome)) {
+        assert!(
+            !bytes
+                .windows(PASSWORD.len())
+                .any(|w| w == PASSWORD.as_bytes()),
+            "{} holds the password",
+            path.display()
+        );
     }
 }
 
@@ -976,12 +935,7 @@ fn a_final_record_that_cannot_be_written_is_recovered_later() {
     let record = read_record(&dir);
     assert_eq!(record.status, RunStatus::Interrupted);
     assert_eq!(codes(&record.status_reasons), ["app_interrupted"]);
-    assert!(
-        fs::metadata(dir.join("run.json"))
-            .unwrap()
-            .permissions()
-            .readonly()
-    );
+    assert!(is_read_only(&dir.join("run.json")));
 }
 
 // ---- prepare and spawn failures ----
@@ -1213,22 +1167,12 @@ fn a_backup_with_unknown_encryption_needs_a_password() {
     // With a password, it runs (and the record keeps the unknown state).
     let mut request = lab.request(ToolId::Ileapp, &no_key, InputType::Itunes);
     request.itunes_password = Some(PASSWORD.to_owned());
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert!(record.options.password_supplied);
     assert_eq!(record.input.itunes_encrypted, None);
     // Read as a plain folder, the same backup needs no password.
     let request = lab.request(ToolId::Ileapp, &no_key, InputType::Fs);
-    let (outcome, events) = run(
-        lab.context(ToolId::Ileapp, "success", &[]),
-        request,
-        |_, _| {},
-    );
-    let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+    let (_, record) = run_success(&lab, ToolId::Ileapp, request);
     assert!(!record.options.password_supplied);
 }
 
@@ -1241,12 +1185,7 @@ fn an_unencrypted_backup_or_a_non_backup_needs_no_password() {
     lab.itunes_backup(&backup, false);
     for input in [&backup, &lab.input] {
         let request = lab.request(ToolId::Ileapp, input, InputType::Itunes);
-        let (outcome, events) = run(
-            lab.context(ToolId::Ileapp, "success", &[]),
-            request,
-            |_, _| {},
-        );
-        let record = assert_final(&lab, &outcome, &events, RunStatus::Succeeded, &[], &[]);
+        let (_, record) = run_success(&lab, ToolId::Ileapp, request);
         assert!(!record.options.password_supplied);
         assert_eq!(
             record.input.itunes_encrypted,

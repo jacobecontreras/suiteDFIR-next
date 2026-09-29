@@ -13,7 +13,7 @@ use super::record::{LEFT_ENABLED_MESSAGE, STATE_UNKNOWN_MESSAGE};
 /// writes, IDEVICE-CLI.md §5).
 pub const DISK_NEARLY_FULL: u64 = 1 << 30;
 
-fn reason(code: &str, message: impl Into<String>) -> Reason {
+pub(super) fn reason(code: &str, message: impl Into<String>) -> Reason {
     Reason {
         code: code.to_owned(),
         message: message.into(),
@@ -542,19 +542,14 @@ mod tests {
         );
         fs::write(udid_dir.join("Manifest.db"), "x").unwrap();
         fs::write(udid_dir.join("Status.plist"), "garbage").unwrap();
-        let layout = inspect_layout(&udid_dir);
-        assert_eq!(layout.manifest_found.as_deref(), Some("Manifest.db"));
-        assert!(layout.status_plist_found);
-        assert_eq!(layout.snapshot_state, None, "unreadable");
-        // An unparsable Status.plist on disk fails the backup.
-        let facts = BackupFacts {
-            layout,
-            ..success()
-        };
-        let (status, reasons) = evaluate(None, Some(&facts));
+        // An unparsable Status.plist is unreadable: the layout of the "status_plist_unreadable"
+        // row of `contract_rows`, which fails the backup.
         assert_eq!(
-            (status, codes(&reasons)),
-            (AcqStatus::Failed, vec!["snapshot_not_finished"])
+            inspect_layout(&udid_dir),
+            Layout {
+                snapshot_state: None,
+                ..good_layout()
+            }
         );
     }
 
@@ -569,6 +564,21 @@ mod tests {
             will_encrypt_after_restore: Some(false),
             password_supplied: true,
             password_channel: Some(PasswordChannel::Env),
+        }
+    }
+
+    /// No encryption change was requested; `WillEncrypt` read false.
+    fn untouched() -> AcqEncryption {
+        AcqEncryption {
+            will_encrypt_before: Some(false),
+            enable_requested: false,
+            enabled_by_examiner: false,
+            will_encrypt_after_enable: None,
+            restore_requested: false,
+            restored_after: RestoreState::NotRequested,
+            will_encrypt_after_restore: None,
+            password_supplied: false,
+            password_channel: None,
         }
     }
 
@@ -630,14 +640,7 @@ mod tests {
         // already_encrypted, no change requested
         let preexisting = AcqEncryption {
             will_encrypt_before: Some(true),
-            enable_requested: false,
-            enabled_by_examiner: false,
-            will_encrypt_after_enable: None,
-            restore_requested: false,
-            restored_after: RestoreState::NotRequested,
-            will_encrypt_after_restore: None,
-            password_supplied: false,
-            password_channel: None,
+            ..untouched()
         };
         assert_eq!(
             codes(&warnings(&preexisting, &WarningFacts::default())),
@@ -653,17 +656,7 @@ mod tests {
             free_bytes_after: Some(DISK_NEARLY_FULL - 1),
             seal: vec![reason("symlinks_in_backup", "1 link")],
         };
-        let plain = AcqEncryption {
-            will_encrypt_before: Some(false),
-            enable_requested: false,
-            enabled_by_examiner: false,
-            will_encrypt_after_enable: None,
-            restore_requested: false,
-            restored_after: RestoreState::NotRequested,
-            will_encrypt_after_restore: None,
-            password_supplied: false,
-            password_channel: None,
-        };
+        let plain = untouched();
         assert_eq!(
             codes(&warnings(&plain, &facts)),
             [
@@ -677,5 +670,240 @@ mod tests {
             ..WarningFacts::default()
         };
         assert!(warnings(&plain, &roomy).is_empty());
+    }
+}
+
+/// Z0b characterization (SIMPLIFY.md §3): the exact reasons (code and message) of the §13.3
+/// status rules and warnings, as they are at main 24af32c, for the cases the fake-idevice goldens
+/// (`tests/golden_acq.rs`) do not reach or reach only with OS-specific text. Frozen: later bundles
+/// do not edit this module.
+#[cfg(test)]
+mod z0 {
+    use super::*;
+
+    use crate::contracts::PasswordChannel;
+
+    fn reasons(items: &[(&str, &str)]) -> Vec<Reason> {
+        items
+            .iter()
+            .map(|(code, message)| Reason {
+                code: (*code).to_owned(),
+                message: (*message).to_owned(),
+            })
+            .collect()
+    }
+
+    fn finished_layout() -> Layout {
+        Layout {
+            udid_dir_exists: true,
+            manifest_found: Some("Manifest.db".to_owned()),
+            info_plist_found: true,
+            status_plist_found: true,
+            snapshot_state: Some("finished".to_owned()),
+        }
+    }
+
+    fn succeeded() -> BackupFacts {
+        BackupFacts {
+            exit_code: Some(0),
+            final_message: Some("Backup Successful.".to_owned()),
+            layout: finished_layout(),
+            ..BackupFacts::default()
+        }
+    }
+
+    /// Each short-circuit records only its own reason, with the message it carries (or the fixed
+    /// cancel message), whatever the facts; without a short-circuit and without facts the backup
+    /// did not run.
+    #[test]
+    fn z0_short_circuit_reasons() {
+        let facts = succeeded();
+        for (short, status, expected) in [
+            (
+                ShortCircuit::PrepareFailed(
+                    "cannot create the temp dir: File exists (os error 17)".to_owned(),
+                ),
+                AcqStatus::Failed,
+                reasons(&[(
+                    "prepare_failed",
+                    "cannot create the temp dir: File exists (os error 17)",
+                )]),
+            ),
+            (
+                ShortCircuit::EncryptionEnableFailed(
+                    "idevicebackup2 encryption on exited with Some(234); WillEncrypt is still false"
+                        .to_owned(),
+                ),
+                AcqStatus::Failed,
+                reasons(&[(
+                    "encryption_enable_failed",
+                    "idevicebackup2 encryption on exited with Some(234); WillEncrypt is still false",
+                )]),
+            ),
+            (
+                ShortCircuit::SpawnFailed("backup: No such file or directory (os error 2)".into()),
+                AcqStatus::Failed,
+                reasons(&[(
+                    "spawn_failed",
+                    "backup: No such file or directory (os error 2)",
+                )]),
+            ),
+            (
+                ShortCircuit::Cancelled,
+                AcqStatus::Cancelled,
+                reasons(&[("cancelled_by_user", "The examiner cancelled the acquisition")]),
+            ),
+        ] {
+            assert_eq!(
+                evaluate(Some(&short), Some(&facts)),
+                (status, expected.clone()),
+                "{short:?}"
+            );
+            assert_eq!(
+                evaluate(Some(&short), None),
+                (status, expected),
+                "{short:?}"
+            );
+        }
+        assert_eq!(
+            evaluate(None, None),
+            (
+                AcqStatus::Failed,
+                reasons(&[("prepare_failed", "The backup did not run")])
+            )
+        );
+    }
+
+    /// The check messages that no fake-idevice scenario produces: a kill by a signal without a
+    /// short-circuit, no final message, the missing files, and an unreadable `Status.plist`.
+    #[test]
+    fn z0_check_reasons_without_a_scenario() {
+        let killed = BackupFacts {
+            signal: Some(9),
+            layout: finished_layout(),
+            ..BackupFacts::default()
+        };
+        assert_eq!(
+            evaluate(None, Some(&killed)),
+            (
+                AcqStatus::Failed,
+                reasons(&[
+                    ("killed_by_signal", "idevicebackup2 was killed by signal 9"),
+                    (
+                        "success_message_missing",
+                        "idevicebackup2 printed no final message"
+                    ),
+                ])
+            )
+        );
+        let files_missing = BackupFacts {
+            layout: Layout {
+                udid_dir_exists: true,
+                ..Layout::default()
+            },
+            ..succeeded()
+        };
+        assert_eq!(
+            evaluate(None, Some(&files_missing)),
+            (
+                AcqStatus::Failed,
+                reasons(&[
+                    (
+                        "manifest_missing",
+                        "The backup has neither Manifest.db nor Manifest.mbdb"
+                    ),
+                    ("info_plist_missing", "The backup has no Info.plist"),
+                    ("status_plist_missing", "The backup has no Status.plist"),
+                ])
+            )
+        );
+        let unreadable = BackupFacts {
+            layout: Layout {
+                snapshot_state: None,
+                ..finished_layout()
+            },
+            ..succeeded()
+        };
+        assert_eq!(
+            evaluate(None, Some(&unreadable)),
+            (
+                AcqStatus::Failed,
+                reasons(&[(
+                    "snapshot_not_finished",
+                    "Status.plist is unreadable or has no SnapshotState, so the snapshot cannot \
+                     be confirmed as finished"
+                )])
+            )
+        );
+    }
+
+    /// The warning messages, in table order, including those no scenario produces
+    /// (`device_file_errors`, `disk_nearly_full`) and the restore-unknown path.
+    #[test]
+    fn z0_warning_messages() {
+        let encryption = AcqEncryption {
+            will_encrypt_before: Some(true),
+            enable_requested: true,
+            enabled_by_examiner: true,
+            will_encrypt_after_enable: Some(true),
+            restore_requested: true,
+            restored_after: RestoreState::Failed,
+            will_encrypt_after_restore: Some(true),
+            password_supplied: true,
+            password_channel: Some(PasswordChannel::Env),
+        };
+        let facts = WarningFacts {
+            enable_outcome_unknown: true,
+            device_file_errors: 2,
+            free_bytes_after: Some(1000),
+            seal: reasons(&[("seal_cancelled", "passed through")]),
+        };
+        assert_eq!(
+            warnings(&encryption, &facts),
+            reasons(&[
+                (
+                    "encryption_restore_failed",
+                    "Turning backup encryption off again failed"
+                ),
+                (
+                    "encryption_left_enabled",
+                    "Backup encryption was turned on by the examiner and was not confirmed to be \
+                     off again; turn it off with the backup password"
+                ),
+                (
+                    "encryption_state_unknown",
+                    "The device's backup-encryption setting could not be confirmed after it was \
+                     changed; turn it off with the backup password if it is on"
+                ),
+                (
+                    "backup_encryption_preexisting",
+                    "Backup encryption was already on, so parsing the backup needs the owner's \
+                     backup password"
+                ),
+                (
+                    "device_file_errors",
+                    "The device reported an error for 2 file(s)"
+                ),
+                (
+                    "disk_nearly_full",
+                    "Only 1000 bytes are free on the case volume after the backup"
+                ),
+                ("seal_cancelled", "passed through"),
+            ])
+        );
+        let restore_unknown = AcqEncryption {
+            will_encrypt_before: Some(false),
+            restored_after: RestoreState::Unknown,
+            will_encrypt_after_restore: None,
+            ..encryption
+        };
+        assert_eq!(
+            warnings(&restore_unknown, &WarningFacts::default()),
+            reasons(&[(
+                "encryption_state_unknown",
+                "The device's backup-encryption setting could not be confirmed after it was \
+                 changed; turn it off with the backup password if it is on"
+            )])
+        );
     }
 }

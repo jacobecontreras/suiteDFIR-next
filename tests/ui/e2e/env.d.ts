@@ -10,7 +10,6 @@ declare module "node:child_process" {
   interface ChildProcess {
     stdout: Readable;
     stderr: Readable;
-    exitCode: number | null;
     kill(signal?: string): boolean;
     once(event: "exit", listener: (code: number | null) => void): this;
     once(event: "error", listener: (err: Error) => void): this;

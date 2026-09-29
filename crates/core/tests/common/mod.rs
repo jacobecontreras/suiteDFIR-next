@@ -1,7 +1,8 @@
-//! fake-idevice as bundled tools, for the `idevice` and `acquire` integration tests
-//! (DEVELOPMENT.md §4.8): copies of the binary under the four tool names (copies, never symlinks,
-//! so it works on Windows without privileges), a manifest pinning their hashes, and a lab with an
-//! app cache and a fake-device state dir per test.
+//! Shared test support for the integration tests (DEVELOPMENT.md §4.8): the fake binaries, the
+//! records' test host, file checks, and fake-idevice as bundled tools for the `idevice` and
+//! `acquire` tests: copies of the binary under the four tool names (copies, never symlinks, so it
+//! works on Windows without privileges), a manifest pinning their hashes, and a lab with an app
+//! cache and a fake-device state dir per test.
 
 #![allow(dead_code)]
 
@@ -11,25 +12,60 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use suitedfir_core::contracts::{IdeviceToolsManifest, PlatformKey, ToolBundle};
+use suitedfir_core::contracts::{IdeviceToolsManifest, PlatformKey, RecordHost, ToolBundle};
 use suitedfir_core::hashing;
 use suitedfir_core::idevice::{Idevice, IdeviceConfig, ToolLookup, ToolName, embedded_manifest};
+use suitedfir_core::manifest;
 
 pub const FAKE: &str = env!("CARGO_BIN_EXE_fake-idevice");
+pub const FAKE_LEAPP: &str = env!("CARGO_BIN_EXE_fake-leapp");
 /// The fake device.
 pub const UDID: &str = "00008101-000A1B2C3D4E001E";
 pub const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
 
 /// This machine's platform key.
 pub fn host_platform() -> PlatformKey {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => PlatformKey::MacosAarch64,
-        ("macos", "x86_64") => PlatformKey::MacosX86_64,
-        ("windows", "x86_64") => PlatformKey::WindowsX86_64,
-        ("windows", "aarch64") => PlatformKey::WindowsAarch64,
-        ("linux", "aarch64") => PlatformKey::LinuxAarch64,
-        _ => PlatformKey::LinuxX86_64,
+    manifest::host_platform().expect("this host has a platform key")
+}
+
+/// The host that the tests' records name.
+pub fn host() -> RecordHost {
+    RecordHost {
+        os: "testos".to_owned(),
+        os_version: "1.0".to_owned(),
+        arch: std::env::consts::ARCH.to_owned(),
+        hostname: "LAB-TEST-01".to_owned(),
     }
+}
+
+/// Every file under `dir`, with its bytes.
+pub fn all_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push((path.clone(), fs::read(&path).unwrap()));
+            }
+        }
+    }
+    files
+}
+
+/// Whether the file at `path` is marked read-only.
+pub fn is_read_only(path: &Path) -> bool {
+    fs::metadata(path).unwrap().permissions().readonly()
+}
+
+/// Nothing is left in `dir` (which may not exist).
+pub fn assert_empty_or_missing(dir: &Path) {
+    let left: Vec<_> = fs::read_dir(dir)
+        .map(|entries| entries.map(|e| e.unwrap().file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "left in {}: {left:?}", dir.display());
 }
 
 /// Copies fake-idevice into `dir` under the four tool names.
@@ -203,10 +239,6 @@ impl Lab {
 
     /// No scratch or job dir is left in `<app_cache>/tmp`.
     pub fn assert_no_temp_dirs(&self) {
-        let tmp = self.cache.join("tmp");
-        let left: Vec<_> = fs::read_dir(&tmp)
-            .map(|entries| entries.map(|e| e.unwrap().file_name()).collect())
-            .unwrap_or_default();
-        assert!(left.is_empty(), "left in {}: {left:?}", tmp.display());
+        assert_empty_or_missing(&self.cache.join("tmp"));
     }
 }

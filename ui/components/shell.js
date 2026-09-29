@@ -3,7 +3,7 @@
  * The app chrome: top bar (app name, nav, active-job indicator), the persistent MOCK DATA and
  * DEV OVERRIDE banners, and the `<main>` element screens render into.
  */
-import { h } from "../lib/dom.js";
+import { fill, h } from "../lib/dom.js";
 import { routeHref } from "../lib/router.js";
 import { jobKey } from "../lib/jobs.js";
 import { watch } from "../lib/store.js";
@@ -62,25 +62,24 @@ export function shell({ store }) {
     (s) => `${s.mode}|${devOverride(s)}`,
     () => {
       const state = store.get();
-      banners.replaceChildren(
-        ...[
-          state.mode === "mock" &&
-            h(
-              "div",
-              { class: "banner banner-mock", role: "note" },
-              icon("info"),
-              h("strong", null, "MOCK DATA"),
-              h("span", null, "Development mock: nothing here is real, and no parser or device is used."),
-            ),
-          devOverride(state) &&
-            h(
-              "div",
-              { class: "banner banner-dev", role: "note" },
-              icon("alert-triangle"),
-              h("strong", null, "DEV OVERRIDE"),
-              h("span", null, "A development test double replaces the real tools. Results are not evidence."),
-            ),
-        ].filter((x) => x instanceof Node),
+      fill(
+        banners,
+        state.mode === "mock" &&
+          h(
+            "div",
+            { class: "banner banner-mock", role: "note" },
+            icon("info"),
+            h("strong", null, "MOCK DATA"),
+            h("span", null, "Development mock: nothing here is real, and no parser or device is used."),
+          ),
+        devOverride(state) &&
+          h(
+            "div",
+            { class: "banner banner-dev", role: "note" },
+            icon("alert-triangle"),
+            h("strong", null, "DEV OVERRIDE"),
+            h("span", null, "A development test double replaces the real tools. Results are not evidence."),
+          ),
       );
     },
   );

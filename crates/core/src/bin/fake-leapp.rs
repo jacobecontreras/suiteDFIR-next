@@ -493,7 +493,8 @@ impl ScreenLog<'_> {
 
 // ---- arguments ----
 
-/// LEAPP's command line. The iTunes password's value is not kept (only whether one was given).
+/// LEAPP's command line, as far as the fake uses it. `--custom_artifacts_path`, `--keychain`,
+/// `--itunes_password` (whose value is never kept) and `-w` are accepted and ignored.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Args {
     input_type: Option<String>,
@@ -503,10 +504,6 @@ struct Args {
     profile: Option<PathBuf>,
     case_data: Option<PathBuf>,
     custom_output_folder: Option<OsString>,
-    custom_artifacts_path: Option<PathBuf>,
-    keychain: Option<PathBuf>,
-    itunes_password_given: bool,
-    wrap_text: bool,
     /// `-h`: print the usage and exit 0.
     help: bool,
 }
@@ -550,13 +547,10 @@ fn parse_args(args: &[OsString]) -> Result<Args, String> {
             "-m" | "--load_profile" => parsed.profile = Some(value()?.into()),
             "-d" | "--load_case_data" => parsed.case_data = Some(value()?.into()),
             "--custom_output_folder" => parsed.custom_output_folder = Some(value()?),
-            "--custom_artifacts_path" => parsed.custom_artifacts_path = Some(value()?.into()),
-            "--keychain" => parsed.keychain = Some(value()?.into()),
-            "--itunes_password" => {
+            "--custom_artifacts_path" | "--keychain" | "--itunes_password" => {
                 value()?;
-                parsed.itunes_password_given = true;
             }
-            "-w" | "--wrap_text" => parsed.wrap_text = true,
+            "-w" | "--wrap_text" => {}
             "-p" | "--artifact_paths" | "-c" | "--create_profile_casedata" => {
                 return Err(format!("argument {flag}: not supported by fake-leapp"));
             }
@@ -1265,10 +1259,6 @@ mod tests {
                 profile: Some("/out/profile.ilprofile".into()),
                 case_data: Some("/out/case.lcasedata".into()),
                 custom_output_folder: Some("report".into()),
-                custom_artifacts_path: None,
-                keychain: Some("/k.plist".into()),
-                itunes_password_given: true,
-                wrap_text: false,
                 help: false,
             }
         );
@@ -1296,8 +1286,6 @@ mod tests {
         assert_eq!(args.output, Some("/o".into()));
         assert_eq!(args.input, Some("/i".into()));
         assert_eq!(args.timezone.as_deref(), Some("UTC"));
-        assert_eq!(args.custom_artifacts_path, Some("/a".into()));
-        assert!(args.wrap_text);
         assert!(parse_args(&os(&["-t", "fs", "-h"])).unwrap().help);
     }
 

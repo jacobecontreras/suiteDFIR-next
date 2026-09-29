@@ -1,0 +1,62 @@
+[
+  {
+    "case": "device_missing",
+    "error": {
+      "code": "device_not_found",
+      "message": "The device is not connected. Connect it with a USB cable and unlock it.",
+      "detail": "device 00008101-000A1B2C3D4E001E is not connected"
+    },
+    "new_calls": [
+      [
+        "idevice_id",
+        "-l"
+      ]
+    ],
+    "pairing_attempts": [],
+    "attempt_files": []
+  },
+  {
+    "case": "not_paired",
+    "error": {
+      "code": "device_not_paired",
+      "message": "Pair the device with this computer first.",
+      "detail": "device 00008101-000A1B2C3D4E001E is not ready: not_paired"
+    },
+    "new_calls": [
+      [
+        "idevice_id",
+        "-l"
+      ],
+      [
+        "idevicepair",
+        "-u",
+        "00008101-000A1B2C3D4E001E",
+        "hostid"
+      ]
+    ],
+    "pairing_attempts": [],
+    "attempt_files": []
+  },
+  {
+    "case": "password_3_chars",
+    "error": {
+      "code": "encryption_password_required",
+      "message": "Enter a backup password of at least 4 characters.",
+      "detail": "enabling backup encryption needs a password of at least 4 characters"
+    },
+    "new_calls": [],
+    "pairing_attempts": [],
+    "attempt_files": []
+  },
+  {
+    "case": "password_3_chars_not_paired",
+    "error": {
+      "code": "encryption_password_required",
+      "message": "Enter a backup password of at least 4 characters.",
+      "detail": "enabling backup encryption needs a password of at least 4 characters"
+    },
+    "new_calls": [],
+    "pairing_attempts": [],
+    "attempt_files": []
+  }
+]

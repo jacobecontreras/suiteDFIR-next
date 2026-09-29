@@ -8,8 +8,7 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. This file covers how to
 
 | Tool | Version policy |
 |---|---|
-| Rust | Pinned in `rust-toolchain.toml` to a specific stable release (≥ 1.89 for `File::try_lock`; 1.98.x at planning time) with `components = ["rustfmt", "clippy"]`. On a new machine, first run `rustup toolchain install <pin> -c rustfmt,clippy`. |
-| Tauri | `tauri` 2.11.x, `tauri-build` 2.6.x, `tauri-plugin-dialog` 2.x. Exact versions come from `Cargo.lock`. |
+| Rust | Pinned in `rust-toolchain.toml` to a specific stable release (≥ 1.89 for `File::try_lock`) with `components = ["rustfmt", "clippy"]`. On a new machine, first run `rustup toolchain install <pin> -c rustfmt,clippy`. |
 | Tauri CLI | Exactly **2.11.5**: `cargo install tauri-cli --version "=2.11.5" --locked`. `release.yml` pins the same version (`TAURI_CLI_VERSION`; the only workflow that installs it); bump both deliberately. |
 | Node.js | Dev-only (`tsc`, `node --test`, `scripts/serve-ui.mjs`). `.node-version` = 22 (the lowest in use), `engines.node` = `>=22`. |
 | TypeScript | Exact version in `package.json` `devDependencies` (7.0.x), installed with `npm ci`. |
@@ -30,19 +29,15 @@ cargo fmt --all --check
 cargo deny check
 npm run typecheck                        # tsc --noEmit over ui/, ui-dev/, tests/ui/
 npm test                                 # node --test "tests/ui/**/*.test.js"
-node scripts/record-invokes.mjs          # rewrite tests/ui/recorded-invokes.json: the invokes ui/api/ipc.js
-                                         # makes in the scripted flow of tests/ui/ipc-flow.js (E2); the
-                                         # src-tauri replay test runs them through the real handlers
-                                         # (npm test fails while the committed file is stale)
+node scripts/record-invokes.mjs          # rewrite tests/ui/recorded-invokes.json (§4.8 IPC replay; npm test fails when stale)
 node scripts/serve-ui.mjs [--root <dir>] [--port 5173]
                                          # serve <root>/ui + <root>/ui-dev (at /dev/) with the CSP from
                                          # <root>/src-tauri/tauri.conf.json (--root defaults to the repo root);
                                          # open http://127.0.0.1:5173/?mock for browser mock mode
-node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b]   # mock-mode screenshots, light and dark,
-                                         # behaviour checks (check-*: e.g. Enter never starts a job, cancel
-                                         # needs a confirmation) and measurements (perf, perf-log); fails on
-                                         # any CSP violation, console error, failed check or missed budget
-                                         # (needs Playwright + Chromium; starts serve-ui itself; not in npm test)
+node tests/ui/e2e/shots.mjs --root <dir> --out <dir> [--screens a,b] [--dom]   # mock-mode screenshots (light/dark),
+                                         # with --dom also each screen's DOM, and check-*/perf checks; fails on a CSP violation,
+                                         # console error, failed check or missed budget (needs Playwright + Chromium; starts
+                                         # serve-ui itself; not in npm test)
 cargo xtask pin-leapp --tool ileapp --tag v2026.4.2 --download-verify   # update leapp-manifest.json
                                          # (~350 MB per tool, downloaded to the OS temp dir or
                                          # --download-dir <dir> and deleted after checking)
@@ -80,7 +75,7 @@ SUITEDFIR_BUNDLED_TOOLS_DIR=<suiteDFIR.app/Contents/MacOS or the Windows install
   cargo test -p suitedfir-core --test idevice -- --ignored --exact release_bundle_tools_verify_against_the_manifest
 ```
 
-Linux release builds (AppImage + deb, `ubuntu:22.04`) use no overlay: Linux uses the distribution's iOS tools. The arm64 Linux and Windows bundles (S3) come from `release.yml` only (§6). Windows arm64 gets only the online installer, built with `--target aarch64-pc-windows-msvc` and without `fetch-idevice-tools` or `tauri.release.conf.json`: there is no pinned iOS tool build for it (`fetch-idevice-tools` refuses the target), so the app reports acquisition as `unsupported_platform` there. On a Mac the tool bundle is fetched with `SUITEDFIR_GH_USER` set while `gh` holds several accounts; while the repository is public, an anonymous download works too.
+Linux release builds (AppImage + deb, `ubuntu:22.04`) use no overlay: Linux uses the distribution's iOS tools. Windows arm64 gets only the online installer, built with `--target aarch64-pc-windows-msvc` and without `fetch-idevice-tools` or `tauri.release.conf.json`: there is no pinned iOS tool build for it (`fetch-idevice-tools` refuses the target), so the app reports acquisition as `unsupported_platform` there. On a Mac the tool bundle is fetched with `SUITEDFIR_GH_USER` set while `gh` holds several accounts; while the repository is public, an anonymous download works too.
 
 The `xtask` alias lives in `.cargo/config.toml`.
 
@@ -101,13 +96,13 @@ The bundled libimobiledevice tools are **not** needed for `cargo tauri dev` or `
 ```
 Cargo.toml / Cargo.lock       workspace ([profile.dev.package.sha2] opt-level = 3)
 rust-toolchain.toml  deny.toml  leapp-manifest.json  idevice-tools.json  .cargo/config.toml
-.gitattributes (* text=auto eol=lf; *.cmd eol=crlf; *.png, *.ico, *.icns binary)  .editorconfig  .gitignore  .node-version
+.gitattributes  .editorconfig  .gitignore  .node-version
 crates/core/                  suitedfir-core: all logic, no Tauri dependency
-  src/{lib.rs, contracts/, fsutil/, hashing.rs, manifest.rs, leapp/, process/, tail.rs,
-       settings.rs, paths.rs, case.rs, run/, inspect.rs, runner.rs, idevice/, acquire/}
+  src/                        modules as in ARCHITECTURE §5.1
   src/bin/fake-leapp.rs       test double (never bundled); tests use env!("CARGO_BIN_EXE_fake-leapp")
   src/bin/fake-idevice.rs     test double for the libimobiledevice tools (never bundled)
-  tests/{process.rs, introspection.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/}
+  tests/{process.rs, introspection.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/,
+         golden_acq.rs, golden/ (acquisition goldens)}
 src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.json (externalBin overlay),
                               tauri.offline.conf.json (Windows offline-installer overlay),
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
@@ -118,6 +113,7 @@ ui-dev/                       NOT shipped: mock.js (+ mock/), fixtures/contracts
 tests/ui/                     node --test files for ui/ modules; e2e/shots.mjs (Playwright screenshots)
 fixtures/leapp/<tool>/<ver>/  captured real-LEAPP outputs (paths sanitized to <RUN_DIR>, <INPUT>)
 scripts/serve-ui.mjs          zero-dependency static server (ui/ at /, ui-dev/ at /dev/, CSP header)
+scripts/record-invokes.mjs    rewrites tests/ui/recorded-invokes.json (§2)
 scripts/cargo-auditable(.cmd) runner wrapper for release builds
 scripts/build-idevice-tools.sh  scripted (not bit-reproducible) libimobiledevice build from pinned tarballs (X1)
 scripts/idevice-tools-patches/  the two source patches that build applies, pinned in the script (FX1)
@@ -149,7 +145,7 @@ Build only what [ARCHITECTURE.md §2](docs/ARCHITECTURE.md#2-scope) lists. The o
 | `plist` | `Value::from_reader` (XML and binary) | core |
 | `time` | `formatting`, `parsing` | core |
 | `getrandom` | | core |
-| `libc` (unix), `windows-sys` (windows, features listed in ARCHITECTURE §7) | | core |
+| `libc` (unix), `windows-sys` (windows; features: ARCHITECTURE §7 plus `Win32_Storage_FileSystem`) | | core |
 | `log` | facade; the file logger is our own | core, src-tauri |
 | `thiserror` | | core, src-tauri |
 | dev-only: `tempfile`; `tauri` feature `test` (E2) | | tests |
@@ -180,9 +176,9 @@ Anything else needs a PR labelled `new-dependency` that explains why std or an a
   - UI tests served by `serve-ui.mjs` must show zero CSP violations in the console.
 - **Commands:** new commands validate every path argument per the path policy (ARCHITECTURE §9) and every enum.
 - **Secrets:**
-  - Never log, persist or emit them. `itunes_password` exists only in `RunRequest` and in the spawned argv; redact it everywhere else.
-  - Implement `Debug` by hand for types holding it.
-  - The UI clears the password field after `run_start`.
+  - Never log, persist or emit backup passwords. `itunes_password` exists only in `RunRequest` and in the spawned LEAPP argv; the acquisition passwords only in their request payloads and the idevice tools' env (ARCHITECTURE §9, D15). Redact them everywhere else.
+  - Types holding one implement `Debug` by hand so the secret is never printed (e.g. `<redacted>`).
+  - The UI clears password fields after use.
 - **Reports:** never load LEAPP report files into the app webview.
 
 ### 4.4 Forensic integrity
@@ -236,21 +232,11 @@ A contract change updates all of these in one PR:
 
 **Unit tests:**
 - Every function in `crates/core` with logic has unit tests.
-- Status rules have table-driven tests, including every row of CONTRACTS.md §7.4, over synthetic outputs and (from E3) the captured fixtures in `fixtures/leapp/`.
+- Status rules have table-driven tests, including every row of CONTRACTS.md §7.4, over synthetic outputs and the captured fixtures in `fixtures/leapp/`.
 
-**fake-leapp** (`crates/core/src/bin/fake-leapp.rs`) mimics a LEAPP onefile binary:
-- **CLI:** accepts LEAPP's flags; writes the LEAPP output layout.
-- **Process shape:**
-  - The parent re-execs itself as `--fake-worker` and forwards SIGTERM (Unix).
-  - Writes its own and the worker's PIDs to `FAKE_LEAPP_PIDFILE` if set (`parent <pid>` and `worker <pid>` lines, written atomically).
-- **Output behavior:**
-  - The worker appends `Screen_Output.html` records at `FAKE_LEAPP_INTERVAL_MS` (default 100) for `FAKE_LEAPP_LINES` (default 50) lines.
-  - stdout is fully buffered until exit.
-  - Creates `$TMPDIR/_MEIfake<pid>` and removes it on graceful exit.
-  - Writes `_lava_data.lava` at the end.
-- **Module list:** `--list-modules-json <tool>` prints a small module list as a `ToolModules` JSON object with version `dev-override` (for the dev override).
-- **Probe copies:** a copy named `fake-leapp-probe[.exe]` also answers module introspection (LEAPP-CLI.md §5): its always-run artifacts, catalog and 500 filler plugins (plus iLEAPP's timezones). The E2 replay installs such a copy as aLEAPP through the real install pipeline. Plain `fake-leapp` never answers the probe.
-- **Scenarios** (`FAKE_LEAPP_SCENARIO`): `success`, `artifact_error`, `invalid_input`, `early_exit`, `argparse_error`, `crash`, `prompt` (opens `/dev/tty` if possible, then reads stdin; EOF → traceback, exit 1), `slow`, `ignore_term` (ignores SIGTERM). Expected outcomes are in CONTRACTS.md §7.4. One more, `glibc_too_old`, prints the dynamic loader's `version 'GLIBC_2.43' not found` line from the bootloader and exits 255 before creating anything, like a pinned Linux build on a too-old glibc (LEAPP-CLI.md §2); the runner records it as `spawn_failed` with the glibc message.
+**fake-leapp** (`crates/core/src/bin/fake-leapp.rs`) mimics a LEAPP onefile binary: a bootloader that re-executes itself as a worker, LEAPP's flags and output layout, and `FAKE_LEAPP_*` variables for the PIDs and the pacing. Its module docs describe it in full. For the tests:
+- **Scenarios** (`FAKE_LEAPP_SCENARIO`): the rows of CONTRACTS.md §7.4, plus `glibc_too_old` (the loader failure of a pinned Linux build on a too-old glibc, LEAPP-CLI.md §2), which the runner records as `spawn_failed` with the glibc message.
+- **Probe copies:** a copy named `fake-leapp-probe[.exe]` also answers module introspection (LEAPP-CLI.md §5). The E2 replay installs such a copy as aLEAPP through the real install pipeline. Plain `fake-leapp` never answers the probe.
 
 **Process tests (all three OSes):**
 - Log lines arrive incrementally.
@@ -258,29 +244,18 @@ A contract change updates all of these in one PR:
 - The per-run temp dir is gone.
 - `prompt` exits within 5 s.
 
-**fake-idevice** (`crates/core/src/bin/fake-idevice.rs`) emulates `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2`:
-- **Selection:** by `argv[0]` file stem (tests create **copies** named after the tools) or by the first argument (`fake-idevice idevicebackup2 …`).
-- **Output formats:** follow docs/IDEVICE-CLI.md: XML plists for `-x`, `idevicepair` message lines, and `\r[==  ] NN% (x/y)` progress with explicit flush.
-- **Backup layout:** writes a valid tiny layout (`Info.plist`, `Manifest.plist`, `Manifest.db`, `Status.plist` with `SnapshotState`).
-- **Signals:** handles SIGTERM like the real tool.
-- **Pairing semantics:** mirrors the real tools. `hostid` prints `(null)` without a host record, and `validate` without a record behaves like `pair` (it starts pairing), so tests can prove that polling never pairs.
+**fake-idevice** (`crates/core/src/bin/fake-idevice.rs`) emulates `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2` with the output of docs/IDEVICE-CLI.md, so no test needs a real device. Its module docs describe the tool selection, output, signals, pacing variables and every scenario. For the tests:
+- **Tool names:** tests create **copies** of the binary named after the tools, never symlinks.
+- **Pairing semantics:** as CONTRACTS.md §13.4 (`hostid` prints `(null)` without a host record; `validate` without one starts pairing), so tests can prove that polling never pairs.
 - **Password handling:** reads passwords only from `BACKUP_PASSWORD_NEW`/`BACKUP_PASSWORD`, and fails if a password appears in argv.
-- **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`. Two more cover device behavior the §13.4 rows do not:
-  - `will_encrypt_absent`: the backup domain has no `WillEncrypt` key, which the tool treats as false.
-  - `enable_unconfirmed`: `encryption on` succeeds, but the next `WillEncrypt` read still returns false.
-- **Pacing:**
-  - `FAKE_IDEVICE_INTERVAL_MS`: the gap between progress records.
-  - `FAKE_IDEVICE_PROMPT_MS`: the wait after an encryption prompt.
-  - `FAKE_IDEVICE_DATA_USED`: the device's used bytes.
-  - `FAKE_IDEVICE_HOLD=<path>`: `idevice_id -l` waits until that file exists (at most 15 s), so a test can keep a poll in flight.
-  - See the binary's module docs.
+- **Scenarios** (`FAKE_IDEVICE_SCENARIO`): CONTRACTS.md §13.4, plus `will_encrypt_absent` and `enable_unconfirmed` for device behavior the §13.4 rows do not cover; state persisted between invocations in `FAKE_IDEVICE_STATE_DIR`.
 
 **Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow. With `SUITEDFIR_SMOKE_CAPTURE=<dir>` they save the fixture runs' `_lava_data.lava` and `Screen_Output.html` (paths replaced by `<RUN_DIR>`, `<INPUT>`, `<LAB>`) with an `outcome.json`; `fixtures/leapp/<tool>/<version>/` holds such captures from macOS arm64, and the `run::status` tests check them. Re-capture them when the pinned versions change.
 
 **UI tests:**
 - `node --test` over pure modules: store, filters, virtual-list math, selection/profile diff, formatting.
 - A parity test: `ipc.js` and `mock.js` export identical function names.
-- **IPC replay (E2):** `tests/ui/recorded-invokes.json` holds every invoke `ipc.js` makes in a scripted flow over all commands. `src-tauri/src/replay.rs` replays it through the real command handlers on Tauri's mock runtime (`tauri::test`), with fake-leapp and fake-idevice as dev overrides and an opener that records, and checks each answer and event against its contract type. The src-tauri tests find fake-leapp and fake-idevice next to their own `deps/` folder, which `cargo test --workspace` fills.
+- **IPC replay (E2):** `tests/ui/recorded-invokes.json` holds every invoke `ipc.js` makes in a scripted flow over all commands (`tests/ui/ipc-flow.js`). `src-tauri/src/replay.rs` replays it through the real command handlers on Tauri's mock runtime (`tauri::test`), with fake-leapp and fake-idevice as dev overrides and an opener that records, and checks each answer and event against its contract type. The src-tauri tests find fake-leapp and fake-idevice next to their own `deps/` folder, which `cargo test --workspace` fills.
 
 **Screenshots:** UI PRs link mock-mode screenshots (light and dark) of every changed screen state, made with `tests/ui/e2e/shots.mjs` (§2).
 
@@ -306,13 +281,13 @@ The UI can be developed and screenshotted entirely in browser mock mode (`node s
 - **Tauri CLI:** only `release.yml` installs the Tauri CLI. The other workflows compile the app with `cargo build`, which includes `tauri-build`'s config validation, and never launch it.
 - **Concurrency:** `concurrency` cancels superseded runs **for pull requests only**; runs on `main` always finish, because they seed the cache.
 - **LEAPP smoke container:** `leapp-smoke.yml` runs its Linux legs (x64 and arm64) in `ubuntu:26.04` (glibc 2.43), not in the `ubuntu:22.04` build container. The pinned upstream Linux LEAPP builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on 22.04 (LEAPP-CLI.md §2). The app's own glibc baseline stays 22.04.
-- **LEAPP smoke triggers:** a weekly schedule, pull requests that touch `leapp-manifest.json`, `crates/core/src/{leapp,process,run}/**`, `crates/core/src/{runner,tail,inspect,hashing}.rs`, the smoke tests or the workflow (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`, `windows-11-arm` (`os=windows` runs both Windows legs). The smoke inputs are small synthetic fixtures that the tests write themselves, not real evidence.
+- **LEAPP smoke triggers:** a weekly schedule, pull requests that touch the paths in `leapp-smoke.yml`'s `paths:` filter (drafts skipped), and dispatch with `-f os=linux|macos|windows|all`. Legs: Linux x64/arm64 (container), `macos-15`, `macos-15-intel`, `windows-2025`, `windows-11-arm` (`os=windows` runs both Windows legs). The smoke inputs are small synthetic fixtures that the tests write themselves, not real evidence.
 - **Release workflow (`release.yml`):**
   - `workflow_dispatch` is a build-only dry run: the `os` input picks the legs (default `linux`), and the bundles, the source-obligation files, `SHA256SUMS` and the release notes are uploaded to the run. No release is created.
   - A pushed tag `v<version>` builds every leg and creates a **draft** release, which a maintainer reviews and publishes by hand. It holds the bundles, `SHA256SUMS`, the libimobiledevice source tarballs, the build script, its source patches and each tool bundle's `BUILDINFO.json` (all checked against `idevice-tools.json` and the hashes the `BUILDINFO.json` files record).
   - Legs, as the `os` input selects them: `linux` = Linux x64 and arm64 (AppImage + deb, both in the `ubuntu:22.04` container, on `ubuntu-24.04` and `ubuntu-24.04-arm`); `macos` = macOS arm64 and x64 (dmg); `windows` = Windows x64 (`windows-2025`, online and offline installers with the iOS tools) and Windows arm64 (`windows-11-arm`, online installer only, no iOS tools).
   - macOS signing and notarization run only when the Apple secrets exist; Windows signing is not set up. The release notes say which builds are unsigned or not notarized.
-- **Windows on Arm runners** (`windows-11-arm`, release and smoke legs): the Rust step sets `rustup set default-host aarch64-pc-windows-msvc` and checks `rustc -vV`, so the toolchain is native even if the image's rustup defaults to an emulated x64 host (an x64 smoke build would test the windows-x86_64 LEAPP builds). `ring` (rustls, in the app, the core tests and the Tauri CLI) compiles its aarch64-pc-windows-msvc assembly with `clang`, which the image's LLVM provides; the legs put `C:\Program Files\LLVM\bin` on `PATH` if `clang` is not found.
+- **Windows on Arm runners** (`windows-11-arm`, release and smoke legs): a native `aarch64-pc-windows-msvc` Rust host, and `clang` for `ring` from the image's LLVM; see the commented steps in `release.yml` and `leapp-smoke.yml`.
 - **Other builds:** the iOS tools are built on local machines (§2). Dispatch requires a workflow file on the default branch; to test a branch's version of a workflow, dispatch it with `--ref <branch>`.
 - **Artifacts:** uploaded with `retention-days: 1`.
 

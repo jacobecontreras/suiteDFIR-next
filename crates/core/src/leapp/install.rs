@@ -1311,6 +1311,11 @@ mod tests {
             }
         }
 
+        /// The usual case: the entry `ileapp`, pinned to the hash of `ENTRY_BYTES`.
+        fn good(asset: &[u8], urls: Vec<String>) -> Self {
+            Self::new(asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), urls)
+        }
+
         fn tools_dir(&self) -> PathBuf {
             self.root.path().join("leapp")
         }
@@ -1318,6 +1323,14 @@ mod tests {
         fn assert_nothing_left(&self) {
             assert_eq!(entries(self.root.path()), Vec::<String>::new());
         }
+    }
+
+    /// `asset` written to `asset.zip` in a fresh temp dir (returned too, to keep it alive).
+    fn asset_file(asset: &[u8]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("asset.zip");
+        fs::write(&src, asset).unwrap();
+        (dir, src)
     }
 
     fn good_zip() -> Vec<u8> {
@@ -1329,12 +1342,7 @@ mod tests {
         let asset = good_zip();
         let (base, server) = serve(vec![Reply::Body(asset.clone())]);
         let url = format!("{base}/ileapp-test.zip");
-        let case = Case::new(
-            &asset,
-            "ileapp",
-            Some(sha256_of(ENTRY_BYTES)),
-            vec![url.clone()],
-        );
+        let case = Case::good(&asset, vec![url.clone()]);
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let mut run = Run::default();
@@ -1407,7 +1415,7 @@ mod tests {
         let asset = good_zip();
         let (base, server) = serve(vec![Reply::Status(404), Reply::Body(asset.clone())]);
         let urls = vec![format!("{base}/missing.zip"), format!("{base}/mirror.zip")];
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), urls.clone());
+        let case = Case::good(&asset, urls.clone());
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let record = run
@@ -1435,7 +1443,7 @@ mod tests {
         tampered[0] ^= 1;
         let (base, server) = serve(vec![Reply::Body(tampered), Reply::Body(asset.clone())]);
         let urls = vec![format!("{base}/bad.zip"), format!("{base}/mirror.zip")];
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), urls.clone());
+        let case = Case::good(&asset, urls.clone());
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let record = run
@@ -1469,7 +1477,7 @@ mod tests {
             body: asset[..asset.len() / 2].to_vec(),
             hold,
         }]);
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let case = Case::good(&asset, vec![base]);
         let tools_dir = case.tools_dir();
         let started = Instant::now();
         let error = Run::default()
@@ -1496,7 +1504,7 @@ mod tests {
             body: asset[..10].to_vec(),
             hold,
         }]);
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let case = Case::good(&asset, vec![base]);
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let cancel = Arc::clone(&run.cancel);
@@ -1522,12 +1530,9 @@ mod tests {
         server.join().unwrap();
 
         // Before an offline import starts.
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let run = Run::default();
+        let (_dir, src) = asset_file(&asset);
+        let mut run = Run::default();
         run.cancel.store(true, Ordering::Relaxed);
-        let mut run = run;
         let error = run
             .install(pinned(&tools_dir, &case.manifest), Source::File(&src))
             .unwrap_err();
@@ -1539,9 +1544,7 @@ mod tests {
     #[test]
     fn the_copy_and_extract_loops_stop_on_cancel() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
+        let (dir, src) = asset_file(&asset);
         let manifest = tool_manifest(&asset, "ileapp", None);
         let pinned_asset = &manifest.platforms[&PlatformKey::MacosAarch64];
         let cancelled = AtomicBool::new(true);
@@ -1556,10 +1559,8 @@ mod tests {
     #[test]
     fn leftovers_of_an_interrupted_install_are_removed() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let tool_dir = pinned.tool_dir();
@@ -1620,7 +1621,7 @@ mod tests {
         let last = tampered.len() - 1;
         tampered[last] ^= 0xff;
         let (base, server) = serve(vec![Reply::Body(tampered)]);
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), vec![base]);
+        let case = Case::good(&asset, vec![base]);
         let tools_dir = case.tools_dir();
         let mut run = Run::default();
         let error = run
@@ -1747,9 +1748,7 @@ mod tests {
             "C:evil",
         ] {
             let asset = zip_bytes(&[(entry, ENTRY_BYTES)]);
-            let dir = tempfile::tempdir().unwrap();
-            let src = dir.path().join("asset.zip");
-            fs::write(&src, &asset).unwrap();
+            let (_dir, src) = asset_file(&asset);
             let case = Case::new(&asset, entry, Some(sha256_of(ENTRY_BYTES)), Vec::new());
             let tools_dir = case.tools_dir();
             let error = Run::default()
@@ -1761,10 +1760,8 @@ mod tests {
         }
         // A symlink named like the entry.
         let asset = zip_bytes(&[("ileapp@", b"")]);
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let error = Run::default()
             .install(pinned(&tools_dir, &case.manifest), Source::File(&src))
@@ -1774,7 +1771,7 @@ mod tests {
         // An archive without the entry.
         let asset = zip_bytes(&[("other", ENTRY_BYTES)]);
         fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let error = Run::default()
             .install(pinned(&tools_dir, &case.manifest), Source::File(&src))
@@ -1790,7 +1787,7 @@ mod tests {
         let src = dir.path().join("downloaded elsewhere.zip");
         fs::write(&src, &asset).unwrap();
         crate::fsutil::set_read_only(&src).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let mut run = Run::default();
@@ -1820,7 +1817,7 @@ mod tests {
         let asset = good_zip();
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("wrong.zip");
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         // Same size, different bytes; then a different size.
@@ -1846,10 +1843,8 @@ mod tests {
     #[test]
     fn a_failed_introspection_installs_nothing() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let error = install(
             pinned(&tools_dir, &case.manifest),
@@ -1889,10 +1884,8 @@ mod tests {
     #[test]
     fn existing_versions_survive_a_failed_install_and_a_reinstall_replaces() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         let other = pinned.tool_dir().join("v2025.1.0");
@@ -1920,10 +1913,8 @@ mod tests {
     #[test]
     fn tampering_fails_verification() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
         Run::default().install(pinned, Source::File(&src)).unwrap();
@@ -1946,10 +1937,8 @@ mod tests {
     #[test]
     fn install_states() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
-        let case = Case::new(&asset, "ileapp", Some(sha256_of(ENTRY_BYTES)), Vec::new());
+        let (_dir, src) = asset_file(&asset);
+        let case = Case::good(&asset, Vec::new());
         let tools_dir = case.tools_dir();
         let pinned = pinned(&tools_dir, &case.manifest);
 
@@ -2018,9 +2007,7 @@ mod tests {
     #[test]
     fn a_null_manifest_entry_hash_is_recorded_and_verified_against_the_record() {
         let asset = good_zip();
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("asset.zip");
-        fs::write(&src, &asset).unwrap();
+        let (_dir, src) = asset_file(&asset);
         // A zip with a null entry hash is invalid in a real manifest, but the null-hash path is the
         // same for AppImages; this exercises it on every OS.
         let case = Case::new(&asset, "ileapp", None, Vec::new());
@@ -2208,5 +2195,663 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::ExtractFailed);
         assert!(error.to_string().contains("only be installed on Linux"));
         case.assert_nothing_left();
+    }
+}
+
+/// Z0 characterization (simplification pass, candidates I6, I7 and I2). Frozen: later bundles do
+/// not edit this module. It uses only the public pipeline ([`install`], [`status`], [`verify`])
+/// and its own helpers, never `mod tests`.
+///
+/// - I6: the whole [`ToolCheck`] (every [`ToolStatus`] field, the exact `problem`, and
+///   `verified` with its `verified_against`) for each branch of `check` and `installed`, from
+///   both [`status`] and [`verify`].
+/// - I7: the exact error of an offline import of something that is not a regular file (a
+///   directory on every OS; a symlink to a directory; `/dev/null` on Unix). The second
+///   `is_file` check, after opening, guards a swap between the check and the open and cannot be
+///   reached from a test.
+/// - I2: the `AppError` an introspection failure becomes when it comes back from `install`.
+#[cfg(test)]
+mod z0 {
+    use std::collections::BTreeMap;
+    use std::fs::{self, File};
+    use std::io::{self, Write};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicBool;
+
+    use sha2::{Digest, Sha256};
+    use zip::write::SimpleFileOptions;
+
+    use super::{InstallError, Pinned, Source, ToolCheck, VerifiedTool, install, status, verify};
+    use crate::contracts::{
+        AppError, ArchiveKind, EntryVerifiedAgainst, ErrorCode, InstallRecord, InstallSource,
+        ModuleInfo, ModulesFile, PlatformAsset, PlatformKey, Timestamp, ToolId, ToolManifest,
+        ToolState, ToolStatus, VersionedFile, parse_versioned,
+    };
+    use crate::leapp::modules::IntrospectionError;
+
+    const VERSION: &str = "v2026.4.2";
+    const ENTRY_BYTES: &[u8] = b"#!z0 ileapp onefile binary\n";
+    const ASSET_NAME: &str = "ileapp-z0.zip";
+
+    /// Lowercase hex SHA-256, independent of `hashing::to_hex`.
+    fn sha256_of(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    fn asset_zip() -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        for (name, bytes) in [("ileapp", ENTRY_BYTES), ("README.txt", b"not extracted")] {
+            writer
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    /// iLEAPP pinned for macos-aarch64 only, with the given asset and entry hash.
+    fn tool_manifest(asset: &[u8], entry_sha256: Option<String>) -> ToolManifest {
+        let mut manifest = crate::manifest::embedded().unwrap().tools[&ToolId::Ileapp].clone();
+        manifest.display_name = "iLEAPP".into();
+        manifest.version = VERSION.into();
+        let pinned = PlatformAsset {
+            asset_name: ASSET_NAME.into(),
+            asset_size: asset.len() as u64,
+            asset_sha256: sha256_of(asset),
+            archive_kind: ArchiveKind::Zip,
+            entry: "ileapp".into(),
+            entry_sha256,
+            urls: Vec::new(),
+        };
+        manifest.platforms = [(PlatformKey::MacosAarch64, pinned)].into();
+        manifest
+    }
+
+    fn modules_file() -> ModulesFile {
+        ModulesFile {
+            schema_version: ModulesFile::SCHEMA_VERSION,
+            tool: ToolId::Ileapp,
+            version: VERSION.into(),
+            generated_at: Timestamp::parse("2026-09-25T10:00:00Z").unwrap(),
+            always_run: BTreeMap::new(),
+            timezones: Some(vec!["UTC".into()]),
+            modules: (0..3)
+                .map(|i| ModuleInfo {
+                    name: format!("m{i}"),
+                    module_name: format!("m{i}"),
+                    category: "C".into(),
+                    display_name: format!("M {i}"),
+                    description: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// A tools dir and the asset file to import, below one temp dir.
+    struct Setup {
+        root: tempfile::TempDir,
+        asset: Vec<u8>,
+    }
+
+    impl Setup {
+        fn new() -> Self {
+            let root = tempfile::tempdir().unwrap();
+            let asset = asset_zip();
+            fs::write(root.path().join("asset.zip"), &asset).unwrap();
+            Self { root, asset }
+        }
+
+        fn tools_dir(&self) -> PathBuf {
+            self.root.path().join("leapp")
+        }
+
+        fn src(&self) -> PathBuf {
+            self.root.path().join("asset.zip")
+        }
+
+        /// `<tools_dir>/ileapp/<version>`, built by hand (not through `Pinned`).
+        fn version_dir(&self) -> PathBuf {
+            self.tools_dir().join("ileapp").join(VERSION)
+        }
+
+        fn entry(&self) -> PathBuf {
+            self.version_dir().join("bin").join("ileapp")
+        }
+
+        fn install(&self, pinned: Pinned<'_>) -> InstallRecord {
+            let src = self.src();
+            install(
+                pinned,
+                Source::File(&src),
+                &AtomicBool::new(false),
+                &mut |_| {},
+                &mut |_| Ok(modules_file()),
+            )
+            .unwrap()
+        }
+
+        fn rewrite_record(&self, change: impl FnOnce(&mut InstallRecord)) {
+            let path = self.version_dir().join("install.json");
+            let mut record: InstallRecord = parse_versioned(&fs::read(&path).unwrap()).unwrap();
+            change(&mut record);
+            fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        }
+    }
+
+    fn pinned<'a>(tools_dir: &'a Path, manifest: &'a ToolManifest) -> Pinned<'a> {
+        Pinned {
+            tools_dir,
+            tool: ToolId::Ileapp,
+            manifest,
+            platform: Some(PlatformKey::MacosAarch64),
+        }
+    }
+
+    /// The status of a tool that is not (usably) installed.
+    fn not_installed(state: ToolState, problem: Option<String>) -> ToolCheck {
+        ToolCheck {
+            status: ToolStatus {
+                tool: ToolId::Ileapp,
+                display_name: "iLEAPP".into(),
+                pinned_version: VERSION.into(),
+                state,
+                installed_version: None,
+                install_source: None,
+                module_count: None,
+                install_dir: None,
+                problem,
+            },
+            verified: None,
+        }
+    }
+
+    /// The status of the installed tool.
+    fn installed_status(setup: &Setup, state: ToolState, problem: Option<String>) -> ToolStatus {
+        ToolStatus {
+            tool: ToolId::Ileapp,
+            display_name: "iLEAPP".into(),
+            pinned_version: VERSION.into(),
+            state,
+            installed_version: Some(VERSION.into()),
+            install_source: Some(InstallSource::OfflineImport),
+            module_count: Some(3),
+            install_dir: Some(setup.version_dir().to_string_lossy().into_owned()),
+            problem,
+        }
+    }
+
+    /// `status` and `verify` agree before any hashing.
+    fn assert_both(pinned: Pinned<'_>, expected: &ToolCheck) {
+        assert_eq!(&status(pinned), expected);
+        assert_eq!(&verify(pinned), expected);
+    }
+
+    #[test]
+    fn z0_unsupported_platforms() {
+        let setup = Setup::new();
+        let manifest = tool_manifest(&setup.asset, Some(sha256_of(ENTRY_BYTES)));
+        let tools_dir = setup.tools_dir();
+        for (platform, name) in [
+            (None, "unknown"),
+            (Some(PlatformKey::WindowsX86_64), "windows-x86_64"),
+            (Some(PlatformKey::LinuxAarch64), "linux-aarch64"),
+        ] {
+            let pinned = Pinned {
+                platform,
+                ..pinned(&tools_dir, &manifest)
+            };
+            assert_both(
+                pinned,
+                &not_installed(
+                    ToolState::UnsupportedPlatform,
+                    Some(format!(
+                        "ileapp has no pinned build for this platform ({name})"
+                    )),
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn z0_installed_verified_and_tampered() {
+        let setup = Setup::new();
+        let manifest = tool_manifest(&setup.asset, Some(sha256_of(ENTRY_BYTES)));
+        let tools_dir = setup.tools_dir();
+        let pinned = pinned(&tools_dir, &manifest);
+
+        // Not installed: no problem.
+        assert_both(pinned, &not_installed(ToolState::NotInstalled, None));
+
+        let record = setup.install(pinned);
+        assert_eq!(
+            status(pinned),
+            ToolCheck {
+                status: installed_status(&setup, ToolState::InstalledUnverified, None),
+                verified: None,
+            }
+        );
+        assert_eq!(
+            verify(pinned),
+            ToolCheck {
+                status: installed_status(&setup, ToolState::Verified, None),
+                verified: Some(VerifiedTool {
+                    record: record.clone(),
+                    entry: setup.entry(),
+                    verified_against: EntryVerifiedAgainst::Manifest,
+                }),
+            }
+        );
+
+        // A changed entry: the manifest's hash is the basis.
+        fs::write(setup.entry(), b"tampered").unwrap();
+        let problem = format!(
+            "{} has SHA-256 {}; the manifest pins {}",
+            setup.entry().display(),
+            sha256_of(b"tampered"),
+            sha256_of(ENTRY_BYTES)
+        );
+        assert_eq!(
+            verify(pinned),
+            ToolCheck {
+                status: installed_status(&setup, ToolState::VerificationFailed, Some(problem)),
+                verified: None,
+            }
+        );
+        // The cheap check does not hash.
+        assert_eq!(
+            status(pinned),
+            ToolCheck {
+                status: installed_status(&setup, ToolState::InstalledUnverified, None),
+                verified: None,
+            }
+        );
+    }
+
+    #[test]
+    fn z0_a_null_manifest_entry_hash_verifies_against_install_json() {
+        let setup = Setup::new();
+        let manifest = tool_manifest(&setup.asset, None);
+        let tools_dir = setup.tools_dir();
+        let pinned = pinned(&tools_dir, &manifest);
+        let record = setup.install(pinned);
+        assert_eq!(record.entry_sha256, sha256_of(ENTRY_BYTES));
+        assert_eq!(
+            verify(pinned),
+            ToolCheck {
+                status: installed_status(&setup, ToolState::Verified, None),
+                verified: Some(VerifiedTool {
+                    record,
+                    entry: setup.entry(),
+                    verified_against: EntryVerifiedAgainst::InstallRecord,
+                }),
+            }
+        );
+        fs::write(setup.entry(), b"tampered").unwrap();
+        let problem = format!(
+            "{} has SHA-256 {}; install.json pins {}",
+            setup.entry().display(),
+            sha256_of(b"tampered"),
+            sha256_of(ENTRY_BYTES)
+        );
+        assert_eq!(
+            verify(pinned),
+            ToolCheck {
+                status: installed_status(&setup, ToolState::VerificationFailed, Some(problem)),
+                verified: None,
+            }
+        );
+    }
+
+    /// Keeps an existing entry from being opened for reading while it lives.
+    struct Unreadable {
+        /// The OS error that opening it gives.
+        code: i32,
+        #[cfg(unix)]
+        entry: PathBuf,
+        #[cfg(windows)]
+        _held: File,
+    }
+
+    impl Unreadable {
+        /// Unix: mode 000 (EACCES); `None` when that does not stop reads (running as root).
+        #[cfg(unix)]
+        fn new(entry: &Path) -> Option<Self> {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(entry, fs::Permissions::from_mode(0o000)).unwrap();
+            let guard = Self {
+                code: 13,
+                entry: entry.to_path_buf(),
+            };
+            File::open(entry).is_err().then_some(guard)
+        }
+
+        /// Windows: held open without sharing (ERROR_SHARING_VIOLATION).
+        #[cfg(windows)]
+        fn new(entry: &Path) -> Option<Self> {
+            use std::os::windows::fs::OpenOptionsExt;
+            let held = fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(entry)
+                .unwrap();
+            Some(Self {
+                code: 32,
+                _held: held,
+            })
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for Unreadable {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.entry, fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    #[test]
+    fn z0_an_entry_that_cannot_be_hashed_fails_verification() {
+        let setup = Setup::new();
+        let manifest = tool_manifest(&setup.asset, Some(sha256_of(ENTRY_BYTES)));
+        let tools_dir = setup.tools_dir();
+        let pinned = pinned(&tools_dir, &manifest);
+        setup.install(pinned);
+        let Some(unreadable) = Unreadable::new(&setup.entry()) else {
+            eprintln!("SKIPPED: an entry with mode 000 stays readable (running as root)");
+            return;
+        };
+        let problem = format!(
+            "cannot hash {}: {}",
+            setup.entry().display(),
+            io::Error::from_raw_os_error(unreadable.code)
+        );
+        let check = verify(pinned);
+        let cheap = status(pinned);
+        drop(unreadable);
+        assert_eq!(
+            check,
+            ToolCheck {
+                status: installed_status(&setup, ToolState::VerificationFailed, Some(problem)),
+                verified: None,
+            }
+        );
+        assert_eq!(
+            cheap,
+            ToolCheck {
+                status: installed_status(&setup, ToolState::InstalledUnverified, None),
+                verified: None,
+            }
+        );
+    }
+
+    #[test]
+    fn z0_partial_and_foreign_installs() {
+        let setup = Setup::new();
+        let manifest = tool_manifest(&setup.asset, Some(sha256_of(ENTRY_BYTES)));
+        let tools_dir = setup.tools_dir();
+        let pinned = pinned(&tools_dir, &manifest);
+        setup.install(pinned);
+        let install_json = setup.version_dir().join("install.json");
+        let saved = fs::read(&install_json).unwrap();
+        let problem = |text: String| not_installed(ToolState::NotInstalled, Some(text));
+
+        // install.json cannot be read (it is a directory).
+        fs::remove_file(&install_json).unwrap();
+        fs::create_dir(&install_json).unwrap();
+        #[cfg(unix)]
+        let code = 21; // EISDIR
+        #[cfg(windows)]
+        let code = 5; // ERROR_ACCESS_DENIED
+        assert_both(
+            pinned,
+            &problem(format!(
+                "cannot read install.json: {}",
+                io::Error::from_raw_os_error(code)
+            )),
+        );
+        fs::remove_dir(&install_json).unwrap();
+
+        // install.json is unusable.
+        for (text, why) in [
+            (
+                "{",
+                "install.json is not valid: EOF while parsing an object at line 1 column 1",
+            ),
+            ("{}", "install.json has no integer schema_version"),
+            (
+                "{\"schema_version\": 2}",
+                "install.json has schema_version 2; this version of suiteDFIR reads only \
+                 version 1",
+            ),
+        ] {
+            fs::write(&install_json, text).unwrap();
+            assert_both(pinned, &problem(format!("install.json is unusable: {why}")));
+        }
+        fs::write(&install_json, &saved).unwrap();
+
+        // A record of another asset (a manifest bump).
+        let mut bumped = manifest.clone();
+        bumped
+            .platforms
+            .get_mut(&PlatformKey::MacosAarch64)
+            .unwrap()
+            .asset_sha256 = "0".repeat(64);
+        assert_both(
+            Pinned {
+                manifest: &bumped,
+                ..pinned
+            },
+            &problem(format!(
+                "the installed build (ileapp {VERSION} for macos-aarch64, asset {ASSET_NAME}) is \
+                 not the pinned one"
+            )),
+        );
+        // A record of another tool, version or platform.
+        type Change = fn(&mut InstallRecord);
+        let changes: [(Change, &str); 3] = [
+            (
+                |r| r.tool = ToolId::Aleapp,
+                "aleapp v2026.4.2 for macos-aarch64",
+            ),
+            (|r| r.version = "v1".into(), "ileapp v1 for macos-aarch64"),
+            (
+                |r| r.platform = PlatformKey::MacosX86_64,
+                "ileapp v2026.4.2 for macos-x86_64",
+            ),
+        ];
+        for (change, what) in changes {
+            setup.rewrite_record(change);
+            assert_both(
+                pinned,
+                &problem(format!(
+                    "the installed build ({what}, asset {ASSET_NAME}) is not the pinned one"
+                )),
+            );
+            fs::write(&install_json, &saved).unwrap();
+        }
+
+        // An entry path that is not a plain relative path.
+        for bad in ["../ileapp", "/bin/ileapp", "bin//ileapp", "bin\\ileapp"] {
+            setup.rewrite_record(|r| r.entry_path = bad.into());
+            assert_both(
+                pinned,
+                &problem(format!("install.json names an invalid entry path {bad:?}")),
+            );
+        }
+        fs::write(&install_json, &saved).unwrap();
+
+        // No modules.json.
+        let modules_json = setup.version_dir().join("modules.json");
+        let modules = fs::read(&modules_json).unwrap();
+        fs::remove_file(&modules_json).unwrap();
+        assert_both(
+            pinned,
+            &problem("modules.json is missing (the module list was never recorded)".into()),
+        );
+        fs::write(&modules_json, modules).unwrap();
+
+        // A missing entry.
+        fs::remove_file(setup.entry()).unwrap();
+        assert_both(
+            pinned,
+            &problem(format!(
+                "the tool's executable {} is missing",
+                setup.entry().display()
+            )),
+        );
+    }
+
+    /// The error of an offline import of `src`, and that nothing was installed.
+    fn import_error(setup: &Setup, src: &Path) -> InstallError {
+        let manifest = tool_manifest(&setup.asset, Some(sha256_of(ENTRY_BYTES)));
+        let tools_dir = setup.tools_dir();
+        let error = install(
+            pinned(&tools_dir, &manifest),
+            Source::File(src),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |_| Ok(modules_file()),
+        )
+        .unwrap_err();
+        assert!(!tools_dir.exists(), "{error}");
+        error
+    }
+
+    fn assert_not_a_regular_file(setup: &Setup, src: &Path) {
+        let error = import_error(setup, src);
+        let message = format!("importing {}: not a regular file", src.display());
+        match &error {
+            InstallError::Io { context, source } => {
+                assert_eq!(context, &format!("importing {}", src.display()));
+                assert_eq!(source.kind(), io::ErrorKind::InvalidInput);
+                assert_eq!(source.to_string(), "not a regular file");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(error.code(), ErrorCode::Io);
+        assert_eq!(
+            AppError::from(error),
+            AppError {
+                code: ErrorCode::Io,
+                message,
+                detail: None,
+            }
+        );
+    }
+
+    #[test]
+    fn z0_importing_a_directory_is_refused_on_every_os() {
+        let setup = Setup::new();
+        let dir = setup.root.path().join("a folder.zip");
+        fs::create_dir(&dir).unwrap();
+        assert_not_a_regular_file(&setup, &dir);
+    }
+
+    #[test]
+    fn z0_importing_a_symlink_to_a_directory_is_refused() {
+        let setup = Setup::new();
+        let target = setup.root.path().join("folder");
+        fs::create_dir(&target).unwrap();
+        let link = setup.root.path().join("link.zip");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
+        if let Err(e) = std::os::windows::fs::symlink_dir(&target, &link) {
+            if e.raw_os_error() == Some(1314) {
+                eprintln!("SKIPPED: creating symlinks needs Developer Mode or admin ({e})");
+                return;
+            }
+            panic!("symlink: {e}");
+        }
+        assert_not_a_regular_file(&setup, &link);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn z0_importing_a_device_is_refused() {
+        let setup = Setup::new();
+        assert_not_a_regular_file(&setup, Path::new("/dev/null"));
+    }
+
+    #[test]
+    fn z0_importing_a_missing_file_is_an_io_error() {
+        let setup = Setup::new();
+        let src = setup.root.path().join("missing.zip");
+        let error = import_error(&setup, &src);
+        assert_eq!(
+            AppError::from(error),
+            AppError {
+                code: ErrorCode::Io,
+                message: format!(
+                    "reading {}: {}",
+                    src.display(),
+                    io::Error::from_raw_os_error(2) // ENOENT, ERROR_FILE_NOT_FOUND
+                ),
+                detail: None,
+            }
+        );
+    }
+
+    #[test]
+    fn z0_a_failed_introspection_reaches_the_ui_with_its_message_and_detail() {
+        let setup = Setup::new();
+        let manifest = tool_manifest(&setup.asset, Some(sha256_of(ENTRY_BYTES)));
+        let tools_dir = setup.tools_dir();
+        let src = setup.src();
+        let mut seen = None;
+        // As the live callers do: `introspect(..).map_err(Into::into)`.
+        let error = install(
+            pinned(&tools_dir, &manifest),
+            Source::File(&src),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |entry| {
+                seen = Some(entry.to_path_buf());
+                let introspected: Result<ModulesFile, IntrospectionError> =
+                    Err(IntrospectionError {
+                        message: "only 12 modules".into(),
+                        detail: Some("stderr tail".into()),
+                    });
+                introspected.map_err(Into::into)
+            },
+        )
+        .unwrap_err();
+        assert!(seen.is_some());
+        assert_eq!(error.code(), ErrorCode::IntrospectionFailed);
+        assert_eq!(
+            AppError::from(error),
+            AppError {
+                code: ErrorCode::IntrospectionFailed,
+                message: "module introspection failed: only 12 modules".into(),
+                detail: Some("stderr tail".into()),
+            }
+        );
+        assert!(!tools_dir.exists());
+
+        // Modules of another version.
+        let error = install(
+            pinned(&tools_dir, &manifest),
+            Source::File(&src),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |_| {
+                let mut other = modules_file();
+                other.version = "v1".into();
+                Ok(other)
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            AppError::from(error),
+            AppError {
+                code: ErrorCode::IntrospectionFailed,
+                message: format!(
+                    "module introspection failed: introspection returned modules of ileapp v1, \
+                     expected ileapp {VERSION}"
+                ),
+                detail: None,
+            }
+        );
+        assert!(!tools_dir.exists());
     }
 }

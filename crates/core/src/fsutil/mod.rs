@@ -182,14 +182,70 @@ fn resolve(path: &Path) -> io::Result<PathBuf> {
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    pub(crate) use super::sys::{make_writable, symlink_dir};
+    use std::io;
+    use std::path::Path;
+
+    pub(crate) use super::sys::make_writable;
+
+    /// Creates a directory symlink, or returns false (with a message) where the OS does not allow
+    /// it: Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
+    pub(crate) fn try_symlink_dir(target: &Path, link: &Path) -> bool {
+        made_or_skipped(super::sys::symlink_dir(target, link), target, link)
+    }
+
+    /// Creates a file symlink, or returns false (with a message) like [`try_symlink_dir`].
+    pub(crate) fn try_symlink_file(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(target, link);
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(target, link);
+        made_or_skipped(made, target, link)
+    }
+
+    fn made_or_skipped(made: io::Result<()>, target: &Path, link: &Path) -> bool {
+        match made {
+            Ok(()) => true,
+            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
+                eprintln!(
+                    "SKIPPED symlink checks: creating symlinks needs Developer Mode or admin \
+                     (ERROR_PRIVILEGE_NOT_HELD)"
+                );
+                false
+            }
+            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
+        }
+    }
+
+    /// Runs `mklink /J <link> <target>`, which makes a directory junction (no privilege needed).
+    #[cfg(windows)]
+    pub(crate) fn junction(link: &Path, target: &Path) -> std::process::Output {
+        std::process::Command::new("cmd")
+            .arg("/c")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use std::ffi::OsString;
     use std::fs;
+
+    use test_support::try_symlink_dir;
+
+    /// The names in `dir`.
+    fn names(dir: &Path) -> Vec<OsString> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect()
+    }
 
     #[test]
     fn write_json_atomic_writes_pretty_json_and_replaces() {
@@ -200,11 +256,7 @@ mod tests {
         write_json_atomic(&path, &serde_json::json!({"a": 2})).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "{\n  \"a\": 2\n}\n");
         // No temp files are left behind.
-        let names: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, ["case.json"]);
+        assert_eq!(names(dir.path()), ["case.json"]);
     }
 
     #[test]
@@ -242,11 +294,7 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(fs::read(&path).unwrap(), sealed, "byte-identical");
         assert!(fs::metadata(&path).unwrap().permissions().readonly());
-        let names: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, ["run.json"], "no temp file left behind");
+        assert_eq!(names(dir.path()), ["run.json"], "no temp file left behind");
         test_support::make_writable(&path);
     }
 
@@ -256,11 +304,7 @@ mod tests {
         let path = dir.path().join("report.sha256");
         write_file_atomic(&path, b"line\r\n\\raw\n").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"line\r\n\\raw\n");
-        let names: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, ["report.sha256"]);
+        assert_eq!(names(dir.path()), ["report.sha256"]);
     }
 
     #[test]
@@ -345,22 +389,6 @@ mod tests {
         assert!(within(&b.join("missing/../sub"), &b));
         assert!(!within(&b.join("missing/../../x"), &b));
         assert!(within(&d.join("x/../b/new"), &b));
-    }
-
-    /// Creates a directory symlink, or returns false (with a message) where the OS does not allow
-    /// it: Windows without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD, 1314).
-    fn try_symlink_dir(target: &Path, link: &Path) -> bool {
-        match test_support::symlink_dir(target, link) {
-            Ok(()) => true,
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(1314) => {
-                eprintln!(
-                    "SKIPPED symlink checks: creating symlinks needs Developer Mode or admin \
-                     (ERROR_PRIVILEGE_NOT_HELD)"
-                );
-                false
-            }
-            Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
-        }
     }
 
     #[test]

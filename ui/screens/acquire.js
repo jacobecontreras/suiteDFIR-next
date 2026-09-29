@@ -15,10 +15,10 @@
  *
  * Start, Pair and the encryption change are plain buttons: Enter in a field never triggers them.
  */
-import { appError, errorSlot } from "../components/app-error.js";
+import { appError, errorSlot, replaceError } from "../components/app-error.js";
 import { confirmDialog } from "../components/dialog.js";
 import { logView } from "../components/log-view.js";
-import { percentOf, progressMeter, stepList } from "../components/progress.js";
+import { progressMeter, sealDetail, stepList } from "../components/progress.js";
 import { restoreEncryptionDialog } from "../components/restore-dialog.js";
 import {
   acqBlockers,
@@ -39,18 +39,18 @@ import {
   toolsGuidance,
   withPairOutcomes,
 } from "../lib/acquire.js";
-import { folderLabel } from "../lib/cases.js";
+import { caseFileOf, folderLabel } from "../lib/cases.js";
 import { fill, h, keepFocus, keyedSlot, setText } from "../lib/dom.js";
 import { toAppError } from "../lib/errors.js";
 import { field, textInput } from "../lib/form.js";
-import { elapsedSince, formatBytes, formatCount, formatElapsed, plural } from "../lib/format.js";
+import { elapsedSince, formatBytes, formatElapsed, plural } from "../lib/format.js";
 import { handoff } from "../lib/handoff.js";
 import { ACQ_PHASES, stepStates } from "../lib/jobstream.js";
-import { jobKey, setActiveJob } from "../lib/jobs.js";
+import { jobKey, refreshActiveJob } from "../lib/jobs.js";
 import { createPoller } from "../lib/poll.js";
 import { routeHref } from "../lib/router.js";
 import { watch } from "../lib/store.js";
-import { icon, statusBadge, timeText, uid } from "../lib/view.js";
+import { breadcrumb, dash, icon, reasonList, statusBadge, timeText, uid } from "../lib/view.js";
 
 /** @typedef {import("../types").AcqFile} AcqFile */
 /** @typedef {import("../types").AcqPreflight} AcqPreflight */
@@ -59,7 +59,6 @@ import { icon, statusBadge, timeText, uid } from "../lib/view.js";
 /** @typedef {import("../types").AcquisitionRecord} AcquisitionRecord */
 /** @typedef {import("../types").DeviceSummary} DeviceSummary */
 /** @typedef {import("../types").DevicesResult} DevicesResult */
-/** @typedef {import("../types").Reason} Reason */
 /** @typedef {import("../lib/acquire.js").AcqForm} AcqForm */
 /** @typedef {import("../lib/jobstream.js").AcqFinished} AcqFinished */
 /** @typedef {import("../lib/jobstream.js").JobStream} JobStream */
@@ -155,14 +154,7 @@ export function acquireScreen(ctx) {
   const node = h(
     "section",
     { class: "screen acquire-screen" },
-    h(
-      "nav",
-      { class: "breadcrumb", "aria-label": "Breadcrumb" },
-      h("a", { href: routeHref("cases") }, "Cases"),
-      h("span", { "aria-hidden": "true" }, " / "),
-      caseLink,
-      h("span", { "aria-hidden": "true" }, " / "),
-    ),
+    breadcrumb(caseLink),
     h("div", { class: "screen-head" }, h("div", { class: "title-row" }, title, statusSlot), headActions),
     body,
   );
@@ -256,9 +248,7 @@ export function acquireScreen(ctx) {
     try {
       const cases = await api.cases_list();
       if (disposed) return;
-      const summary = cases.find((c) => c.path === casePath);
-      if (!summary?.case) throw { code: "case_not_found", message: "This case is not in the recent list, or its folder is missing.", detail: casePath };
-      caseLink.textContent = summary.case.name;
+      caseLink.textContent = caseFileOf(cases, casePath).name;
       const job = store.get().activeJob;
       const last = jobs.current();
       if (job?.kind === "acquisition" && job.case_path === casePath) {
@@ -734,10 +724,7 @@ export function acquireScreen(ctx) {
       if (keep && req.encryption_password) handoff.hold(started.acq_id, req.encryption_password);
       else handoff.drop();
       clearPasswords();
-      api
-        .job_active()
-        .then((job) => setActiveJob(store, job))
-        .catch(() => {});
+      refreshActiveJob(api, store);
       if (disposed) return;
       const s = jobs.find("acquisition", started.acq_id);
       if (s) showJob(s);
@@ -880,15 +867,7 @@ export function acquireScreen(ctx) {
    */
   function renderProgress(s) {
     if (s.percent !== null) backupMeter.update({ label: "Backup", done: s.percent, total: 100, detail: `${s.percent}%` });
-    if (s.seal) {
-      const pct = percentOf(s.seal.done, s.seal.total);
-      sealMeter.update({
-        label: "Sealing the backup (backup.sha256)",
-        done: s.seal.done,
-        total: s.seal.total,
-        detail: s.seal.total === null ? plural(s.seal.done, "file", "files") : `${formatCount(s.seal.done)} of ${plural(s.seal.total, "file", "files")}${pct === null ? "" : ` (${pct}%)`}`,
-      });
-    }
+    if (s.seal) sealMeter.update({ label: "Sealing the backup (backup.sha256)", done: s.seal.done, total: s.seal.total, detail: sealDetail(s.seal) });
     // Until the backup reports progress (after a reload, only its next report shows it).
     const beforeBackupEnd = s.phase === null || s.phase === "preparing" || s.phase === "enabling_encryption" || s.phase === "backing_up";
     const note = s.percent === null && s.seal === null && s.live && beforeBackupEnd;
@@ -1048,7 +1027,7 @@ export function acquireScreen(ctx) {
     try {
       await api.reveal_path({ path });
     } catch (err) {
-      showResultError(err, "The folder could not be revealed.");
+      replaceError(resultCard, err, "The folder could not be revealed.");
     }
   }
 
@@ -1060,19 +1039,8 @@ export function acquireScreen(ctx) {
     try {
       await api.open_acq_file({ case_path: casePath, acq_id: acqId, which });
     } catch (err) {
-      showResultError(err, "The file could not be opened.");
+      replaceError(resultCard, err, "The file could not be opened.");
     }
-  }
-
-  /**
-   * @param {unknown} err
-   * @param {string} titleText
-   */
-  function showResultError(err, titleText) {
-    const slot = errorSlot();
-    slot.show(err, titleText);
-    resultCard.querySelector(".error-slot")?.remove();
-    resultCard.append(slot.node);
   }
 
   async function askCancel() {
@@ -1132,10 +1100,6 @@ export function acquireScreen(ctx) {
   };
 }
 
-function dash() {
-  return h("span", { class: "muted" }, "—");
-}
-
 /**
  * A stable key for a polling error (a new but equal error must not re-render the list).
  * @param {unknown} err
@@ -1143,21 +1107,6 @@ function dash() {
 function toAppErrorKey(err) {
   const e = toAppError(err);
   return `${e.code}|${e.message}|${e.detail ?? ""}`;
-}
-
-/**
- * @param {string} heading
- * @param {readonly Reason[]} list
- * @param {"reasons" | "warnings"} kind
- */
-function reasonList(heading, list, kind) {
-  if (list.length === 0) return null;
-  return h(
-    "div",
-    { class: `stack-sm reason-list reason-list-${kind}` },
-    h("h3", null, heading),
-    h("ul", { class: "list-compact" }, list.map((x) => h("li", null, h("code", null, x.code), " ", x.message))),
-  );
 }
 
 /** @param {AcquisitionRecord} r */

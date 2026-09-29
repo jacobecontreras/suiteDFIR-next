@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "acq_id": "<ACQ_ID>",
+  "label": "Golden iPhone",
+  "status": "cancelled",
+  "status_reasons": [
+    {
+      "code": "cancelled_by_user",
+      "message": "The examiner cancelled the acquisition"
+    }
+  ],
+  "warnings": [],
+  "created_at": "<TIMESTAMP>",
+  "started_at": "<TIMESTAMP>",
+  "ended_at": "<TIMESTAMP>",
+  "recovered_at": null,
+  "duration_ms": "<DURATION_MS>",
+  "app": {
+    "name": "suiteDFIR",
+    "version": "<APP_VERSION>"
+  },
+  "host": {
+    "os": "testos",
+    "os_version": "1.0",
+    "arch": "testarch",
+    "hostname": "LAB-TEST-01"
+  },
+  "case_snapshot": {
+    "case_id": "<CASE_ID>",
+    "name": "Operation Nightjar",
+    "case_number": "2026-0142",
+    "examiner": "J. Doe",
+    "agency": "County Forensics Lab"
+  },
+  "device": {
+    "udid": "00008101-000A1B2C3D4E001E",
+    "serial_number": "F2LFAKE00001",
+    "device_name": "Fake iPhone",
+    "product_type": "iPhone13,2",
+    "product_version": "18.6",
+    "build_version": "22G86",
+    "captured_at": "<TIMESTAMP>",
+    "info_file": "device-info.plist",
+    "info_file_sha256": "4c9d7731ca0a721e333d5d5672ab7f7714903203880728b7fcc46a77281d83ae"
+  },
+  "pairing": {
+    "paired_before": true,
+    "paired_by_app_at": null,
+    "host_id": "5E1B7C2A-9D4F-4E8B-A3C6-1F0D2B7E9A48",
+    "system_buid": "0C6F3A9E-2B7D-4C1E-8F5A-6D9B3E0A7C21"
+  },
+  "device_changes": [
+    {
+      "at": "<TIMESTAMP>",
+      "change": "backup_encryption_enabled",
+      "detail": "WillEncrypt false → true"
+    },
+    {
+      "at": "<TIMESTAMP>",
+      "change": "backup_encryption_disabled",
+      "detail": "WillEncrypt true → false"
+    }
+  ],
+  "tools": {
+    "version": "1.4.0",
+    "source": "bundled",
+    "binaries": {
+      "idevice_id": {
+        "path": "<TOOLS>\\idevice_id.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "ideviceinfo": {
+        "path": "<TOOLS>\\ideviceinfo.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "idevicepair": {
+        "path": "<TOOLS>\\idevicepair.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      },
+      "idevicebackup2": {
+        "path": "<TOOLS>\\idevicebackup2.exe",
+        "sha256": "<FAKE_SHA256>",
+        "verified_against": "manifest"
+      }
+    }
+  },
+  "encryption": {
+    "will_encrypt_before": false,
+    "enable_requested": true,
+    "enabled_by_examiner": true,
+    "will_encrypt_after_enable": true,
+    "restore_requested": true,
+    "restored_after": "restored",
+    "will_encrypt_after_restore": false,
+    "password_supplied": true,
+    "password_channel": "env"
+  },
+  "commands": [
+    {
+      "purpose": "enable_encryption",
+      "argv": [
+        "<TOOLS>\\idevicebackup2.exe",
+        "-u",
+        "00008101-000A1B2C3D4E001E",
+        "encryption",
+        "on"
+      ],
+      "exit_code": 0,
+      "started_at": "<TIMESTAMP>",
+      "exited_at": "<TIMESTAMP>"
+    },
+    {
+      "purpose": "restore_encryption",
+      "argv": [
+        "<TOOLS>\\idevicebackup2.exe",
+        "-u",
+        "00008101-000A1B2C3D4E001E",
+        "encryption",
+        "off"
+      ],
+      "exit_code": 0,
+      "started_at": "<TIMESTAMP>",
+      "exited_at": "<TIMESTAMP>"
+    }
+  ],
+  "process": null,
+  "backup_result": null,
+  "output": {
+    "backup_dir": "backup",
+    "seal": {
+      "status": "sealed",
+      "manifest": "backup.sha256",
+      "manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "file_count": 0,
+      "total_bytes": 0
+    }
+  },
+  "logs": {
+    "stdout": "idevicebackup2.stdout.log",
+    "stderr": "idevicebackup2.stderr.log"
+  }
+}

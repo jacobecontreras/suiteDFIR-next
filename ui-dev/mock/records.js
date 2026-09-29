@@ -62,7 +62,25 @@ export function newJobId(kind, date = new Date()) {
  * @param {string} message
  * @returns {Reason}
  */
-const reason = (code, message) => ({ code, message });
+export const reason = (code, message) => ({ code, message });
+
+/**
+ * A record's `case_snapshot`: the case fields copied at creation.
+ * @param {CaseFile} file
+ * @returns {RunRecord["case_snapshot"]}
+ */
+export function caseSnapshot(file) {
+  return { case_id: file.case_id, name: file.name, case_number: file.case_number, examiner: file.examiner, agency: file.agency };
+}
+
+/**
+ * A seal without a manifest (pending, skipped, cancelled, …).
+ * @template {string} S
+ * @param {S} status
+ */
+export function noSeal(status) {
+  return { status, manifest: null, manifest_sha256: null, file_count: null, total_bytes: null };
+}
 
 export const REASONS = {
   no_output_dir: reason("no_output_dir", "LEAPP exited before creating output; see stdout"),
@@ -167,13 +185,7 @@ export function initialRunRecord(s) {
   rec.run_id = s.runId;
   rec.label = s.label;
   rec.created_at = s.createdAt;
-  rec.case_snapshot = {
-    case_id: s.caseFile.case_id,
-    name: s.caseFile.name,
-    case_number: s.caseFile.case_number,
-    examiner: s.caseFile.examiner,
-    agency: s.caseFile.agency,
-  };
+  rec.case_snapshot = caseSnapshot(s.caseFile);
   rec.tool = { ...rec.tool, id: s.tool, version: tool.version, asset_name: tool.asset_name };
   const hashStatus = s.inputKind === "directory" ? "not_applicable" : s.hashInput ? "pending" : "not_requested";
   rec.input = {
@@ -261,7 +273,7 @@ export function finalizeRunRecord(rec, outcome, times) {
         file_count: outcome.index ? 5321 : 214,
         total_bytes: outcome.index ? 123456789 : 3456789,
       }
-    : { status: "skipped_no_output", manifest: null, manifest_sha256: null, file_count: null, total_bytes: null };
+    : noSeal("skipped_no_output");
   return rec;
 }
 
@@ -345,13 +357,7 @@ export function initialAcqRecord(s) {
   rec.ended_at = null;
   rec.recovered_at = null;
   rec.duration_ms = null;
-  rec.case_snapshot = {
-    case_id: s.caseFile.case_id,
-    name: s.caseFile.name,
-    case_number: s.caseFile.case_number,
-    examiner: s.caseFile.examiner,
-    agency: s.caseFile.agency,
-  };
+  rec.case_snapshot = caseSnapshot(s.caseFile);
   rec.device = {
     ...rec.device,
     udid: s.device.udid,
@@ -377,12 +383,12 @@ export function initialAcqRecord(s) {
   rec.commands = [];
   rec.process = null;
   rec.backup_result = null;
-  rec.output.seal = { status: "pending", manifest: null, manifest_sha256: null, file_count: null, total_bytes: null };
+  rec.output.seal = noSeal("pending");
   return rec;
 }
 
 /** Warnings a successful later restore takes out of `AcqSummary.warnings` (not out of acquisition.json). */
-const RESTORABLE = new Set(["encryption_left_enabled", "encryption_state_unknown"]);
+export const RESTORABLE = new Set(["encryption_left_enabled", "encryption_state_unknown"]);
 
 /**
  * The case's row for an acquisition. `warnings` is derived (CONTRACTS.md §13.5): once a later

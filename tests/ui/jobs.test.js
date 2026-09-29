@@ -3,18 +3,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { jobKey, pollActiveJob, setActiveJob } from "../../ui/lib/jobs.js";
-import { createStore, watch } from "../../ui/lib/store.js";
+import { watch } from "../../ui/lib/store.js";
 import { ActiveJob } from "../../ui-dev/fixtures/contracts/index.js";
+import { appStore } from "./helpers.js";
 
-/** @typedef {import("../../ui/lib/context").AppState} AppState */
 /** @typedef {import("../../ui/types").ActiveJob} Job */
 
 const RUN = /** @type {Extract<Job, { kind: "run" }>} */ (ActiveJob[0]);
 const ACQ = ActiveJob[1];
-
-/** @param {Job | null} activeJob */
-const appStore = (activeJob) =>
-  createStore(/** @type {AppState} */ ({ mode: "mock", appInfo: null, settings: null, tools: null, activeJob, timezones: null }));
 
 /** @param {number} ms */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,7 +25,7 @@ test("jobKey identifies kind, id, phase and case", () => {
 });
 
 test("setActiveJob ignores an equal job and applies a changed one", () => {
-  const store = appStore(RUN);
+  const store = appStore({ activeJob: RUN });
   let notified = 0;
   store.subscribe(() => notified++);
   setActiveJob(store, structuredClone(RUN));
@@ -41,7 +37,7 @@ test("setActiveJob ignores an equal job and applies a changed one", () => {
 });
 
 test("polling equal jobs does not re-render; a phase change and the job's end do", async () => {
-  const store = appStore(RUN);
+  const store = appStore({ activeJob: RUN });
   /** @type {(Job | null)[]} */
   const answers = [structuredClone(RUN), structuredClone(RUN), structuredClone(RUN), { ...RUN, phase: "analyzing" }, null];
   let calls = 0;
@@ -58,7 +54,7 @@ test("polling equal jobs does not re-render; a phase change and the job's end do
 });
 
 test("polling stops when no job is active and restarts when one begins", async () => {
-  const store = appStore(null);
+  const store = appStore();
   let calls = 0;
   const api = { job_active: async () => (calls++, null) };
   const stop = pollActiveJob(api, store, 1);
