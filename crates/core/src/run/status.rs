@@ -739,26 +739,22 @@ mod tests {
 
     #[test]
     fn row_crash_and_prompt() {
-        // Both: a traceback, exit 1, report/ with neither lava data nor index.html.
-        for scenario in ["crash", "prompt"] {
-            let report = Report::empty();
-            let mut case = Case::new(exited(1), Some(&report));
-            case.traceback = true;
-            let verdict = case.run();
-            assert_verdict(
-                &verdict,
-                RunStatus::Failed,
-                &["lava_data_missing", "index_html_missing", "nonzero_exit"],
-                &["stderr_traceback"],
-            );
-            assert_eq!(
-                verdict.reasons[2].message, "LEAPP exited with code 1",
-                "{scenario}"
-            );
-            let result = verdict.leapp_result.unwrap();
-            assert!(!result.lava_data_found);
-            assert_eq!(result.processing_status, None);
-        }
+        // The rows crash and prompt have the same inputs: a traceback, exit 1, report/ with
+        // neither lava data nor index.html.
+        let report = Report::empty();
+        let mut case = Case::new(exited(1), Some(&report));
+        case.traceback = true;
+        let verdict = case.run();
+        assert_verdict(
+            &verdict,
+            RunStatus::Failed,
+            &["lava_data_missing", "index_html_missing", "nonzero_exit"],
+            &["stderr_traceback"],
+        );
+        assert_eq!(verdict.reasons[2].message, "LEAPP exited with code 1");
+        let result = verdict.leapp_result.unwrap();
+        assert!(!result.lava_data_found);
+        assert_eq!(result.processing_status, None);
     }
 
     #[test]

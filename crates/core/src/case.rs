@@ -144,11 +144,7 @@ fn windows_device_prefix(name: &str) -> Option<usize> {
     reserved.then_some(device.len())
 }
 
-/// Checks the `case.json` fields a user can set.
-fn validate_fields(fields: &CaseFields) -> Result<(), CaseError> {
-    validate_name(&fields.name)
-}
-
+/// The case name is required and at most 120 characters (CONTRACTS.md §6).
 fn validate_name(name: &str) -> Result<(), CaseError> {
     if name.trim().is_empty() {
         return Err(CaseError::InvalidName("the name is required"));
@@ -175,7 +171,7 @@ pub struct CreatedCase {
 /// created with a plain `create_dir`, so two creations can never share a folder.
 /// `created_by_app_version` is this build's version, as in run records.
 pub fn create(parent: &Path, fields: &CaseFields) -> Result<CreatedCase, CaseError> {
-    validate_fields(fields)?;
+    validate_name(&fields.name)?;
     let case_id = new_case_id().map_err(|e| CaseError::io(parent, e))?;
     let path = create_unique_dir(parent, &sanitize_name(&fields.name))?;
     let now = Timestamp::now();
@@ -290,7 +286,7 @@ pub fn ensure_known(settings: &Settings, path: &Path) -> Result<CaseFile, CaseEr
 /// Updates the editable fields of `case.json` (§6) and `updated_at`, atomically. Everything else is
 /// kept, and the folder is not renamed.
 pub fn update(path: &Path, fields: &CaseFields) -> Result<CaseFile, CaseError> {
-    validate_fields(fields)?;
+    validate_name(&fields.name)?;
     let mut case = load(path)?;
     case.name.clone_from(&fields.name);
     case.case_number.clone_from(&fields.case_number);

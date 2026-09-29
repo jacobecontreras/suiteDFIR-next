@@ -11,11 +11,11 @@ use crate::case::{self, CaseError, RUN_FILE, RUNS_DIR};
 use crate::contracts::{
     AppError, CaseFile, CaseSnapshot, ContractError, ErrorCode, HashAlgorithm, HashStatus,
     InputHash, InputKind, Reason, RecordApp, RecordHost, RunCommand, RunInput, RunLogs, RunModules,
-    RunOptions, RunOutput, RunRecord, RunStatus, RunTool, Seal, SealStatus, Timestamp, ToolId,
+    RunOptions, RunOutput, RunRecord, RunStatus, RunTool, SealStatus, Timestamp, ToolId,
     VersionedFile, parse_versioned,
 };
 use crate::fsutil;
-use crate::hashing::to_hex;
+use crate::hashing::{self, to_hex};
 
 /// The product name recorded in `app.name` (ARCHITECTURE.md D20).
 pub const APP_NAME: &str = "suiteDFIR";
@@ -266,7 +266,13 @@ pub fn initial_record(setup: RunSetup) -> Result<RunRecord, RecordError> {
             reason,
         });
     }
-    Ok(RunRecord {
+    Ok(record_from(setup))
+}
+
+/// The record that [`initial_record`] builds from `setup`, without checking `input.hash` (the
+/// runner also builds it for a setup that `initial_record` refused).
+pub(crate) fn record_from(setup: RunSetup) -> RunRecord {
+    RunRecord {
         schema_version: RunRecord::SCHEMA_VERSION,
         run_id: setup.run_id,
         label: setup.label,
@@ -290,20 +296,14 @@ pub fn initial_record(setup: RunSetup) -> Result<RunRecord, RecordError> {
         leapp_result: None,
         output: RunOutput {
             report_dir: REPORT_DIR.to_owned(),
-            seal: Seal {
-                status: SealStatus::Pending,
-                manifest: None,
-                manifest_sha256: None,
-                file_count: None,
-                total_bytes: None,
-            },
+            seal: hashing::unsealed(SealStatus::Pending),
         },
         logs: RunLogs {
             stdout: STDOUT_LOG.to_owned(),
             stderr: STDERR_LOG.to_owned(),
             screen_output: SCREEN_OUTPUT.to_owned(),
         },
-    })
+    }
 }
 
 /// Writes the initial record into its (new) run folder, atomically. A `run.json` that already

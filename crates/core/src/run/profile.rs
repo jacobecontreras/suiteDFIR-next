@@ -173,10 +173,6 @@ impl ProfileStore {
         Self { dir, format }
     }
 
-    pub fn format(&self) -> &ProfileFormat {
-        &self.format
-    }
-
     /// The stored name of `name`: 1–80 characters, sanitized like case folder names.
     pub fn stored_name(name: &str) -> Result<String, ProfileError> {
         if name.trim().is_empty() {
@@ -392,14 +388,9 @@ mod tests {
 
     use crate::contracts::examples;
 
-    fn ileapp_format() -> ProfileFormat {
+    fn profile_format(tool: ToolId) -> ProfileFormat {
         let manifest = examples::leapp_manifest();
-        ProfileFormat::from_manifest(ToolId::Ileapp, &manifest.tools[&ToolId::Ileapp])
-    }
-
-    fn aleapp_format() -> ProfileFormat {
-        let manifest = examples::leapp_manifest();
-        ProfileFormat::from_manifest(ToolId::Aleapp, &manifest.tools[&ToolId::Aleapp])
+        ProfileFormat::from_manifest(tool, &manifest.tools[&tool])
     }
 
     fn available() -> Vec<ModuleInfo> {
@@ -420,17 +411,20 @@ mod tests {
     }
 
     fn store(dir: &Path) -> ProfileStore {
-        ProfileStore::new(dir.join("profiles").join("ileapp"), ileapp_format())
+        ProfileStore::new(
+            dir.join("profiles").join("ileapp"),
+            profile_format(ToolId::Ileapp),
+        )
     }
 
     #[test]
     fn formats_come_from_the_manifest() {
-        let format = ileapp_format();
+        let format = profile_format(ToolId::Ileapp);
         assert_eq!(
             (format.ext.as_str(), format.leapp_id.as_str()),
             ("ilprofile", "ileapp")
         );
-        let format = aleapp_format();
+        let format = profile_format(ToolId::Aleapp);
         assert_eq!(
             (format.ext.as_str(), format.leapp_id.as_str()),
             ("alprofile", "aleapp")
@@ -663,7 +657,7 @@ mod tests {
         let dest = dir.path().join("out").join("Messaging.ilprofile");
         fs::create_dir_all(dest.parent().unwrap()).unwrap();
         store.export("Messaging", &dest).unwrap();
-        let exported = read_file(&dest, &ileapp_format()).unwrap();
+        let exported = read_file(&dest, &profile_format(ToolId::Ileapp)).unwrap();
         assert_eq!(exported, examples::leapp_profile());
         let err = store.export("missing", &dest).unwrap_err();
         assert_eq!(err.code(), ErrorCode::ProfileNotFound);
@@ -770,9 +764,14 @@ mod tests {
     #[test]
     fn run_profile_file() {
         let dir = tempfile::tempdir().unwrap();
-        let path = write_run_profile(dir.path(), &aleapp_format(), &strings(&["a", "b"])).unwrap();
+        let path = write_run_profile(
+            dir.path(),
+            &profile_format(ToolId::Aleapp),
+            &strings(&["a", "b"]),
+        )
+        .unwrap();
         assert_eq!(path, dir.path().join("profile.alprofile"));
-        let profile = read_file(&path, &aleapp_format()).unwrap();
+        let profile = read_file(&path, &profile_format(ToolId::Aleapp)).unwrap();
         assert_eq!(profile.plugins, ["a", "b"]);
         assert_eq!(profile.leapp, "aleapp");
     }
