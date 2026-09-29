@@ -23,7 +23,7 @@ use suitedfir_core::runner::RunControl;
 
 use super::AttachSubscriber;
 use crate::opener::testing::Opened;
-use crate::state::{Job, JobGuard, JobHandle, Stream, Subscriber, TmpUsers};
+use crate::state::{Job, JobEventLog, JobGuard, JobHandle, Stream, Subscriber, TmpUsers};
 use crate::testing::{Lab, UDID, lab_state, write_backup};
 
 const WAIT: Duration = Duration::from_secs(90);
@@ -100,20 +100,12 @@ fn code<T: std::fmt::Debug>(result: Result<T, AppError>) -> ErrorCode {
 
 /// Waits for the job's `finished` event. The job slot is freed just before that event is sent, so
 /// waiting for the slot alone can be a moment early.
-fn wait_finished<E>(events: &Mutex<Vec<E>>, finished: impl Fn(&E) -> bool) {
+fn wait_finished<E: JobEventLog>(events: &Mutex<Vec<E>>) {
     let deadline = std::time::Instant::now() + WAIT;
-    while !events.lock().unwrap().iter().any(&finished) {
+    while !events.lock().unwrap().iter().any(|e| e.is_finished()) {
         assert!(std::time::Instant::now() < deadline, "no finished event");
         std::thread::sleep(Duration::from_millis(20));
     }
-}
-
-fn run_finished(event: &RunEvent) -> bool {
-    matches!(event, RunEvent::Finished { .. })
-}
-
-fn acq_finished(event: &AcqEvent) -> bool {
-    matches!(event, AcqEvent::Finished { .. })
 }
 
 #[test]
@@ -159,7 +151,7 @@ fn one_active_job_app_wide() {
         })
         .unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&events, run_finished);
+    wait_finished(&events);
     let events = events.lock().unwrap();
     match events.last() {
         Some(RunEvent::Finished { status, .. }) => assert_eq!(*status, RunStatus::Cancelled),
@@ -204,7 +196,7 @@ fn one_active_job_app_wide() {
         })
         .unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&acq_events, acq_finished);
+    wait_finished(&acq_events);
     match acq_events.lock().unwrap().last() {
         Some(AcqEvent::Finished { status, .. }) => assert_eq!(*status, AcqStatus::Cancelled),
         other => panic!("{other:?}"),
@@ -388,9 +380,12 @@ fn a_run_thread_that_panics_stops_leapp_before_freeing_the_slot() {
     // The slot is free: by then LEAPP's tree was gone.
     let watch = recorder.watch.lock().unwrap().take().expect("LEAPP ran");
     assert!(!watch.is_alive(), "LEAPP outlived the freed slot");
-    wait_finished(&recorder.events, run_finished);
+    wait_finished(&recorder.events);
     let events = recorder.events.lock().unwrap();
-    let finished: Vec<&RunEvent> = events.iter().filter(|e| run_finished(e)).collect();
+    let finished: Vec<&RunEvent> = events
+        .iter()
+        .filter(|e| matches!(e, RunEvent::Finished { .. }))
+        .collect();
     assert_eq!(finished.len(), 1, "{finished:?}");
     let RunEvent::Finished {
         status, reasons, ..
@@ -417,7 +412,7 @@ fn a_run_thread_that_panics_stops_leapp_before_freeing_the_slot() {
         .run_start(run_request(&case, &input), subscriber)
         .unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&events, run_finished);
+    wait_finished(&events);
 }
 
 /// FX3: `run_start` waits for step 2, and a run thread that panics during step 2 (here: its
@@ -449,7 +444,7 @@ fn a_run_thread_that_panics_while_preparing_does_not_hold_run_start() {
     state
         .run_start(run_request(&case, &input), subscriber)
         .unwrap();
-    wait_finished(&events, run_finished);
+    wait_finished(&events);
 }
 
 /// M14 (N4) for acquisitions: a panic during the backup stops the backup's tree before the slot
@@ -493,9 +488,12 @@ fn an_acquisition_thread_that_panics_stops_the_backup_before_freeing_the_slot() 
         .take()
         .expect("the backup ran");
     assert!(!watch.is_alive(), "the backup outlived the freed slot");
-    wait_finished(&recorder.events, acq_finished);
+    wait_finished(&recorder.events);
     let events = recorder.events.lock().unwrap();
-    assert_eq!(events.iter().filter(|e| acq_finished(e)).count(), 1);
+    let finished = events
+        .iter()
+        .filter(|e| matches!(e, AcqEvent::Finished { .. }));
+    assert_eq!(finished.count(), 1);
     drop(events);
     let record = suitedfir_core::acquire::load(&case, &acq.acq_id).unwrap();
     assert_eq!(record.status, AcqStatus::Interrupted);
@@ -533,7 +531,7 @@ fn a_later_restore_frees_the_slot_when_it_returns() {
     let (subscriber, events) = collector::<AcqEvent>();
     let acq = state.acq_start(request, subscriber).unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&events, acq_finished);
+    wait_finished(&events);
     lab.state.replace_idevice(lab.idevice_config("success"));
     let result = state
         .acq_restore_encryption(AcqRestoreEncryptionRequest {
@@ -549,7 +547,7 @@ fn a_later_restore_frees_the_slot_when_it_returns() {
         .run_start(run_request(&case, &input), subscriber)
         .unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&events, run_finished);
+    wait_finished(&events);
 }
 
 /// M6: `tool_install` registers with `TmpUsers` for its whole run: no sweep runs meanwhile, and
@@ -753,7 +751,7 @@ fn job_attach_returns_the_backlog_and_takes_over_the_events() {
         })
         .unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&attached, run_finished);
+    wait_finished(&attached);
     // The new subscriber got the rest, ending with `finished`; the first one got nothing more.
     let attached = attached.lock().unwrap();
     assert!(matches!(attached.last(), Some(RunEvent::Finished { .. })));
@@ -920,7 +918,7 @@ fn a_run_can_be_read_as_soon_as_run_start_returns() {
             })
             .unwrap();
         assert_eq!(record.run_id, run.run_id);
-        wait_finished(&events, run_finished);
+        wait_finished(&events);
     }
 }
 
@@ -932,7 +930,7 @@ fn an_acquisition_opens_its_files() {
     let (subscriber, events) = collector::<AcqEvent>();
     let acq = state.acq_start(acq_request(&case), subscriber).unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&events, acq_finished);
+    wait_finished(&events);
     match events.lock().unwrap().last() {
         Some(AcqEvent::Finished {
             status, summary, ..
@@ -1125,7 +1123,7 @@ fn a_tampered_tool_is_refused_before_a_run_and_nothing_is_created() {
     let (subscriber, events) = collector::<RunEvent>();
     state.run_start(request(), subscriber).unwrap();
     assert!(state.jobs.wait_idle(Some(WAIT)));
-    wait_finished(&events, run_finished);
+    wait_finished(&events);
     let runs_before = fs::read_dir(case.join("runs")).unwrap().count();
     // One byte appended to the installed entry.
     let mut file = fs::OpenOptions::new().append(true).open(&entry).unwrap();
