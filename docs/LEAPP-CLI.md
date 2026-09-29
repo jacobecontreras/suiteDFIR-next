@@ -67,7 +67,7 @@ aLEAPP **v2026.4.1**:
     - **Too old, VERIFIED:** `ubuntu:22.04` (glibc 2.35), leapp-smoke run 36170550467, both tools. `--appimage-extract` works there as an unprivileged user, but the inner binary exits 255: `[PYI-…:ERROR] Failed to load Python shared library '…/_MEI…/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version 'GLIBC_2.38' not found`.
     - **New enough, VERIFIED:** `ubuntu:26.04` (glibc 2.43, `ldd (Ubuntu GLIBC 2.43-2ubuntu2.4) 2.43`), leapp-smoke run 36176500110. Both tools install via `--appimage-extract` as an unprivileged user and introspect with the same module lists as macOS arm64 and Windows x64 (iLEAPP 1138, aLEAPP 1287, identical list digests). The extracted entries hash to `c23c4bdc…ed44` (iLEAPP) and `c12e82ce…90fd` (aLEAPP), now pinned in the manifest.
     - **linux-aarch64, VERIFIED (E3):** in `ubuntu:26.04` on an arm64 runner (leapp-smoke run 36193682690) both tools install, introspect with the same list digests, and pass every smoke run. Their extracted entries hash to `e7b64127…575d` (iLEAPP) and `5ad769aa…3e53` (aLEAPP), now pinned in the manifest. Their minimum glibc was not inspected.
-    - When a pinned Linux build fails to load (glibc too old), introspection reports `introspection_failed` and a run reports `spawn_failed`, both saying which glibc the build needs.
+    - How suiteDFIR reports a build that fails to load: ARCHITECTURE.md §6 step 4 and `crates/core/src/leapp/modules.rs`.
     - suiteDFIR itself keeps the `ubuntu:22.04` build baseline (ARCHITECTURE.md §10). Only these parser builds need the newer glibc.
 - **Every run:** extracts ≈ 132 MB into `$TMPDIR/_MEI*` and adds ≈ 2 s of startup.
 
@@ -109,6 +109,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off chec
 
 **Loader facts** (from source at the pinned tags):
 - `--custom_artifacts_path` feeds the same `PluginLoader` as the built-in artifacts (iLEAPP `ileapp.py:231-236`, aLEAPP `aleapp.py:197-200`).
+- `PluginLoader()` without arguments loads only the built-in artifacts, so the probe does not list itself.
 - A profile filters by name with no validation, so a profile containing only the probe's name selects only the probe (plus always-run artifacts).
 - A v2 entry registers only if its function is decorated **or** the dict has a `"function"` key. The function is called only when files matching `paths` are found.
 - iLEAPP passes 5 positional arguments to artifact functions; aLEAPP passes 4.
@@ -116,8 +117,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off chec
 **Procedure:**
 
 1. Create a temp dir containing:
-   - `probe_artifacts/suitedfir_probe.py`: the `PROBE_SOURCE` constant in `crates/core/src/leapp/modules.rs`. Its `__artifacts_v2__` keys follow the current upstream artifacts at the pinned tags (iLEAPP `scripts/artifacts/lastBuild.py`, aLEAPP `scripts/artifacts/usagestatsVersion.py`), plus `function`, which registers the undecorated function; its `paths` match `*/suitedfir_probe.marker`. It writes every `PluginLoader().plugins` entry (name, module_name, category, and the `artifact_info` name and description) and `pytz.all_timezones` (or null) to `$SUITEDFIR_PROBE_OUT`, through a `.partial` file and a rename.
-     `PluginLoader()` without arguments loads only the built-in artifacts, so the probe does not list itself.
+   - `probe_artifacts/suitedfir_probe.py`: `PROBE_SOURCE` in `crates/core/src/leapp/modules.rs`; it writes the plugin list and timezones to `$SUITEDFIR_PROBE_OUT`.
    - `input/suitedfir_probe.marker` (non-empty dir, avoiding the exit-2 case).
    - An empty `out/`.
    - `probe.<ext>` = `{"leapp": "<tool>", "format_version": 1, "plugins": ["suitedfir_probe"]}`.
@@ -129,7 +129,7 @@ The CLI cannot list modules; the binary's own loader can. VERIFIED (one-off chec
      - The always-run plugins' module names (which the status rules also match, CONTRACTS.md §7.3) are `lastBuild` and `iTunesBackupInfo`.
      - `timezones` = the probe's `pytz.all_timezones`; a missing or empty list fails (runs validate `-tz` against it, D19).
    - **aLEAPP v2026.4.1:** nothing is excluded from the plugin list except that plugins with `module_name == "usagestatsVersion"` are removed from the selectable list and always run first (`aleapp.py:206-212, 329`). `always_run.default` = those plugins' names (`["usagestatsVersion"]`). `timezones` is `null`.
-   - Introspection checks the binary against these rules: each always-run artifact must exist in its encoded module, and no selectable plugin may be in an always-run module. Otherwise it fails with `introspection_failed` (the rules are stale for that binary).
+   - How introspection checks these rules against the binary: `crates/core/src/leapp/modules.rs`.
 4. Fewer than 500 selectable modules → `introspection_failed`.
 
 ## 6. Output layout (`<o>/<custom_output_folder>/`)
@@ -166,7 +166,7 @@ The output folder contains (VERIFIED, one-off check):
 | Q2 | Onefile = bootloader + worker. SIGKILL to the parent orphans the worker (re-parented to PID 1, still running) and leaks `_MEI*`. SIGTERM to the parent or the group → both exit in ≈ 0.18 s and `_MEI` is cleaned. | D9 + D10. |
 | Q3 | The exit code is meaningless for success. An invalid iTunes folder logged "not a valid iTunes backup", exited 0, and `_lava_data.lava` said `Complete` with **empty** `modules` and no `index.html`. Failed artifacts also exit 0. Invalid profile/case-data content → exit 0, no output. Argparse errors → exit 2. | D8 status rules (CONTRACTS.md §7.3). |
 | Q4 | Profiles: unknown plugin names are silently dropped (`["noSuchModule","callHistory"]` ran `last_build` + `callHistory`, exit 0). Upstream's own sample profiles already contain removed names. | D12: validate before the run; record the resolved modules. |
-| Q5 | With no password, an encrypted backup triggers a prompt (`getpass`). iLEAPP opens `/dev/tty` before stdin. A child in a background process group of a terminal session gets SIGTTOU/SIGTTIN-stopped. VERIFIED by the E3 smoke (an encrypted backup without a password, spawned like a run): on macOS arm64 and Linux x64/arm64 the tty open fails (new session), stdin is null → `EOFError`, which iLEAPP logs ("Had an exception in Seeker") before it exits **0** without a report. On **Windows x64** (and arm64, S3 smoke) `getpass` waits for console keystrokes, which a process without a console never gets: it **blocks until stopped** (a cancel terminates the job). | `setsid` (no controlling terminal) + stdin null + **a password is required when `IsEncrypted` is true or cannot be read** (owner decision, K8: a backup whose `Manifest.plist` is missing or unreadable, or has no boolean `IsEncrypted`, counts as encrypted), so suiteDFIR never starts iLEAPP on a backup that could prompt without one, on any OS (D15). iLEAPP prompts only when `Manifest.plist` says encrypted, so a folder that is not a backup needs no password. |
+| Q5 | With no password, an encrypted backup triggers a prompt (`getpass`). iLEAPP opens `/dev/tty` before stdin. A child in a background process group of a terminal session gets SIGTTOU/SIGTTIN-stopped. VERIFIED by the E3 smoke (an encrypted backup without a password, spawned like a run): on macOS arm64 and Linux x64/arm64 the tty open fails (new session), stdin is null → `EOFError`, which iLEAPP logs ("Had an exception in Seeker") before it exits **0** without a report. On **Windows x64** (and arm64, S3 smoke) `getpass` waits for console keystrokes, which a process without a console never gets: it **blocks until stopped** (a cancel terminates the job). | `setsid` (no controlling terminal) + stdin null + **a password is required when `IsEncrypted` is true or cannot be read**: a backup whose `Manifest.plist` is missing or unreadable, or has no boolean `IsEncrypted`, counts as encrypted (owner decision, K8; D15; ARCHITECTURE.md §6 step 1). iLEAPP prompts only when `Manifest.plist` says encrypted, so a folder that is not a backup needs no password. |
 | Q6 | `-tz` defaults to UTC silently; aLEAPP has none. | D19. |
 | Q7 | `param_input` is stored exactly as passed. | Always pass absolute paths. |
 | Q8 | `Screen_Output.html` records are `message + "<br>" + newline`, appended with an open/close per message. Messages are **not** HTML-escaped and may contain markup or evidence-derived text. The newline is `\n` on macOS and Linux and `\r\n` on Windows (VERIFIED by the E3 smoke on all four smoke platforms; `fixtures/leapp/` holds macOS samples). A message may itself contain a newline before its `<br>`. | Split on `<br>` followed by `\n` or `\r\n`; keep partial records; strip tags; render as text. |
