@@ -29,9 +29,9 @@ use suitedfir_core::fsutil::write_json_atomic;
 use suitedfir_core::hashing::sha256_file;
 use suitedfir_core::manifest::validate_tool;
 
+use crate::idevice_tools::{API_BASE, MAX_RELEASE_JSON_BYTES, copy_exact, is_sha256_hex};
+
 const MANIFEST_FILE: &str = "leapp-manifest.json";
-const API_BASE: &str = "https://api.github.com";
-const MAX_RELEASE_JSON_BYTES: u64 = 8 << 20;
 
 const USAGE: &str = "usage: cargo xtask pin-leapp --tool <ileapp|aleapp> --tag <tag> \
 [--download-verify] [--download-dir <dir>]";
@@ -456,11 +456,7 @@ fn digest_sha256(asset: &ReleaseAsset) -> Result<String, String> {
         .as_deref()
         .and_then(|digest| digest.strip_prefix("sha256:"))
         .ok_or_else(|| format!("the release lists no SHA-256 digest for {}", asset.name))?;
-    let valid = hex.len() == 64
-        && hex
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
-    if !valid {
+    if !is_sha256_hex(hex) {
         return Err(format!("{}: digest {hex:?} is not a SHA-256", asset.name));
     }
     Ok(hex.to_owned())
@@ -586,22 +582,15 @@ fn download(agent: &ureq::Agent, asset: &ReleaseAsset, dest: &Path) -> Result<()
         .call()
         .map_err(|e| format!("GET {}: {e}", asset.url))?;
     // ureq's limit reader fails the read after `limit` bytes even at the end of the body, so allow
-    // one more byte; the size check below still rejects anything but exactly `size` bytes.
+    // one more byte; copy_exact still rejects anything but exactly `size` bytes.
     let mut reader = response
         .body_mut()
         .with_config()
         .limit(asset.size + 1)
         .reader();
     let mut file = File::create(dest).map_err(|e| format!("creating {}: {e}", dest.display()))?;
-    let written =
-        io::copy(&mut reader, &mut file).map_err(|e| format!("downloading {}: {e}", asset.name))?;
-    if written != asset.size {
-        return Err(format!(
-            "downloading {}: got {written} bytes, the release lists {}",
-            asset.name, asset.size
-        ));
-    }
-    Ok(())
+    copy_exact(&mut reader, &mut file, asset.size)
+        .map_err(|e| format!("downloading {}: {e}", asset.name))
 }
 
 /// The SHA-256 of `entry` inside the zip at `zip_path`, extracted to a scratch file in `dir`. The
@@ -730,8 +719,7 @@ mod tests {
 
     #[test]
     fn the_committed_manifest_follows_the_templates() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let manifest = read_manifest(&root.join(MANIFEST_FILE)).unwrap();
+        let manifest = read_manifest(&crate::repo_root().join(MANIFEST_FILE)).unwrap();
         for facts in &TOOLS {
             let entry = &manifest.tools[&facts.tool];
             let expected = tool_manifest(facts, &entry.version, entry.platforms.clone());

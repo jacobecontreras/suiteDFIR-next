@@ -33,7 +33,7 @@ impl AppState {
     /// `devices_list`: never pairs and never fails for tool or usbmuxd problems (reported in
     /// `tools`); the active job's device is returned busy, unqueried.
     pub fn devices_list(&self) -> DevicesResult {
-        let _op = self.device_op();
+        let _op = self.tmp.enter();
         let busy = self.busy_udid();
         self.idevice().list_devices(busy.as_deref())
     }
@@ -41,7 +41,7 @@ impl AppState {
     /// `device_pair`: the only command that pairs.
     pub fn device_pair(&self, req: &DevicePairRequest) -> Result<DeviceSummary, AppError> {
         policy::udid(&req.udid)?;
-        let _op = self.device_op();
+        let _op = self.tmp.enter();
         let busy = self.busy_udid();
         let summary = self.idevice().pair(&req.udid, busy.as_deref())?;
         log::info!("device {}: pair → {}", req.udid, summary.pair_state);
@@ -51,7 +51,7 @@ impl AppState {
     pub fn acq_preflight(&self, req: &AcqPreflightRequest) -> Result<AcqPreflight, AppError> {
         let (case_dir, _) = policy::known_case(&self.settings(), &req.case_path)?;
         policy::udid(&req.udid)?;
-        let _op = self.device_op();
+        let _op = self.tmp.enter();
         Ok(acquire::preflight(&self.idevice(), &case_dir, &req.udid)?)
     }
 
