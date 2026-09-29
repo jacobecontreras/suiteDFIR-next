@@ -420,6 +420,38 @@ fn a_run_thread_that_panics_stops_leapp_before_freeing_the_slot() {
     wait_finished(&events, run_finished);
 }
 
+/// FX3: `run_start` waits for step 2, and a run thread that panics during step 2 (here: its
+/// subscriber, on the `preparing` phase) must not hold that wait; the slot is freed for the next
+/// run.
+#[test]
+fn a_run_thread_that_panics_while_preparing_does_not_hold_run_start() {
+    let lab = lab_state();
+    let state = &lab.state;
+    let case = new_case(&lab);
+    let input = evidence(&lab);
+    let (subscriber, _recorder) = panicky_subscriber(
+        |event: &RunEvent| matches!(event, RunEvent::Phase { .. }),
+        || None,
+    );
+    let (sent, returned) = mpsc::channel();
+    let starter = Arc::clone(state);
+    let request = run_request(&case, &input);
+    std::thread::spawn(move || {
+        let _ = sent.send(starter.run_start(request, subscriber));
+    });
+    returned
+        .recv_timeout(WAIT)
+        .expect("run_start returned")
+        .unwrap();
+    assert!(state.jobs.wait_idle(Some(WAIT)));
+    // Another job can start.
+    let (subscriber, events) = collector::<RunEvent>();
+    state
+        .run_start(run_request(&case, &input), subscriber)
+        .unwrap();
+    wait_finished(&events, run_finished);
+}
+
 /// M14 (N4) for acquisitions: a panic during the backup stops the backup's tree before the slot
 /// is freed; the record is `interrupted`, read-only, and carries the encryption warning (the
 /// examiner's encryption was not restored).
@@ -867,6 +899,29 @@ fn a_run_opens_its_files_and_reveals_its_folder() {
         })),
         ErrorCode::RunNotFound
     );
+}
+
+#[test]
+fn a_run_can_be_read_as_soon_as_run_start_returns() {
+    // The UI opens the Run screen, and so calls `run_get`, right after `run_start` returns.
+    let lab = lab_state();
+    let state = &lab.state;
+    let case = new_case(&lab);
+    let input = evidence(&lab);
+    for _ in 0..5 {
+        let (subscriber, events) = collector::<RunEvent>();
+        let run = state
+            .run_start(run_request(&case, &input), subscriber)
+            .unwrap();
+        let record = state
+            .run_get(&RunRef {
+                case_path: case.to_string_lossy().into_owned(),
+                run_id: run.run_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(record.run_id, run.run_id);
+        wait_finished(&events, run_finished);
+    }
 }
 
 #[test]

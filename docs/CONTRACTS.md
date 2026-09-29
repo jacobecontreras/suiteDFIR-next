@@ -470,7 +470,7 @@ All commands are `async`. Each takes at most one argument named `req` (an object
 | `profile_delete` | `{tool, name}` | none | |
 | `profile_import` | `{tool, path, name: string\|null, overwrite: boolean}` | `ProfileInfo` | |
 | `profile_export` | `{tool, name, dest_path}` | none | `dest_path` comes from the save dialog. |
-| `run_start` | `RunRequest` + `on_event: RunEvent` | `{run_id, run_dir}` | ARCHITECTURE.md §6 step 1. `run_already_active` if any job is active. |
+| `run_start` | `RunRequest` + `on_event: RunEvent` | `{run_id, run_dir}` | ARCHITECTURE.md §6 step 1. Returns once step 2 has run: the initial `run.json` is then on disk, unless preparing failed before writing it or the run thread panicked, so `run_get` normally finds the run right away. `run_already_active` if any job is active. |
 | `run_cancel` | `{run_id}` | none | Idempotent; `run_not_found` if the id isn't active. |
 | `job_active` | none | `ActiveJob \| null` | Run or acquisition. |
 | `job_attach` | `{kind, id}` + `on_event` (`RunEvent` or `AcqEvent`) | `{backlog: string[]}` | For UI reloads; replaces the previous subscriber. |

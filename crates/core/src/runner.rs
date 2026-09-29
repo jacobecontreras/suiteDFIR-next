@@ -6,8 +6,9 @@
 //! - [`installed_tool`] (or, in debug builds, [`dev_override_tool`]) verifies the tool before every
 //!   run and loads its module list.
 //! - [`start`] is lifecycle step 1: every check, each failing with its `AppError` and creating
-//!   nothing; then it creates `runs/<run_id>/` so `run_start` can answer with the id.
-//! - [`RunJob::run`] is steps 2-10: prepare (initial `run.json`, `case.lcasedata`, the run's
+//!   nothing; then it creates `runs/<run_id>/`, which gives the run its id.
+//! - [`RunJob::run`] is steps 2-10, as [`RunJob::prepare`] then [`PreparedRun::run`] (`run_start`
+//!   answers after `prepare`): prepare (initial `run.json`, `case.lcasedata`, the run's
 //!   profile, the per-run temp dir), hash the input on its own thread concurrently with LEAPP,
 //!   spawn LEAPP, stream `Screen_Output.html` in `log` batches of at most 500 lines, drain after
 //!   the exit and send each stdio tail once, wait for the input hash, analyze the report, seal it
@@ -673,6 +674,22 @@ impl fmt::Debug for RunJob {
     }
 }
 
+/// A run after step 2 ([`RunJob::prepare`]). [`PreparedRun::run`] does the rest.
+#[must_use = "only `PreparedRun::run` finalizes the run's record and temp dir"]
+pub struct PreparedRun {
+    job: RunJob,
+    record: RunRecord,
+    /// Holds the backup password in its argv until LEAPP is spawned.
+    command: Result<argv::LeappCommand, String>,
+}
+
+impl PreparedRun {
+    /// Runs steps 3-10 on this thread, as [`RunJob::run`] does after step 2.
+    pub fn run(self, on_event: &mut dyn FnMut(RunEvent)) -> RunOutcome {
+        self.job.run_prepared(self.record, self.command, on_event)
+    }
+}
+
 /// How a run ended.
 #[derive(Clone, Debug)]
 pub struct RunOutcome {
@@ -823,10 +840,31 @@ impl RunJob {
 
     /// Runs steps 2-10 on this thread, emitting events through `on_event`, and returns the final
     /// record. Blocking: it lasts as long as LEAPP and the hashing.
-    pub fn run(mut self, on_event: &mut dyn FnMut(RunEvent)) -> RunOutcome {
+    pub fn run(self, on_event: &mut dyn FnMut(RunEvent)) -> RunOutcome {
+        self.prepare(on_event).run(on_event)
+    }
+
+    /// Step 2 alone: once it returns, the initial `run.json` is on disk (unless preparing failed,
+    /// which [`PreparedRun::run`] finalizes as `prepare_failed`). `run_start` waits for it, so the
+    /// run can be read as soon as its id is known.
+    pub fn prepare(mut self, on_event: &mut dyn FnMut(RunEvent)) -> PreparedRun {
         self.set_phase(RunPhase::Preparing, on_event);
         let password = self.password.take();
-        let (mut record, prepared) = self.prepare(password);
+        let (record, command) = self.prepare_record(password);
+        PreparedRun {
+            job: self,
+            record,
+            command,
+        }
+    }
+
+    /// Steps 3-10, after [`RunJob::prepare`].
+    fn run_prepared(
+        &self,
+        mut record: RunRecord,
+        prepared: Result<argv::LeappCommand, String>,
+        on_event: &mut dyn FnMut(RunEvent),
+    ) -> RunOutcome {
         let command = match prepared {
             Ok(command) => command,
             Err(detail) => {
@@ -909,7 +947,10 @@ impl RunJob {
 
     /// Step 2. Returns the initial record and the LEAPP command, or the record and why preparing
     /// failed (it is then finalized as `prepare_failed`).
-    fn prepare(&self, password: Option<String>) -> (RunRecord, Result<argv::LeappCommand, String>) {
+    fn prepare_record(
+        &self,
+        password: Option<String>,
+    ) -> (RunRecord, Result<argv::LeappCommand, String>) {
         let mut setup = self.setup.clone();
         setup.command = RunCommand {
             argv: Vec::new(),
