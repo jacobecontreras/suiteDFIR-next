@@ -816,10 +816,6 @@ impl RunJob {
         &self.case_dir
     }
 
-    pub fn tool(&self) -> ToolId {
-        self.setup.tool.id
-    }
-
     pub fn created_at(&self) -> Timestamp {
         self.setup.created_at
     }
