@@ -1,0 +1,47 @@
+[
+  {
+    "case": "encrypted_backup_without_password",
+    "error": {
+      "code": "password_required",
+      "message": "This iTunes backup is encrypted: enter its backup password",
+      "detail": "<LAB>\\ev\\bk"
+    },
+    "run_folders": 0
+  },
+  {
+    "case": "encrypted_backup_with_an_empty_password",
+    "error": {
+      "code": "password_required",
+      "message": "This iTunes backup is encrypted: enter its backup password",
+      "detail": "<LAB>\\ev\\bk"
+    },
+    "run_folders": 0
+  },
+  {
+    "case": "backup_with_unknown_encryption",
+    "error": {
+      "code": "password_required",
+      "message": "This iTunes backup's encryption state could not be read, so a password is needed: enter its backup password",
+      "detail": "<LAB>\\ev\\no-plist"
+    },
+    "run_folders": 0
+  },
+  {
+    "case": "empty_input_path",
+    "error": {
+      "code": "path_not_allowed",
+      "message": "This path cannot be passed to LEAPP",
+      "detail": "the input path  cannot be made absolute: cannot make an empty path absolute"
+    },
+    "run_folders": 0
+  },
+  {
+    "case": "special_prefix_input_path",
+    "error": {
+      "code": "path_not_allowed",
+      "message": "This path cannot be passed to LEAPP",
+      "detail": "the input path \\\\?\\C:\\evidence is a \\\\?\\ or \\\\.\\ path; LEAPP needs a plain absolute path"
+    },
+    "run_folders": 0
+  }
+]
