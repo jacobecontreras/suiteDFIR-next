@@ -43,5 +43,14 @@
       "detail": "the input path \\\\?\\C:\\evidence is a \\\\?\\ or \\\\.\\ path; LEAPP needs a plain absolute path"
     },
     "run_folders": 0
+  },
+  {
+    "case": "keychain_path_through_a_file",
+    "error": {
+      "code": "invalid_input",
+      "message": "The keychain must be a readable file",
+      "detail": "<LAB>\\ev\\fs\\evidence.txt\\keychain.db"
+    },
+    "run_folders": 0
   }
 ]
