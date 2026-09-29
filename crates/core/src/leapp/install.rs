@@ -953,31 +953,26 @@ fn check(pinned: Pinned<'_>, hash: bool) -> ToolCheck {
         install_dir: None,
         problem: None,
     };
+    let unverified = |status| ToolCheck {
+        status,
+        verified: None,
+    };
     let asset = match pinned.asset() {
         Ok((_, asset)) => asset,
         Err(e) => {
             status.state = ToolState::UnsupportedPlatform;
             status.problem = Some(e.to_string());
-            return ToolCheck {
-                status,
-                verified: None,
-            };
+            return unverified(status);
         }
     };
     let (record, entry) = match installed(pinned, asset) {
         Ok(Some(found)) => found,
         Ok(None) => {
-            return ToolCheck {
-                status,
-                verified: None,
-            };
+            return unverified(status);
         }
         Err(problem) => {
             status.problem = Some(problem);
-            return ToolCheck {
-                status,
-                verified: None,
-            };
+            return unverified(status);
         }
     };
     status.installed_version = Some(record.version.clone());
@@ -986,10 +981,7 @@ fn check(pinned: Pinned<'_>, hash: bool) -> ToolCheck {
     status.install_dir = Some(pinned.version_dir().to_string_lossy().into_owned());
     if !hash {
         status.state = ToolState::InstalledUnverified;
-        return ToolCheck {
-            status,
-            verified: None,
-        };
+        return unverified(status);
     }
     let (expected, against) = match &asset.entry_sha256 {
         Some(hash) => (hash.as_str(), EntryVerifiedAgainst::Manifest),
@@ -1020,18 +1012,12 @@ fn check(pinned: Pinned<'_>, hash: bool) -> ToolCheck {
                 "{} has SHA-256 {actual}; {basis} pins {expected}",
                 entry.display()
             ));
-            ToolCheck {
-                status,
-                verified: None,
-            }
+            unverified(status)
         }
         Err(e) => {
             status.state = ToolState::VerificationFailed;
             status.problem = Some(format!("cannot hash {}: {e}", entry.display()));
-            ToolCheck {
-                status,
-                verified: None,
-            }
+            unverified(status)
         }
     }
 }
