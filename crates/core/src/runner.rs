@@ -459,25 +459,20 @@ fn check_keychain(
             Some(absolute.clone()),
         )
     };
-    match fs::metadata(path) {
-        Ok(meta) if meta.is_file() => {}
-        Ok(_) => return Err(not_a_file()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not_a_file()),
-        Err(e) => {
-            return Err(app_error(
-                fsutil::io_error_code(&e),
-                "The keychain file could not be read",
-                Some(format!("{absolute}: {e}")),
-            ));
-        }
-    }
-    let hash = hashing::sha256_file(path).map_err(|e| {
+    let unreadable = |e: io::Error| {
         app_error(
             fsutil::io_error_code(&e),
             "The keychain file could not be read",
             Some(format!("{absolute}: {e}")),
         )
-    })?;
+    };
+    match fs::metadata(path) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => return Err(not_a_file()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not_a_file()),
+        Err(e) => return Err(unreadable(e)),
+    }
+    let hash = hashing::sha256_file(path).map_err(unreadable)?;
     Ok((absolute, hash))
 }
 
