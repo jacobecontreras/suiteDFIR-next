@@ -1028,3 +1028,85 @@ mod tests {
         make_writable(&dir.join(RUN_FILE));
     }
 }
+
+/// Z0a2 characterization (SIMPLIFY.md §3, candidate E1): the exact refusals of `initial_record`
+/// (the validation that stays when its record literal is shared), as `RecordError` text and as
+/// the `AppError` it becomes. Frozen: later bundles do not edit this module (SIMPLIFY.md §2).
+#[cfg(test)]
+mod z0 {
+    use super::{RunSetup, initial_record};
+    use crate::contracts::{
+        AppError, ErrorCode, HashAlgorithm, HashStatus, InputHash, InputKind, Timestamp, examples,
+    };
+
+    const RUN_ID: &str = "20260924-183005Z-ileapp-3f9a1c";
+
+    fn setup(kind: InputKind, hash: InputHash) -> RunSetup {
+        let example = examples::run_record_initial();
+        let mut input = example.input;
+        input.kind = kind;
+        input.hash = hash;
+        RunSetup {
+            run_id: RUN_ID.to_owned(),
+            label: example.label,
+            created_at: example.created_at,
+            host: example.host,
+            case_snapshot: example.case_snapshot,
+            tool: example.tool,
+            input,
+            options: example.options,
+            modules: example.modules,
+            command: example.command,
+        }
+    }
+
+    fn hash(status: HashStatus) -> InputHash {
+        InputHash {
+            algorithm: HashAlgorithm::Sha256,
+            status,
+            value: None,
+            started_at: None,
+            completed_at: None,
+        }
+    }
+
+    fn refusal(kind: InputKind, hash: InputHash) -> (String, AppError) {
+        let err = initial_record(setup(kind, hash)).unwrap_err();
+        (err.to_string(), err.into())
+    }
+
+    #[test]
+    fn z0_initial_record_refusals_are_exact() {
+        let status_text = "input.hash.status must be not_applicable (directory) or \
+                           pending/not_requested (file)";
+        let values_text = "input.hash has a value or times before hashing started";
+        let mut valued = hash(HashStatus::Pending);
+        valued.value = Some("ab".repeat(32));
+        let mut timed = hash(HashStatus::NotRequested);
+        timed.completed_at = Some(Timestamp::parse("2026-09-24T18:30:05Z").unwrap());
+        for (kind, input_hash, reason) in [
+            (InputKind::File, hash(HashStatus::Completed), status_text),
+            (InputKind::Directory, hash(HashStatus::Pending), status_text),
+            (
+                InputKind::File,
+                hash(HashStatus::NotApplicable),
+                status_text,
+            ),
+            (InputKind::File, valued, values_text),
+            (InputKind::File, timed, values_text),
+        ] {
+            let text = format!("run {RUN_ID} is not a valid initial record: {reason}");
+            assert_eq!(
+                refusal(kind, input_hash),
+                (
+                    text.clone(),
+                    AppError {
+                        code: ErrorCode::Internal,
+                        message: "The run record could not be written".to_owned(),
+                        detail: Some(text),
+                    }
+                )
+            );
+        }
+    }
+}
