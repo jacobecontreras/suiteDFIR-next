@@ -561,7 +561,7 @@ fn license_texts(krate: &Crate, cache: &Path) -> Result<Vec<(String, String)>, S
             .splitn(3, '/')
             .take(2)
             .collect();
-        let text = normalize(&String::from_utf8_lossy(&fetch_pinned(cache, url, sha256)?));
+        let text = fetch_pinned_text(cache, url, sha256)?;
         texts.push((
             format!("`{file}` of {} at {}", repo.join("/"), &commit[..7]),
             text,
@@ -578,9 +578,7 @@ fn license_texts(krate: &Crate, cache: &Path) -> Result<Vec<(String, String)>, S
                 )
             })?;
         let url = SPDX_TEXT_URL.replace("{id}", id);
-        let text = normalize(&String::from_utf8_lossy(&fetch_pinned(
-            cache, &url, sha256,
-        )?));
+        let text = fetch_pinned_text(cache, &url, sha256)?;
         texts.push((format!("standard {id} text"), text));
     }
     Ok(texts)
@@ -665,10 +663,21 @@ fn packaged_license_texts(krate: &Crate) -> Result<Vec<(String, String)>, String
 
 // ---- pinned downloads ----
 
+/// [`fetch_pinned`] as normalized text.
+fn fetch_pinned_text(cache: &Path, url: &str, sha256: &str) -> Result<String, String> {
+    let bytes = fetch_pinned(cache, url, sha256)?;
+    Ok(normalize(&String::from_utf8_lossy(&bytes)))
+}
+
+/// `path`, a cache file named by its SHA-256, is there with that hash.
+fn is_cached(path: &Path, sha256: &str) -> bool {
+    path.is_file() && sha256_file(path).ok().as_deref() == Some(sha256)
+}
+
 /// A cached, hash-checked download: `<cache>/<sha256>`.
 fn fetch_pinned(cache: &Path, url: &str, sha256: &str) -> Result<Vec<u8>, String> {
     let path = cache.join(sha256);
-    if path.is_file() && sha256_file(&path).ok().as_deref() == Some(sha256) {
+    if is_cached(&path, sha256) {
         return fs::read(&path).map_err(|e| format!("reading {}: {e}", path.display()));
     }
     let agent = idevice_tools::agent();
@@ -731,9 +740,7 @@ fn idevice_notices(repo_root: &Path, cache: &Path) -> Result<IdeviceNotices, Str
     for (platform, bundle) in &manifest.platforms {
         idevice_tools::check_manifest_bundle(&manifest, *platform, bundle)?;
         let zip_path = cache.join(&bundle.bundle_sha256);
-        let cached = zip_path.is_file()
-            && sha256_file(&zip_path).ok().as_deref() == Some(bundle.bundle_sha256.as_str());
-        if !cached {
+        if !is_cached(&zip_path, &bundle.bundle_sha256) {
             let partial = cache.join(format!("{}.partial", bundle.bundle_sha256));
             idevice_tools::download_bundle(&manifest.release, bundle, &partial)?;
             fs::rename(&partial, &zip_path)
@@ -880,12 +887,7 @@ fn leapp_notices(repo_root: &Path, cache: &Path) -> Result<LeappNotices, String>
         let url = LEAPP_LICENSE_URL
             .replace("{repo}", &entry.upstream_repo)
             .replace("{tag}", &entry.version);
-        let text = normalize(&String::from_utf8_lossy(&fetch_pinned(
-            cache,
-            &url,
-            LEAPP_LICENSE_SHA256,
-        )?));
-        license = Some(text);
+        license = Some(fetch_pinned_text(cache, &url, LEAPP_LICENSE_SHA256)?);
         tools.push((
             entry.display_name.clone(),
             entry.upstream_repo.clone(),
@@ -895,11 +897,7 @@ fn leapp_notices(repo_root: &Path, cache: &Path) -> Result<LeappNotices, String>
     let license = license.ok_or("no LEAPP tools")?;
     let mut bundled = Vec::new();
     for pinned in &LEAPP_BUNDLED {
-        let text = normalize(&String::from_utf8_lossy(&fetch_pinned(
-            cache,
-            pinned.url,
-            pinned.sha256,
-        )?));
+        let text = fetch_pinned_text(cache, pinned.url, pinned.sha256)?;
         bundled.push((pinned.title.to_owned(), pinned.url.to_owned(), text));
     }
     Ok(LeappNotices {
@@ -1452,7 +1450,7 @@ mod tests {
     /// network; this only checks the parts that do not).
     #[test]
     fn the_committed_notices_cover_the_pinned_inputs() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let root = crate::repo_root();
         let notices = fs::read_to_string(root.join(OUTPUT)).unwrap();
         let manifest = idevice_tools::read_manifest(&root.join("idevice-tools.json")).unwrap();
         for source in &manifest.sources {
