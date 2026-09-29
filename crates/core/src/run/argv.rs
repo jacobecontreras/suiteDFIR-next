@@ -140,25 +140,25 @@ impl fmt::Debug for LeappCommand {
 
 /// Builds the LEAPP command line (LEAPP-CLI.md §4).
 pub fn build(spec: &ArgvSpec<'_>) -> Result<LeappCommand, ArgvError> {
-    let run_dir = absolute("run folder", spec.run_dir)?;
+    let run_dir = check_path("run folder", spec.run_dir)?;
     let mut argv = vec![
-        absolute("tool", spec.entry)?,
+        check_path("tool", spec.entry)?,
         "-t".to_owned(),
         spec.input_type.as_str().to_owned(),
         "-i".to_owned(),
-        absolute("input", spec.input)?,
+        check_path("input", spec.input)?,
         "-o".to_owned(),
         run_dir.clone(),
         "--custom_output_folder".to_owned(),
         REPORT_DIR.to_owned(),
         "-d".to_owned(),
-        absolute(
+        check_path(
             "case data",
             &Path::new(&run_dir).join(casedata::CASE_DATA_FILE),
         )?,
     ];
     if let Some(profile) = spec.profile {
-        argv.extend(["-m".to_owned(), absolute("profile", profile)?]);
+        argv.extend(["-m".to_owned(), check_path("profile", profile)?]);
     }
     if let Some(zone) = spec.timezone {
         argv.extend(["-tz".to_owned(), zone.to_owned()]);
@@ -170,7 +170,7 @@ pub fn build(spec: &ArgvSpec<'_>) -> Result<LeappCommand, ArgvError> {
         argv.push(password.to_owned());
     }
     if let Some(keychain) = spec.keychain {
-        argv.extend(["--keychain".to_owned(), absolute("keychain", keychain)?]);
+        argv.extend(["--keychain".to_owned(), check_path("keychain", keychain)?]);
     }
     Ok(LeappCommand {
         argv,
@@ -179,17 +179,12 @@ pub fn build(spec: &ArgvSpec<'_>) -> Result<LeappCommand, ArgvError> {
     })
 }
 
-/// Checks that a path can be passed to LEAPP and returns it as `build` will write it (absolute,
-/// Unicode, not a `\\?\` or `\\.\` path). Validation (`run_start`, lifecycle step 1) calls it for
-/// the tool, input and keychain paths, so these errors come before anything is created.
+/// Checks that a path can be passed to LEAPP and returns it as [`build`] writes it: made absolute
+/// with `std::path::absolute` (never canonicalized, ARCHITECTURE.md §7), as a Unicode string.
+/// Verbatim (`\\?\`) and device (`\\.\`) paths are refused: LEAPP adds the verbatim prefix itself
+/// and checks `path[1] == ':'`. Validation (`run_start`, lifecycle step 1) calls it for the tool,
+/// input and keychain paths, so these errors come before anything is created.
 pub fn check_path(what: &'static str, path: &Path) -> Result<String, ArgvError> {
-    absolute(what, path)
-}
-
-/// `path` made absolute with `std::path::absolute` (never canonicalized, ARCHITECTURE.md §7), as
-/// a string. Verbatim (`\\?\`) and device (`\\.\`) paths are refused: LEAPP adds the verbatim
-/// prefix itself and checks `path[1] == ':'`.
-fn absolute(what: &'static str, path: &Path) -> Result<String, ArgvError> {
     let absolute = std::path::absolute(path).map_err(|source| ArgvError::NotAbsolute {
         what,
         path: path.to_path_buf(),
