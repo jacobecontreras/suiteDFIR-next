@@ -137,10 +137,6 @@ fn wait_for_event(sent: &Sent, channels: &[u32], kind: &str) {
     }
 }
 
-fn wait_for_finished(sent: &Sent, channels: &[u32]) {
-    wait_for_event(sent, channels, "finished");
-}
-
 #[test]
 fn every_recorded_invoke_succeeds_through_the_real_handlers() {
     // The aLEAPP stand-in: a probe-answering fake-leapp copy, pinned by a test manifest.
@@ -190,13 +186,14 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
         .iter()
         .map(|r| r["cmd"].as_str().unwrap().to_owned())
         .collect();
-    for command in contract_commands() {
+    let commands = contract_commands();
+    for command in &commands {
         assert!(
-            called.contains(&command),
+            called.contains(command),
             "{command} is not in the recording"
         );
     }
-    assert_eq!(contract_commands().len(), 38);
+    assert_eq!(commands.len(), 38);
 
     let mut values = Values::default();
     values
@@ -223,16 +220,17 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
                 .unwrap()
         });
         let what = format!("step {step} {cmd}");
+        let run_slow =
+            cmd == "run_start" && Path::new(req["input_path"].as_str().unwrap()).ends_with("slow");
 
         // Pick the fake scenarios as the mock does: by input folder name and label suffix.
         match cmd {
             "run_start" => {
-                let slow = Path::new(req["input_path"].as_str().unwrap()).ends_with("slow");
                 let mut env = lab.state.leapp_env.lock().unwrap();
                 env.retain(|(name, _)| name != "FAKE_LEAPP_SCENARIO");
                 env.push((
                     "FAKE_LEAPP_SCENARIO".into(),
-                    (if slow { "slow" } else { "success" }).into(),
+                    (if run_slow { "slow" } else { "success" }).into(),
                 ));
             }
             "acq_start" => {
@@ -345,10 +343,9 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
                 let started: RunStarted = contract(&what, &response);
                 let id = channel.unwrap();
                 job_channels.insert(started.run_id.clone(), vec![id]);
-                let slow = Path::new(req["input_path"].as_str().unwrap()).ends_with("slow");
                 values.runs.push(started.run_id);
-                if !slow {
-                    wait_for_finished(&sent, &[id]);
+                if !run_slow {
+                    wait_for_event(&sent, &[id], "finished");
                 }
             }
             "job_active" => {
@@ -364,7 +361,7 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
             "run_cancel" | "acq_cancel" => {
                 assert_eq!(response, Value::Null, "{what}");
                 let id = req["run_id"].as_str().or(req["acq_id"].as_str()).unwrap();
-                wait_for_finished(&sent, &job_channels[id]);
+                wait_for_event(&sent, &job_channels[id], "finished");
             }
             "temp_cleanup" => {
                 contract::<TempCleanupResult>(&what, &response);
@@ -386,7 +383,7 @@ fn every_recorded_invoke_succeeds_through_the_real_handlers() {
                 let slow = req["label"].as_str().unwrap().ends_with("/slow");
                 values.acqs.push(started.acq_id);
                 if !slow {
-                    wait_for_finished(&sent, &[id]);
+                    wait_for_event(&sent, &[id], "finished");
                 }
             }
             "acq_get" => {
