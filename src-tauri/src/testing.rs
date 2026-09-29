@@ -189,21 +189,26 @@ pub fn write_backup(dir: &Path, device_name: &str, encrypted: bool) {
 
 // ---- an aLEAPP stand-in for the real install pipeline ----
 
-/// A zip of a probe-answering fake-leapp copy and the embedded manifest with aLEAPP pinned to it
-/// for this host, so `tool_install` (with `download_from: zip`) installs it through the real
-/// pipeline: download → verify → extract → verify → introspect.
-pub struct AleappStandIn {
+/// A lab whose aLEAPP is a stand-in, so `tool_install` installs it through the real pipeline
+/// (download → verify → extract → verify → introspect): a zip of a probe-answering fake-leapp
+/// copy, taken as the download (`download_from`), and the embedded manifest with aLEAPP pinned to
+/// it for this host. iLEAPP is the dev override.
+pub struct StandInLab {
+    pub lab: Lab,
+    /// The stand-in's zip.
     pub zip: PathBuf,
-    pub manifest: LeappManifest,
+    /// Holds the zip, as long as the lab lives (in a tuple, a `_` pattern would drop it at once).
+    _placeholder: tempfile::TempDir,
 }
 
-pub fn aleapp_stand_in(dir: &Path) -> AleappStandIn {
+pub fn stand_in_lab(idevice_scenario: &str) -> StandInLab {
+    let placeholder = tempfile::Builder::new().prefix("sdr").tempdir().unwrap();
     let platform = manifest::host_platform().expect("this host has a platform key");
     let fake_path = core_binary("fake-leapp");
     let fake = fs::read(&fake_path).unwrap();
     let entry = format!("fake-leapp-probe{EXE}");
     let archive = stored_zip(&entry, &fake);
-    let zip = dir.join("aleapp-replay.zip");
+    let zip = placeholder.path().join("aleapp-replay.zip");
     fs::write(&zip, &archive).unwrap();
     let mut pinned = manifest::embedded().unwrap().clone();
     pinned
@@ -223,9 +228,16 @@ pub fn aleapp_stand_in(dir: &Path) -> AleappStandIn {
                 urls: vec!["https://example.invalid/aleapp-replay.zip".to_owned()],
             },
         );
-    AleappStandIn {
-        zip,
+    let lab = lab(LabOptions {
+        leapp_override: vec![ToolId::Ileapp],
         manifest: pinned,
+        download_from: Some(zip.clone()),
+        idevice_scenario: idevice_scenario.to_owned(),
+    });
+    StandInLab {
+        lab,
+        zip,
+        _placeholder: placeholder,
     }
 }
 
