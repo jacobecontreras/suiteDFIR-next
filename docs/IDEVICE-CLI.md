@@ -19,20 +19,13 @@ The tools are built from upstream source tarballs, pinned by SHA-256 in `idevice
 | mbedtls | 3.6.7 | `mbedtls-3.6.7.tar.bz2` (the newest 3.6 LTS release; TLS backend via `--with-mbedtls`) |
 | libimobiledevice | 1.4.0 | `libimobiledevice-1.4.0.tar.bz2` (`--with-mbedtls` and `--without-cython` are valid, `configure.ac:130/176`) |
 
-**Build** (`scripts/build-idevice-tools.sh <platform-key>`):
-- **Platforms:** `macos-aarch64` and `macos-x86_64` on the Mac (minimum macOS 11.0; x86_64 is cross-built with `-arch x86_64`), and `windows-x86_64` in a per-user MSYS2 UCRT64 install.
-- **Static:** every library is built with `--enable-static --disable-shared` and `pkg-config --static`, so the tools link only system libraries; the script fails otherwise.
-  - macOS: `libSystem`, `CoreFoundation` and `SystemConfiguration`.
-  - Windows: system DLLs only, so `files` lists no DLL.
+**Build** (`scripts/build-idevice-tools.sh <platform-key>`; its header and comments describe the platforms, the static linking and each build step):
 - **Only the four tools are built.** `ideviceimagemounter`, the only tool that links libtatsu, is not. libtatsu is still built because libimobiledevice's `configure` requires it; on macOS it compiles against the system libcurl.
-- **Source patches (FX1):** two small patches (one changed code line each) in `scripts/idevice-tools-patches/`, pinned by SHA-256 in the script, applied with `patch -p1 --forward --fuzz=0 --verbose` after extraction (any rejected hunk, fuzz or offset fails the build; macOS's BSD `patch` reports an offset only with `--verbose`) and listed in `BUILDINFO.json` (`patches`). Each changed file carries a dated change notice with the reason ("Modified for suiteDFIR on 2026-09-26: …"). Without them `idevicepair pair` succeeds, but every lockdown SSL session then fails (§8, known issue):
+- **Source patches (FX1):** two small patches (one changed code line each) in `scripts/idevice-tools-patches/`, pinned by SHA-256 in the script, applied with `patch -p1 --forward --fuzz=0 --batch --verbose` after extraction (any rejected hunk, fuzz or offset fails the build; macOS's BSD `patch` reports an offset only with `--verbose`) and listed in `BUILDINFO.json` (`patches`). Each changed file carries a dated change notice with the reason ("Modified for suiteDFIR on 2026-09-26: …"). Without them `idevicepair pair` succeeds, but every lockdown SSL session then fails (§8, known issue):
   - `mbedtls-3.6.7-x509-empty-issuer.patch`: `library/x509_crt.c` parses the issuer name only when it is not empty, like the subject. libimobiledevice creates its pairing certificates with empty issuer and subject names (`common/userpref.c` sets none), so mbedtls rejected the pair record's root certificate (-0x23E0).
   - `libimobiledevice-1.4.0-mbedtls-hostname.patch`: `src/idevice.c` calls `mbedtls_ssl_set_hostname(ctx, NULL)` after `mbedtls_ssl_setup`. Since 3.6.3 (CVE-2025-27809) mbedtls refuses to verify a server certificate unless the host name was set, even to NULL (-0x5D80). The device certificate has no host name, and libimobiledevice's `cert_verify_cb` accepts any certificate.
   - Nothing else changes: no other mbedtls configuration and no TLS 1.3 change (the device negotiates TLS 1.2).
-- **Upstream build files are used unchanged** (no `autoreconf`). Two static-build quirks are handled on the command line:
-  - `3rd_party/libsrp6a-sha512` reads `$(mbedtls_CFLAGS)`, which `configure` never sets, so the script passes it to `make`.
-  - libimobiledevice-glue initializes itself in a constructor in `glue.o` (on Windows it calls `WSAStartup`). The tools reference nothing else in that object, so a static link drops it, and on Windows every usbmuxd connection then fails. The tools are linked with `-u libimobiledevice_glue_version` (`_libimobiledevice_glue_version` on macOS) to pull it in, and the script checks that the constructor is present.
-- **Publishing:** `idevice-tools-1.4.0-p2`. The bundles are assets of the prerelease `idevice-tools-<release>`, where `release` in `idevice-tools.json` is `1.4.0-p2` (`version` stays `1.4.0`, the libimobiledevice version the tools report); the prerelease also holds the source tarballs, the build script and the patches. The earlier prereleases are kept unchanged and are no longer pinned: the unpatched `idevice-tools-1.4.0`, and `idevice-tools-1.4.0-p1` (the same code changes, but change notices without a date, and a build script whose offset check did not work with macOS's `patch`). Each zip holds the tools, `BUILDINFO.json` (sources, patches, toolchain, flags, date, linked libraries) and the notices listed below. `cargo xtask fetch-idevice-tools` checks `bundle_sha256` and every file hash before it installs the tools as Tauri sidecars.
+- **Publishing:** `idevice-tools-1.4.0-p2`. The bundles are assets of the prerelease `idevice-tools-<release>`, where `release` in `idevice-tools.json` is `1.4.0-p2` (`version` stays `1.4.0`, the libimobiledevice version the tools report); the prerelease also holds the source tarballs, the build script and the patches. The earlier prereleases, the unpatched `idevice-tools-1.4.0` and `idevice-tools-1.4.0-p1`, are kept unchanged and are no longer pinned. Each zip holds the tools, `BUILDINFO.json` (sources, patches, toolchain, flags, date, linked libraries) and the notices listed below.
 
 **Licenses:**
 - The source headers and README say LGPL-2.1-or-later. The repo also ships a GPL-2 `COPYING`.
@@ -42,10 +35,7 @@ The tools are built from upstream source tarballs, pinned by SHA-256 in `idevice
 - The Windows tools link the MinGW-w64 runtime statically, and its license requires its notices in binary distributions: `mingw-w64/COPYING.MinGW-w64-runtime.txt` in the Windows bundle.
 - The source obligation is met by attaching the exact source tarballs, the patches and the build script to each app release. A link to upstream is not enough.
 
-**Runtime service (usbmuxd):**
-- **macOS:** built into the OS.
-- **Windows:** Apple Mobile Device Service (Apple Devices app or iTunes).
-- **Linux:** the distro's `usbmuxd` daemon. On Linux suiteDFIR uses the distro's tools rather than bundling its own.
+**Runtime service (usbmuxd):** per OS in ARCHITECTURE.md §10.
 
 ## 2. Tools and invocations
 
