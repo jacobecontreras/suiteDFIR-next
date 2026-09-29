@@ -1427,3 +1427,312 @@ mod tests {
         assert_eq!(error.as_deref(), Some("run.json: disk full"));
     }
 }
+
+/// Z0a2 characterization (SIMPLIFY.md §3, candidate E1): `pending_record`, the record of a setup
+/// that `initial_record` refused, pinned as a whole and as JSON text (key order). The expected
+/// records are written out field by field, never built through `record::initial_record`.
+/// Frozen: later bundles do not edit this module (SIMPLIFY.md §2).
+#[cfg(test)]
+mod z0 {
+    use super::pending_record;
+    use crate::contracts::{
+        CaseSnapshot, EntryVerifiedAgainst, HashAlgorithm, HashStatus, InputHash, InputKind,
+        InputType, InstallSource, ModuleMode, PlatformKey, RecordApp, RecordHost, RunCommand,
+        RunInput, RunLogs, RunModules, RunOptions, RunOutput, RunRecord, RunStatus, RunTool, Seal,
+        SealStatus, Timestamp, ToolId,
+    };
+    use crate::run::record::RunSetup;
+
+    fn at(text: &str) -> Timestamp {
+        Timestamp::parse(text).unwrap()
+    }
+
+    fn host() -> RecordHost {
+        RecordHost {
+            os: "macos".to_owned(),
+            os_version: "15.6".to_owned(),
+            arch: "aarch64".to_owned(),
+            hostname: "LAB-MAC-01".to_owned(),
+        }
+    }
+
+    fn case_snapshot() -> CaseSnapshot {
+        CaseSnapshot {
+            case_id: "5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c".to_owned(),
+            name: "Operation Nightjar".to_owned(),
+            case_number: "2026-0142".to_owned(),
+            examiner: "J. Doe".to_owned(),
+            agency: "County Forensics Lab".to_owned(),
+        }
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    /// The expected record: the setup's parts with `input`, and everything `pending_record` sets
+    /// itself written out.
+    fn expected(setup: RunSetup, input: RunInput) -> RunRecord {
+        RunRecord {
+            schema_version: 1,
+            run_id: setup.run_id,
+            label: setup.label,
+            status: RunStatus::Running,
+            status_reasons: Vec::new(),
+            warnings: Vec::new(),
+            created_at: setup.created_at,
+            started_at: None,
+            ended_at: None,
+            recovered_at: None,
+            duration_ms: None,
+            app: RecordApp {
+                name: "suiteDFIR".to_owned(),
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+            host: setup.host,
+            case_snapshot: setup.case_snapshot,
+            tool: setup.tool,
+            input,
+            options: setup.options,
+            modules: setup.modules,
+            command: setup.command,
+            process: None,
+            leapp_result: None,
+            output: RunOutput {
+                report_dir: "report".to_owned(),
+                seal: Seal {
+                    status: SealStatus::Pending,
+                    manifest: None,
+                    manifest_sha256: None,
+                    file_count: None,
+                    total_bytes: None,
+                },
+            },
+            logs: RunLogs {
+                stdout: "leapp.stdout.log".to_owned(),
+                stderr: "leapp.stderr.log".to_owned(),
+                screen_output: "report/_HTML/_Script_Logs/Screen_Output.html".to_owned(),
+            },
+        }
+    }
+
+    /// A file input whose hash already completed (not an initial hash): the status stays
+    /// `completed`, the value and both times are cleared.
+    #[test]
+    fn z0_pending_record_of_a_file_setup() {
+        let input = RunInput {
+            path: "/Volumes/Evidence/image.zip".to_owned(),
+            kind: InputKind::File,
+            input_type: InputType::Zip,
+            type_detected: Some(InputType::Zip),
+            size_bytes: Some(4096),
+            itunes_encrypted: None,
+            acquisition_id: None,
+            hash: InputHash {
+                algorithm: HashAlgorithm::Sha256,
+                status: HashStatus::Completed,
+                value: Some("ab".repeat(32)),
+                started_at: Some(at("2026-09-24T18:30:06Z")),
+                completed_at: Some(at("2026-09-24T18:31:00Z")),
+            },
+        };
+        let setup = RunSetup {
+            run_id: "20260924-183005Z-ileapp-3f9a1c".to_owned(),
+            label: Some("Z0 file run".to_owned()),
+            created_at: at("2026-09-24T18:30:05Z"),
+            host: host(),
+            case_snapshot: case_snapshot(),
+            tool: RunTool {
+                id: ToolId::Ileapp,
+                version: "v2026.4.2".to_owned(),
+                platform: PlatformKey::MacosAarch64,
+                asset_name: Some("ileapp-v2026.4.2-macOS_Apple_Silicon.zip".to_owned()),
+                asset_sha256: Some("d9".repeat(32)),
+                entry_sha256: "e1".repeat(32),
+                entry_verified_against: EntryVerifiedAgainst::Manifest,
+                install_source: InstallSource::Download,
+            },
+            input: input.clone(),
+            options: RunOptions {
+                timezone: Some("America/Chicago".to_owned()),
+                timezone_supported: true,
+                password_supplied: false,
+                keychain_path: Some("/Volumes/Evidence/keychain.db".to_owned()),
+                keychain_sha256: Some("cd".repeat(32)),
+            },
+            modules: RunModules {
+                mode: ModuleMode::Custom,
+                profile_name: None,
+                requested: strings(&["sms", "callHistory"]),
+                resolved: strings(&["sms", "callHistory"]),
+                unknown: Vec::new(),
+                always_run: strings(&["last_build"]),
+                available_count: 8,
+            },
+            command: RunCommand {
+                argv: strings(&["/tools/ileapp", "-t", "zip"]),
+                cwd: "/cases/Operation Nightjar/runs/20260924-183005Z-ileapp-3f9a1c".to_owned(),
+            },
+        };
+        let record = pending_record(setup.clone());
+        let cleaned = RunInput {
+            hash: InputHash {
+                algorithm: HashAlgorithm::Sha256,
+                status: HashStatus::Completed,
+                value: None,
+                started_at: None,
+                completed_at: None,
+            },
+            ..input
+        };
+        assert_eq!(record, expected(setup, cleaned));
+        assert_eq!(
+            serde_json::to_string(&record).unwrap(),
+            concat!(
+                r#"{"schema_version":1,"run_id":"20260924-183005Z-ileapp-3f9a1c","#,
+                r#""label":"Z0 file run","status":"running","status_reasons":[],"warnings":[],"#,
+                r#""created_at":"2026-09-24T18:30:05Z","started_at":null,"ended_at":null,"#,
+                r#""recovered_at":null,"duration_ms":null,"#,
+                r#""app":{"name":"suiteDFIR","version":""#,
+                env!("CARGO_PKG_VERSION"),
+                r#""},"#,
+                r#""host":{"os":"macos","os_version":"15.6","arch":"aarch64","#,
+                r#""hostname":"LAB-MAC-01"},"#,
+                r#""case_snapshot":{"case_id":"5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c","#,
+                r#""name":"Operation Nightjar","case_number":"2026-0142","examiner":"J. Doe","#,
+                r#""agency":"County Forensics Lab"},"#,
+                r#""tool":{"id":"ileapp","version":"v2026.4.2","platform":"macos-aarch64","#,
+                r#""asset_name":"ileapp-v2026.4.2-macOS_Apple_Silicon.zip","#,
+                r#""asset_sha256":"d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9","#,
+                r#""entry_sha256":"e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1","#,
+                r#""entry_verified_against":"manifest","install_source":"download"},"#,
+                r#""input":{"path":"/Volumes/Evidence/image.zip","kind":"file","type":"zip","#,
+                r#""type_detected":"zip","size_bytes":4096,"itunes_encrypted":null,"#,
+                r#""acquisition_id":null,"hash":{"algorithm":"sha256","status":"completed","#,
+                r#""value":null,"started_at":null,"completed_at":null}},"#,
+                r#""options":{"timezone":"America/Chicago","timezone_supported":true,"#,
+                r#""password_supplied":false,"keychain_path":"/Volumes/Evidence/keychain.db","#,
+                r#""keychain_sha256":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"},"#,
+                r#""modules":{"mode":"custom","profile_name":null,"#,
+                r#""requested":["sms","callHistory"],"resolved":["sms","callHistory"],"#,
+                r#""unknown":[],"always_run":["last_build"],"available_count":8},"#,
+                r#""command":{"argv":["/tools/ileapp","-t","zip"],"#,
+                r#""cwd":"/cases/Operation Nightjar/runs/20260924-183005Z-ileapp-3f9a1c"},"#,
+                r#""process":null,"leapp_result":null,"#,
+                r#""output":{"report_dir":"report","seal":{"status":"pending","manifest":null,"#,
+                r#""manifest_sha256":null,"file_count":null,"total_bytes":null}},"#,
+                r#""logs":{"stdout":"leapp.stdout.log","stderr":"leapp.stderr.log","#,
+                r#""screen_output":"report/_HTML/_Script_Logs/Screen_Output.html"}}"#,
+            )
+        );
+    }
+
+    /// A directory input with a `pending` hash (and a start time): the hash becomes
+    /// `not_applicable` with no value or times.
+    #[test]
+    fn z0_pending_record_of_a_directory_setup() {
+        let input = RunInput {
+            path: "/Volumes/Evidence/fs".to_owned(),
+            kind: InputKind::Directory,
+            input_type: InputType::Fs,
+            type_detected: None,
+            size_bytes: None,
+            itunes_encrypted: None,
+            acquisition_id: Some("20260924-171200Z-ios-9c01de".to_owned()),
+            hash: InputHash {
+                algorithm: HashAlgorithm::Sha256,
+                status: HashStatus::Pending,
+                value: None,
+                started_at: Some(at("2026-09-24T18:30:06Z")),
+                completed_at: None,
+            },
+        };
+        let setup = RunSetup {
+            run_id: "20260924-183005Z-aleapp-00ff00".to_owned(),
+            label: None,
+            created_at: at("2026-09-24T18:30:05Z"),
+            host: host(),
+            case_snapshot: case_snapshot(),
+            tool: RunTool {
+                id: ToolId::Aleapp,
+                version: "dev-override".to_owned(),
+                platform: PlatformKey::LinuxX86_64,
+                asset_name: None,
+                asset_sha256: None,
+                entry_sha256: "0f".repeat(32),
+                entry_verified_against: EntryVerifiedAgainst::None,
+                install_source: InstallSource::DevOverride,
+            },
+            input: input.clone(),
+            options: RunOptions {
+                timezone: None,
+                timezone_supported: false,
+                password_supplied: false,
+                keychain_path: None,
+                keychain_sha256: None,
+            },
+            modules: RunModules {
+                mode: ModuleMode::All,
+                profile_name: None,
+                requested: Vec::new(),
+                resolved: strings(&["callLogs", "smsMms"]),
+                unknown: Vec::new(),
+                always_run: strings(&["usagestats_version"]),
+                available_count: 2,
+            },
+            command: RunCommand {
+                argv: Vec::new(),
+                cwd: String::new(),
+            },
+        };
+        let record = pending_record(setup.clone());
+        let cleaned = RunInput {
+            hash: InputHash {
+                algorithm: HashAlgorithm::Sha256,
+                status: HashStatus::NotApplicable,
+                value: None,
+                started_at: None,
+                completed_at: None,
+            },
+            ..input
+        };
+        assert_eq!(record, expected(setup, cleaned));
+        assert_eq!(
+            serde_json::to_string(&record).unwrap(),
+            concat!(
+                r#"{"schema_version":1,"run_id":"20260924-183005Z-aleapp-00ff00","#,
+                r#""label":null,"status":"running","status_reasons":[],"warnings":[],"#,
+                r#""created_at":"2026-09-24T18:30:05Z","started_at":null,"ended_at":null,"#,
+                r#""recovered_at":null,"duration_ms":null,"#,
+                r#""app":{"name":"suiteDFIR","version":""#,
+                env!("CARGO_PKG_VERSION"),
+                r#""},"#,
+                r#""host":{"os":"macos","os_version":"15.6","arch":"aarch64","#,
+                r#""hostname":"LAB-MAC-01"},"#,
+                r#""case_snapshot":{"case_id":"5b0c2f4e9a7d4b1f8c3e6a2d1f0b9e7c","#,
+                r#""name":"Operation Nightjar","case_number":"2026-0142","examiner":"J. Doe","#,
+                r#""agency":"County Forensics Lab"},"#,
+                r#""tool":{"id":"aleapp","version":"dev-override","platform":"linux-x86_64","#,
+                r#""asset_name":null,"asset_sha256":null,"#,
+                r#""entry_sha256":"0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f","#,
+                r#""entry_verified_against":"none","install_source":"dev_override"},"#,
+                r#""input":{"path":"/Volumes/Evidence/fs","kind":"directory","type":"fs","#,
+                r#""type_detected":null,"size_bytes":null,"itunes_encrypted":null,"#,
+                r#""acquisition_id":"20260924-171200Z-ios-9c01de","#,
+                r#""hash":{"algorithm":"sha256","status":"not_applicable","#,
+                r#""value":null,"started_at":null,"completed_at":null}},"#,
+                r#""options":{"timezone":null,"timezone_supported":false,"#,
+                r#""password_supplied":false,"keychain_path":null,"keychain_sha256":null},"#,
+                r#""modules":{"mode":"all","profile_name":null,"requested":[],"#,
+                r#""resolved":["callLogs","smsMms"],"unknown":[],"#,
+                r#""always_run":["usagestats_version"],"available_count":2},"#,
+                r#""command":{"argv":[],"cwd":""},"#,
+                r#""process":null,"leapp_result":null,"#,
+                r#""output":{"report_dir":"report","seal":{"status":"pending","manifest":null,"#,
+                r#""manifest_sha256":null,"file_count":null,"total_bytes":null}},"#,
+                r#""logs":{"stdout":"leapp.stdout.log","stderr":"leapp.stderr.log","#,
+                r#""screen_output":"report/_HTML/_Script_Logs/Screen_Output.html"}}"#,
+            )
+        );
+    }
+}

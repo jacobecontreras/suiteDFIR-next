@@ -24,6 +24,8 @@ mod state;
 mod replay;
 #[cfg(test)]
 mod testing;
+#[cfg(test)]
+mod z0_tests;
 
 use std::process::ExitCode;
 
