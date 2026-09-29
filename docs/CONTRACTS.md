@@ -2,7 +2,7 @@
 
 > Written by AI (Claude Code) during development and not yet fully reviewed by a person. Where it disagrees with the code, the code is right. See [How this was built](../README.md#how-this-was-built).
 
-File formats on disk and the UI↔core API. During M0 this document is the spec. After M0.3, **the Rust types in `crates/core/src/contracts/` are the source of truth**; this document, `ui/types.d.ts` and the generated examples in `ui-dev/fixtures/contracts/` must match them (CI enforces the examples, see DEVELOPMENT.md §4.7).
+File formats on disk and the UI↔core API. **The Rust types in `crates/core/src/contracts/` are the source of truth**; this document, `ui/types.d.ts` and the generated examples in `ui-dev/fixtures/contracts/` must match them (CI enforces the examples, see DEVELOPMENT.md §4.7).
 
 ## 1. Conventions
 
@@ -33,7 +33,7 @@ File formats on disk and the UI↔core API. During M0 this document is the spec.
 
 ## 3. `leapp-manifest.json` (repo root, embedded at build time)
 
-Maintained by `cargo xtask pin-leapp` (ROADMAP A1). Hand edits only for `urls` mirrors and for filling AppImage `entry_sha256` values reported by the smoke workflow (E3).
+Maintained by `cargo xtask pin-leapp`. Hand edits only for `urls` mirrors and for filling AppImage `entry_sha256` values reported by the smoke workflow.
 
 ```json
 {
@@ -69,7 +69,7 @@ Maintained by `cargo xtask pin-leapp` (ROADMAP A1). Hand edits only for `urls` m
 
 **Field rules:**
 - `archive_kind`: `zip` (the entry is a path inside the zip) or `appimage` (the entry is a path inside `squashfs-root/`, e.g. `usr/bin/ileapp`).
-- `entry_sha256`: required for `zip`. It may be `null` for `appimage` until E3 reports the value. While `null`, the install-time hash is recorded in `install.json` and runs record `entry_verified_against: "install_record"`.
+- `entry_sha256`: required for `zip`. It may be `null` for `appimage`. While `null`, the install-time hash is recorded in `install.json` and runs record `entry_verified_against: "install_record"`.
 - `urls`: tried in order; each must be `https://`.
 - Unsupported platform: a platform missing from `platforms` is unsupported (`ToolState.unsupported_platform`).
 
@@ -464,7 +464,7 @@ All commands are `async`. Each takes at most one argument named `req` (an object
 | `case_forget` | `{path}` | none | Removes from `recent_cases` only. |
 | `run_get` | `{case_path, run_id}` | `RunRecord` | |
 | `input_inspect` | `{tool, path, case_path}` | `InputInspection` | Read-only. Overlap violations are returned as `input_overlaps_case`. |
-| `ios_backups_find` | none | `IosBackup[]` | S1. Read-only. The backups (folders with `Manifest.db` or `Manifest.plist`) in the OS's default backup folders (ROADMAP S1; none on Linux), newest first, with details from `Info.plist`/`Manifest.plist`. A default folder that cannot be listed → `permission_denied` (on macOS, Full Disk Access guidance); a backup inside that cannot be read is listed with `null` details. |
+| `ios_backups_find` | none | `IosBackup[]` | S1. Read-only. The backups (folders with `Manifest.db` or `Manifest.plist`) in the OS's default backup folders (none on Linux), newest first, with details from `Info.plist`/`Manifest.plist`. A default folder that cannot be listed → `permission_denied` (on macOS, Full Disk Access guidance); a backup inside that cannot be read is listed with `null` details. |
 | `profiles_list` | `{tool}` | `ProfileInfo[]` | `unknown_modules` is computed against the installed module list. |
 | `profile_save` | `{tool, name, modules}` | `ProfileInfo` | Overwrites the same name. |
 | `profile_delete` | `{tool, name}` | none | |
@@ -523,7 +523,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
 | `RestoreState` | `not_requested`, `restored`, `failed`, `not_attempted`, `unknown` |
 | `DevicePromptKind` | `passcode_for_backup`, `passcode_for_encryption` |
 
-### 13.2 `idevice-tools.json` (repo root, embedded at build time; maintained by ROADMAP X1)
+### 13.2 `idevice-tools.json` (repo root, embedded at build time)
 
 ```json
 {
@@ -551,7 +551,7 @@ Log lines are plain text; the core strips HTML tags from `Screen_Output.html` re
   - `manifest`: file hashes equal these values (unsigned/debug builds).
   - `code_signature`: macOS signed builds pass `codesign --verify --strict` with a requirement for a Developer ID signature of the app's own team (so an ad-hoc or foreign signature fails).
   - `recorded_only`: otherwise.
-- **Sources:** `sources` lists every tarball the build consumes (TLS, curl if built). The libplist asset has no GitHub digest, so X1 computes it.
+- **Sources:** `sources` lists every tarball the build consumes (TLS, curl if built). The libplist asset has no GitHub digest, so its pinned hash is computed from the tarball itself.
 - **Linux:** `system_platforms` use tools found on `PATH` (hashes recorded).
 
 ### 13.3 `acquisition.json` (the acquisition audit record)

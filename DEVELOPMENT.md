@@ -102,7 +102,7 @@ crates/core/                  suitedfir-core: all logic, no Tauri dependency
   src/bin/fake-leapp.rs       test double (never bundled); tests use env!("CARGO_BIN_EXE_fake-leapp")
   src/bin/fake-idevice.rs     test double for the libimobiledevice tools (never bundled)
   tests/{process.rs, introspection.rs, runner.rs, idevice.rs, acquire.rs, leapp_smoke.rs, common/,
-         golden_acq.rs, golden/ (acquisition goldens)}
+         golden_acq.rs, golden_run.rs, golden/ (acquisition and run goldens)}
 src-tauri/                    app shell: tauri.conf.json, tauri.release.conf.json (externalBin overlay),
                               tauri.offline.conf.json (Windows offline-installer overlay),
                               capabilities/default.json, icons/, src/, binaries/ (gitignored; fetched tools)
