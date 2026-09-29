@@ -68,7 +68,7 @@ SUITEDFIR_BUNDLED_TOOLS_DIR=<suiteDFIR.app/Contents/MacOS or the Windows install
   cargo test -p suitedfir-core --test idevice -- --ignored --exact release_bundle_tools_verify_against_the_manifest
 ```
 
-For the Linux and Windows arm64 bundles, see `release.yml`'s header. On a Mac the tool bundle is fetched with `SUITEDFIR_GH_USER` set while `gh` holds several accounts; while the repository is public, an anonymous download works too.
+For the Linux and Windows arm64 bundles, see `release.yml`'s header and job comments. On a Mac the tool bundle is fetched with `SUITEDFIR_GH_USER` set while `gh` holds several accounts; while the repository is public, an anonymous download works too.
 
 The `xtask` alias lives in `.cargo/config.toml`.
 
@@ -217,7 +217,7 @@ A contract change updates all of these in one PR:
 
 **fake-idevice** (`crates/core/src/bin/fake-idevice.rs`) emulates `idevice_id`, `ideviceinfo`, `idevicepair` and `idevicebackup2` with the output of docs/IDEVICE-CLI.md, so no test needs a real device. Its module docs describe the tool selection, output, pairing, passwords, signals, pacing variables and every scenario. Tests create **copies** of the binary named after the tools, never symlinks.
 
-**Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow. On Linux the pinned builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on Ubuntu 22.04 (LEAPP-CLI.md §2). `fixtures/leapp/<tool>/<version>/` holds outputs of their fixture runs, captured on macOS arm64 (how: the `leapp_smoke.rs` module docs), and the `run::status` tests check them. Re-capture them when the pinned versions change.
+**Real LEAPP:** `leapp_smoke` tests (ignored by default) install the pinned tools through the core and run introspection and fixture runs. They run in the `leapp-smoke` workflow. On Linux x86_64 the pinned builds need glibc ≥ 2.43 (iLEAPP) / ≥ 2.42 (aLEAPP) and do not start on Ubuntu 22.04; the arm64 builds' minimum is not inspected (LEAPP-CLI.md §2). `fixtures/leapp/<tool>/<version>/` holds outputs of their fixture runs, captured on macOS arm64 (how: the `leapp_smoke.rs` module docs), and the `run::status` tests check them. Re-capture them when the pinned versions change.
 
 **UI tests:**
 - `node --test` over pure modules: store, filters, virtual-list math, selection/profile diff, formatting.
@@ -226,12 +226,12 @@ A contract change updates all of these in one PR:
 
 **Screenshots:** UI PRs link mock-mode screenshots (light and dark) of every changed screen state, made with `tests/ui/e2e/shots.mjs` (§2).
 
-**Goldens:** the golden and characterization tests (`crates/core/tests/golden_run.rs`, `golden_acq.rs` and `crates/core/tests/golden/**`, the `mod z0` test blocks, `src-tauri/src/z0_tests.rs` and `tests/ui/z0-*`) pin the normalized expected outputs of runs, acquisitions and command errors, and a golden changes only in a PR whose stated purpose is that behavior change.
+**Goldens:** the golden and characterization tests (`crates/core/tests/golden_run.rs`, `golden_acq.rs` and `crates/core/tests/golden/**`, the `mod z0` test blocks, `src-tauri/src/z0_tests.rs` and `tests/ui/z0-*`) pin current behavior (the normalized outputs of runs and acquisitions, command errors, and the other results they characterize), and a golden changes only in a PR whose stated purpose is that behavior change.
 
 **Platform test caveats.**
 - **Windows symlinks:** creating symlinks requires Developer Mode or admin. Tests that create symlinks must **skip with an explicit message** on `ERROR_PRIVILEGE_NOT_HELD` (1314), never fail silently or pass vacuously.
 - **Windows paths:** keep test paths short; long-path support may be disabled on the machine.
-- **Linux CI runs cargo unprivileged:** the Linux job runs every cargo step as an unprivileged user, never root, so permission and read-only tests are real there.
+- **Linux CI runs cargo unprivileged:** the Linux jobs of `ci-rust.yml` and `leapp-smoke.yml` run every cargo step as an unprivileged user, never root, so permission and read-only tests are real there.
 
 ## 5. Commits and pull requests
 
