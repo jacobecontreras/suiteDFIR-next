@@ -173,11 +173,6 @@ impl AppState {
             false
         }
     }
-
-    /// Registers a device command while it runs (see `tmp`).
-    pub(crate) fn device_op(&self) -> TmpUse<'_> {
-        self.tmp.enter()
-    }
 }
 
 // ---- the one active job ----
@@ -355,14 +350,6 @@ pub struct Starting {
     pub udid: Option<String>,
 }
 
-pub fn job_already_active() -> AppError {
-    AppError {
-        code: ErrorCode::RunAlreadyActive,
-        message: "Another job is running. Wait for it to finish or cancel it.".to_owned(),
-        detail: None,
-    }
-}
-
 impl Jobs {
     pub fn lock(&self) -> MutexGuard<'_, Slot> {
         lock(&self.slot)
@@ -374,7 +361,11 @@ impl Jobs {
     pub fn reserve(&self, udid: Option<String>) -> Result<Reservation<'_>, AppError> {
         let mut slot = self.lock();
         if slot.is_taken() {
-            return Err(job_already_active());
+            return Err(AppError {
+                code: ErrorCode::RunAlreadyActive,
+                message: "Another job is running. Wait for it to finish or cancel it.".to_owned(),
+                detail: None,
+            });
         }
         slot.starting = Some(Starting { udid });
         Ok(Reservation {

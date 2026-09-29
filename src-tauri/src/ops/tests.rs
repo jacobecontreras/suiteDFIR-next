@@ -252,7 +252,7 @@ fn temp_cleanup_waits_for_installs_and_device_commands() {
         ErrorCode::RunAlreadyActive
     );
     drop(install);
-    let op = state.device_op();
+    let op = state.tmp.enter();
     assert_eq!(code(state.temp_cleanup()), ErrorCode::RunAlreadyActive);
     drop(op);
     // A job being started (its checks run without the slot's lock) holds the slot too.
