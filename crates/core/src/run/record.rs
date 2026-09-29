@@ -165,7 +165,7 @@ pub fn is_run_id(id: &str) -> bool {
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// Creates `<case>/runs/<run_id>/` with a fresh run id (lifecycle step 2) and returns both. The
+/// Creates `<case>/runs/<run_id>/` with a fresh run id (lifecycle step 1) and returns both. The
 /// folder is created with a plain `create_dir`, so an id is never reused.
 pub fn create_run_dir(
     case_dir: &Path,
