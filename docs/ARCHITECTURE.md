@@ -242,7 +242,7 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
    - Command: `idevicebackup2 -u <udid> backup --full <acq_dir>/backup`, with stdout/stderr to files and a chunk callback for parsing.
    - **Progress:** overall progress only, parsed as in IDEVICE-CLI.md §5. Events are throttled to ≤ 4/s.
    - **Prompts:** passcode prompt lines become `device_prompt` events.
-   - **Cancel:** stop the process tree (§7; 30 s grace, D21).
+   - **Cancel:** stop the process tree (§7; 30 s grace on Unix, D21).
 8. **Restore encryption** (if encryption was enabled or its state is unknown, and `restore_encryption` is true). This runs whatever the backup outcome, including a cancel.
    - Command: `encryption off` with the password in env `BACKUP_PASSWORD`. **No timeout**; it may wait for the device passcode.
    - Re-read `WillEncrypt`, record it, and rewrite `acquisition.json`.
@@ -264,7 +264,7 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 | `restoring_encryption` | Ignored; restore always completes. |
 | `validating`, `sealing` | Stop sealing and finalize. |
 
-**Handoff:** "Parse with iLEAPP now" pre-fills New run with the backup; who holds the password and when it is cleared: CONTRACTS.md §13.5 "Parse handoff".
+**Handoff:** "Parse with iLEAPP" pre-fills New run with the backup; who holds the password and when it is cleared: CONTRACTS.md §13.5 "Parse handoff".
 
 **Recovery** on `case_open`: a `running` acquisition that is not this process's active job becomes `interrupted` (discovery and recovery are owned by the `acquire` module). If the record shows encryption was enabled by the examiner and not confirmed restored, add warning `encryption_left_enabled`, or `encryption_state_unknown` if the enable outcome was unknown. The Case screen shows a "Turn backup encryption off" action.
 
@@ -273,7 +273,7 @@ Acquisition necessarily writes to the device (pairing record, sync lock during b
 ## 7. Process model details
 
 - **Unix:**
-  - Spawn with `std::process::Command` plus `pre_exec(|| { libc::setsid(); Ok(()) })`, which gives a new session with pgid = pid. This is the only `unsafe` code that runs between fork and exec; comment why. The other `unsafe` code is described in the module docs of `process/unix.rs` and `process/windows.rs`.
+  - Spawn with `std::process::Command` plus `pre_exec(|| { libc::setsid(); Ok(()) })`, which gives a new session with pgid = pid. This is the only `unsafe` code that runs between fork and exec; comment why. The other `unsafe` code in `process` is described in the module docs of `process/unix.rs` and `process/windows.rs`.
   - Cancel: `killpg(pgid, SIGTERM)`, wait up to the spawn's configured grace (10 s for LEAPP, 30 s for backups), then `killpg(pgid, SIGKILL)`.
   - `process` also offers a stdout/stderr chunk callback (used for acquisition progress and prompt parsing) in addition to writing the log files.
   - Reap the leader with `wait`, then poll `killpg(pgid, 0)` until `ESRCH` (up to 2 s) before reporting the tree gone. On Linux, members that exited but were never reaped (zombies under an init that does not reap, as in CI containers) count as gone.
