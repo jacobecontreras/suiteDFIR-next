@@ -35,7 +35,7 @@ use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use crate::commands::Shared;
-use crate::lock::{self, InstanceLock, LockError};
+use crate::lock::{self, LockError};
 use crate::opener::SystemOpener;
 use crate::state::{AppConfig, AppState, JobHandle};
 use crate::{host, logger};
@@ -46,9 +46,6 @@ pub const RUN_QUIT_WAIT: Duration = Duration::from_secs(30);
 pub const INSTALL_QUIT_WAIT: Duration = Duration::from_secs(10);
 
 const TITLE: &str = "suiteDFIR";
-
-/// Keeps the instance lock for the life of the process.
-struct HeldLock(#[allow(dead_code)] InstanceLock);
 
 /// The startup sequence (see the module docs). Problems that stop the app are shown natively.
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
@@ -75,7 +72,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             return Ok(());
         }
     };
-    app.manage(HeldLock(held));
+    // Keeps the instance lock for the life of the process.
+    app.manage(held);
 
     // No job can run yet, and no other instance is live: stale temp dirs can go.
     let sweep = process::sweep_stale_temp(&paths.app_cache);
@@ -353,12 +351,6 @@ impl QuitFlow {
         };
         *state = next;
         action
-    }
-}
-
-impl Default for QuitFlow {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
