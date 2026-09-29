@@ -942,7 +942,8 @@ struct Refusal {
 /// `run_start` refusals (lifecycle step 1): the exact `AppError`, and no run folder (so no
 /// `run.json`). `password_required` for an encrypted iTunes backup (also with an empty password)
 /// and for one whose encryption cannot be read; the argv path check (E7) for an empty input path
-/// and for a `\\?\` path.
+/// and for a `\\?\` path; a keychain path that goes through a regular file (E14: on Unix the
+/// keychain's metadata cannot be read, `ENOTDIR`; on Windows as its golden says).
 #[test]
 fn z0_start_refusals() {
     let lab = Lab::new();
@@ -982,6 +983,12 @@ fn z0_start_refusals() {
             "special_prefix_input_path",
             lab.request(ToolId::Ileapp, Path::new(special), InputType::Fs),
         ),
+        ("keychain_path_through_a_file", {
+            let mut request = lab.fs_request(ToolId::Ileapp);
+            let keychain = lab.input.join("evidence.txt").join("keychain.db");
+            request.keychain_path = Some(keychain.to_string_lossy().into_owned());
+            request
+        }),
     ];
     let mut refusals = Vec::new();
     for (case, request) in cases {

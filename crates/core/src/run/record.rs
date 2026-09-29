@@ -1084,6 +1084,12 @@ mod z0 {
         valued.value = Some("ab".repeat(32));
         let mut timed = hash(HashStatus::NotRequested);
         timed.completed_at = Some(Timestamp::parse("2026-09-24T18:30:05Z").unwrap());
+        // Both rules broken at once: the status refusal wins.
+        let mut both = hash(HashStatus::Completed);
+        both.value = Some("cd".repeat(32));
+        both.started_at = Some(Timestamp::parse("2026-09-24T18:30:05Z").unwrap());
+        let mut both_directory = hash(HashStatus::Pending);
+        both_directory.value = Some("ef".repeat(32));
         for (kind, input_hash, reason) in [
             (InputKind::File, hash(HashStatus::Completed), status_text),
             (InputKind::Directory, hash(HashStatus::Pending), status_text),
@@ -1094,6 +1100,8 @@ mod z0 {
             ),
             (InputKind::File, valued, values_text),
             (InputKind::File, timed, values_text),
+            (InputKind::File, both, status_text),
+            (InputKind::Directory, both_directory, status_text),
         ] {
             let text = format!("run {RUN_ID} is not a valid initial record: {reason}");
             assert_eq!(
