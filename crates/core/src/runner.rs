@@ -266,7 +266,7 @@ pub fn start(request: RunRequest, ctx: RunContext) -> Result<RunJob, AppError> {
     let manifest = &ctx.tool.manifest;
     let input = PathBuf::from(&input_path);
     argv::check_path("tool", &ctx.tool.entry)?;
-    argv::check_path("input", &input)?;
+    let input_arg = argv::check_path("input", &input)?;
 
     let known: Vec<PathBuf> = ctx
         .settings
@@ -354,7 +354,7 @@ pub fn start(request: RunRequest, ctx: RunContext) -> Result<RunJob, AppError> {
 
     let run_input = RunInput {
         // The path as LEAPP gets it: absolute, never canonicalized (ARCHITECTURE.md §7).
-        path: argv::check_path("input", &input)?,
+        path: input_arg,
         kind: inspection.kind,
         input_type,
         type_detected: inspection.detected_type,
@@ -1128,22 +1128,15 @@ impl RunJob {
                     .join("\n")
             })
             .join("\n");
+        let tool = match self.setup.tool.id {
+            ToolId::Ileapp => "iLEAPP",
+            ToolId::Aleapp => "aLEAPP",
+        };
         match leapp_modules::glibc_too_old(&output) {
             Some(too_old) => Outcome::SpawnFailed {
-                detail: format!(
-                    "{} ({})",
-                    too_old.message(&self.format_display_name()),
-                    too_old.loader_line
-                ),
+                detail: format!("{} ({})", too_old.message(tool), too_old.loader_line),
             },
             None => outcome,
-        }
-    }
-
-    fn format_display_name(&self) -> String {
-        match self.setup.tool.id {
-            ToolId::Ileapp => "iLEAPP".to_owned(),
-            ToolId::Aleapp => "aLEAPP".to_owned(),
         }
     }
 
