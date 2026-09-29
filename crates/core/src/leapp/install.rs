@@ -599,14 +599,15 @@ fn copy_verified(
     dest: &Path,
     cancel: &AtomicBool,
 ) -> Result<(), InstallError> {
+    let not_regular = || InstallError::Io {
+        context: format!("importing {}", src.display()),
+        source: io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"),
+    };
     // Checked before opening: Windows refuses to open a directory ("access denied"), which would
     // otherwise be reported as permission_denied instead of "not a regular file".
     let kind = fs::metadata(src).map_err(InstallError::io(format!("reading {}", src.display())))?;
     if !kind.is_file() {
-        return Err(InstallError::Io {
-            context: format!("importing {}", src.display()),
-            source: io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"),
-        });
+        return Err(not_regular());
     }
     let mut file =
         File::open(src).map_err(InstallError::io(format!("opening {}", src.display())))?;
@@ -614,10 +615,7 @@ fn copy_verified(
         .metadata()
         .map_err(InstallError::io(format!("reading {}", src.display())))?;
     if !metadata.is_file() {
-        return Err(InstallError::Io {
-            context: format!("importing {}", src.display()),
-            source: io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"),
-        });
+        return Err(not_regular());
     }
     let mismatch = |actual: String| InstallError::HashMismatch {
         what: format!("{} (imported as {})", src.display(), asset.asset_name),
