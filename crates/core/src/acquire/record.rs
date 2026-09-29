@@ -53,7 +53,7 @@ pub fn acq_dir(case_dir: &Path, acq_id: &str) -> PathBuf {
     case_dir.join(ACQUISITIONS_DIR).join(acq_id)
 }
 
-/// Creates `<case>/acquisitions/<acq_id>/` with a fresh id (lifecycle step 5) and returns both. A
+/// Creates `<case>/acquisitions/<acq_id>/` with a fresh id (lifecycle step 4) and returns both. A
 /// plain `create_dir` is used, so an id is never reused.
 pub fn create_acq_dir(
     case_dir: &Path,
