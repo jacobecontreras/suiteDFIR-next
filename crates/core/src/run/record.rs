@@ -266,7 +266,13 @@ pub fn initial_record(setup: RunSetup) -> Result<RunRecord, RecordError> {
             reason,
         });
     }
-    Ok(RunRecord {
+    Ok(record_from(setup))
+}
+
+/// The record that [`initial_record`] builds from `setup`, without checking `input.hash` (the
+/// runner also builds it for a setup that `initial_record` refused).
+pub(crate) fn record_from(setup: RunSetup) -> RunRecord {
+    RunRecord {
         schema_version: RunRecord::SCHEMA_VERSION,
         run_id: setup.run_id,
         label: setup.label,
@@ -303,7 +309,7 @@ pub fn initial_record(setup: RunSetup) -> Result<RunRecord, RecordError> {
             stderr: STDERR_LOG.to_owned(),
             screen_output: SCREEN_OUTPUT.to_owned(),
         },
-    })
+    }
 }
 
 /// Writes the initial record into its (new) run folder, atomically. A `run.json` that already

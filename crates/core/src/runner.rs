@@ -37,7 +37,7 @@ use crate::contracts::{
     AppError, CaseFile, ErrorCode, HashStatus, InputKind, InputType, ModuleMode, ModulesFile,
     Reason, RecordHost, RunCommand, RunEvent, RunInput, RunOptions, RunPhase, RunProcess,
     RunRecord, RunRequest, RunStatus, RunSummary, RunTool, Seal, SealStatus, Settings, StdStream,
-    Timestamp, ToolId, ToolManifest, ToolState, VersionedFile, parse_versioned,
+    Timestamp, ToolId, ToolManifest, ToolState, parse_versioned,
 };
 // Only the debug-build dev override uses these.
 #[cfg(debug_assertions)]
@@ -1328,44 +1328,7 @@ fn pending_record(setup: RunSetup) -> RunRecord {
     input.hash.value = None;
     input.hash.started_at = None;
     input.hash.completed_at = None;
-    RunRecord {
-        schema_version: RunRecord::SCHEMA_VERSION,
-        run_id: setup.run_id,
-        label: setup.label,
-        status: RunStatus::Running,
-        status_reasons: Vec::new(),
-        warnings: Vec::new(),
-        created_at: setup.created_at,
-        started_at: None,
-        ended_at: None,
-        recovered_at: None,
-        duration_ms: None,
-        app: record::record_app(),
-        host: setup.host,
-        case_snapshot: setup.case_snapshot,
-        tool: setup.tool,
-        input,
-        options: setup.options,
-        modules: setup.modules,
-        command: setup.command,
-        process: None,
-        leapp_result: None,
-        output: crate::contracts::RunOutput {
-            report_dir: REPORT_DIR.to_owned(),
-            seal: Seal {
-                status: SealStatus::Pending,
-                manifest: None,
-                manifest_sha256: None,
-                file_count: None,
-                total_bytes: None,
-            },
-        },
-        logs: crate::contracts::RunLogs {
-            stdout: STDOUT_LOG.to_owned(),
-            stderr: STDERR_LOG.to_owned(),
-            screen_output: record::SCREEN_OUTPUT.to_owned(),
-        },
-    }
+    record::record_from(RunSetup { input, ..setup })
 }
 
 #[cfg(test)]
