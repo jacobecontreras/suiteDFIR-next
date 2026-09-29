@@ -1,5 +1,5 @@
-//! Poll-based tail of LEAPP's `Screen_Output.html`, producing plain-text line batches
-//! (ARCHITECTURE.md D7, §6 steps 5–6).
+//! Poll-based tail of LEAPP's `Screen_Output.html`, producing plain-text lines, which the runner
+//! sends as `log` batches (ARCHITECTURE.md D7, §6 steps 5–6).
 //!
 //! LEAPP appends one record per message: `message<br>` plus a newline (`\n`, or `\r\n` on
 //! Windows), opening and closing the file each time (LEAPP-CLI.md Q8). Messages are not
@@ -16,7 +16,7 @@ use std::time::Duration;
 pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// The longest line emitted, in bytes (including the `…` of a truncated line).
 const MAX_LINE_BYTES: usize = 8 * 1024;
-/// The most lines in one batch (`RunEvent::Log`, CONTRACTS.md §11).
+/// The most lines in one `log` batch the runner sends (`RunEvent::Log`, CONTRACTS.md §11).
 pub const MAX_BATCH_LINES: usize = 500;
 /// How many stdout/stderr lines a `RunEvent::StdioTail` holds.
 pub const STDIO_TAIL_LINES: usize = 200;
