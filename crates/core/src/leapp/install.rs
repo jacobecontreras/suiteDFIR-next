@@ -599,14 +599,15 @@ fn copy_verified(
     dest: &Path,
     cancel: &AtomicBool,
 ) -> Result<(), InstallError> {
+    let not_regular = || InstallError::Io {
+        context: format!("importing {}", src.display()),
+        source: io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"),
+    };
     // Checked before opening: Windows refuses to open a directory ("access denied"), which would
     // otherwise be reported as permission_denied instead of "not a regular file".
     let kind = fs::metadata(src).map_err(InstallError::io(format!("reading {}", src.display())))?;
     if !kind.is_file() {
-        return Err(InstallError::Io {
-            context: format!("importing {}", src.display()),
-            source: io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"),
-        });
+        return Err(not_regular());
     }
     let mut file =
         File::open(src).map_err(InstallError::io(format!("opening {}", src.display())))?;
@@ -614,10 +615,7 @@ fn copy_verified(
         .metadata()
         .map_err(InstallError::io(format!("reading {}", src.display())))?;
     if !metadata.is_file() {
-        return Err(InstallError::Io {
-            context: format!("importing {}", src.display()),
-            source: io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"),
-        });
+        return Err(not_regular());
     }
     let mismatch = |actual: String| InstallError::HashMismatch {
         what: format!("{} (imported as {})", src.display(), asset.asset_name),
@@ -953,31 +951,26 @@ fn check(pinned: Pinned<'_>, hash: bool) -> ToolCheck {
         install_dir: None,
         problem: None,
     };
+    let unverified = |status| ToolCheck {
+        status,
+        verified: None,
+    };
     let asset = match pinned.asset() {
         Ok((_, asset)) => asset,
         Err(e) => {
             status.state = ToolState::UnsupportedPlatform;
             status.problem = Some(e.to_string());
-            return ToolCheck {
-                status,
-                verified: None,
-            };
+            return unverified(status);
         }
     };
     let (record, entry) = match installed(pinned, asset) {
         Ok(Some(found)) => found,
         Ok(None) => {
-            return ToolCheck {
-                status,
-                verified: None,
-            };
+            return unverified(status);
         }
         Err(problem) => {
             status.problem = Some(problem);
-            return ToolCheck {
-                status,
-                verified: None,
-            };
+            return unverified(status);
         }
     };
     status.installed_version = Some(record.version.clone());
@@ -986,10 +979,7 @@ fn check(pinned: Pinned<'_>, hash: bool) -> ToolCheck {
     status.install_dir = Some(pinned.version_dir().to_string_lossy().into_owned());
     if !hash {
         status.state = ToolState::InstalledUnverified;
-        return ToolCheck {
-            status,
-            verified: None,
-        };
+        return unverified(status);
     }
     let (expected, against) = match &asset.entry_sha256 {
         Some(hash) => (hash.as_str(), EntryVerifiedAgainst::Manifest),
@@ -1020,18 +1010,12 @@ fn check(pinned: Pinned<'_>, hash: bool) -> ToolCheck {
                 "{} has SHA-256 {actual}; {basis} pins {expected}",
                 entry.display()
             ));
-            ToolCheck {
-                status,
-                verified: None,
-            }
+            unverified(status)
         }
         Err(e) => {
             status.state = ToolState::VerificationFailed;
             status.problem = Some(format!("cannot hash {}: {e}", entry.display()));
-            ToolCheck {
-                status,
-                verified: None,
-            }
+            unverified(status)
         }
     }
 }

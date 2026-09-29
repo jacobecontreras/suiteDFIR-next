@@ -10,22 +10,19 @@ use crate::fsutil;
 /// The case-data file inside the run folder.
 pub const CASE_DATA_FILE: &str = "case.lcasedata";
 
-/// LEAPP's case-data file for a case.
-pub fn case_data(case: &CaseSnapshot) -> LeappCaseData {
-    LeappCaseData {
+/// Writes LEAPP's case-data file for a case, `<run_dir>/case.lcasedata`, atomically and returns
+/// its path.
+pub fn write(run_dir: &Path, case: &CaseSnapshot) -> io::Result<PathBuf> {
+    let path = run_dir.join(CASE_DATA_FILE);
+    let data = LeappCaseData {
         leapp: "case_data".to_owned(),
         case_data_values: CaseDataValues {
             case_number: case.case_number.clone(),
             agency: case.agency.clone(),
             examiner: case.examiner.clone(),
         },
-    }
-}
-
-/// Writes `<run_dir>/case.lcasedata` atomically and returns its path.
-pub fn write(run_dir: &Path, case: &CaseSnapshot) -> io::Result<PathBuf> {
-    let path = run_dir.join(CASE_DATA_FILE);
-    fsutil::write_json_atomic(&path, &case_data(case))?;
+    };
+    fsutil::write_json_atomic(&path, &data)?;
     Ok(path)
 }
 

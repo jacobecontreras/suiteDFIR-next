@@ -8,13 +8,7 @@
 //! - [`start`] is lifecycle step 1: every check, each failing with its `AppError` and creating
 //!   nothing; then it creates `runs/<run_id>/`, which gives the run its id.
 //! - [`RunJob::run`] is steps 2-10, as [`RunJob::prepare`] then [`PreparedRun::run`] (`run_start`
-//!   answers after `prepare`): prepare (initial `run.json`, `case.lcasedata`, the run's
-//!   profile, the per-run temp dir), hash the input on its own thread concurrently with LEAPP,
-//!   spawn LEAPP, stream `Screen_Output.html` in `log` batches of at most 500 lines, drain after
-//!   the exit and send each stdio tail once, wait for the input hash, analyze the report, seal it
-//!   into `report.sha256`, and finalize `run.json` (atomic, then read-only).
-//! - [`RunControl::cancel`]: before the exit it stops the process tree (and hashing); a cancel that
-//!   arrives after the exit only stops input hashing (warning `input_hash_cancelled`).
+//!   answers after `prepare`).
 //!
 //! The one-active-job rule, the event channel and the log backlog are the shell's. The iTunes
 //! backup password lives in the job only until LEAPP is spawned; it reaches LEAPP through argv
@@ -37,7 +31,7 @@ use crate::contracts::{
     AppError, CaseFile, ErrorCode, HashStatus, InputKind, InputType, ModuleMode, ModulesFile,
     Reason, RecordHost, RunCommand, RunEvent, RunInput, RunOptions, RunPhase, RunProcess,
     RunRecord, RunRequest, RunStatus, RunSummary, RunTool, Seal, SealStatus, Settings, StdStream,
-    Timestamp, ToolId, ToolManifest, ToolState, VersionedFile, parse_versioned,
+    Timestamp, ToolId, ToolManifest, ToolState, parse_versioned,
 };
 // Only the debug-build dev override uses these.
 #[cfg(debug_assertions)]
@@ -266,7 +260,7 @@ pub fn start(request: RunRequest, ctx: RunContext) -> Result<RunJob, AppError> {
     let manifest = &ctx.tool.manifest;
     let input = PathBuf::from(&input_path);
     argv::check_path("tool", &ctx.tool.entry)?;
-    argv::check_path("input", &input)?;
+    let input_arg = argv::check_path("input", &input)?;
 
     let known: Vec<PathBuf> = ctx
         .settings
@@ -354,7 +348,7 @@ pub fn start(request: RunRequest, ctx: RunContext) -> Result<RunJob, AppError> {
 
     let run_input = RunInput {
         // The path as LEAPP gets it: absolute, never canonicalized (ARCHITECTURE.md §7).
-        path: argv::check_path("input", &input)?,
+        path: input_arg,
         kind: inspection.kind,
         input_type,
         type_detected: inspection.detected_type,
@@ -459,25 +453,20 @@ fn check_keychain(
             Some(absolute.clone()),
         )
     };
-    match fs::metadata(path) {
-        Ok(meta) if meta.is_file() => {}
-        Ok(_) => return Err(not_a_file()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not_a_file()),
-        Err(e) => {
-            return Err(app_error(
-                fsutil::io_error_code(&e),
-                "The keychain file could not be read",
-                Some(format!("{absolute}: {e}")),
-            ));
-        }
-    }
-    let hash = hashing::sha256_file(path).map_err(|e| {
+    let unreadable = |e: io::Error| {
         app_error(
             fsutil::io_error_code(&e),
             "The keychain file could not be read",
             Some(format!("{absolute}: {e}")),
         )
-    })?;
+    };
+    match fs::metadata(path) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => return Err(not_a_file()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not_a_file()),
+        Err(e) => return Err(unreadable(e)),
+    }
+    let hash = hashing::sha256_file(path).map_err(unreadable)?;
     Ok((absolute, hash))
 }
 
@@ -816,10 +805,6 @@ impl RunJob {
         &self.case_dir
     }
 
-    pub fn tool(&self) -> ToolId {
-        self.setup.tool.id
-    }
-
     pub fn created_at(&self) -> Timestamp {
         self.setup.created_at
     }
@@ -939,7 +924,7 @@ impl RunJob {
             self.set_phase(RunPhase::SealingReport, on_event);
             self.seal(&mut seal_warnings, on_event)
         } else {
-            skipped_seal()
+            hashing::unsealed(SealStatus::SkippedNoOutput)
         };
 
         self.finish(record, &outcome, &seal_warnings, traceback, on_event)
@@ -1137,22 +1122,15 @@ impl RunJob {
                     .join("\n")
             })
             .join("\n");
+        let tool = match self.setup.tool.id {
+            ToolId::Ileapp => "iLEAPP",
+            ToolId::Aleapp => "aLEAPP",
+        };
         match leapp_modules::glibc_too_old(&output) {
             Some(too_old) => Outcome::SpawnFailed {
-                detail: format!(
-                    "{} ({})",
-                    too_old.message(&self.format_display_name()),
-                    too_old.loader_line
-                ),
+                detail: format!("{} ({})", too_old.message(tool), too_old.loader_line),
             },
             None => outcome,
-        }
-    }
-
-    fn format_display_name(&self) -> String {
-        match self.setup.tool.id {
-            ToolId::Ileapp => "iLEAPP".to_owned(),
-            ToolId::Aleapp => "aLEAPP".to_owned(),
         }
     }
 
@@ -1184,13 +1162,7 @@ impl RunJob {
             }
             Err(e) => {
                 log::warn!("run {}: sealing the report failed: {e}", self.run_id());
-                Seal {
-                    status: SealStatus::Failed,
-                    manifest: None,
-                    manifest_sha256: None,
-                    file_count: None,
-                    total_bytes: None,
-                }
+                hashing::unsealed(SealStatus::Failed)
             }
         }
     }
@@ -1206,7 +1178,7 @@ impl RunJob {
     ) -> RunOutcome {
         self.set_phase(RunPhase::Finalizing, on_event);
         if record.output.seal.status == SealStatus::Pending {
-            record.output.seal = skipped_seal();
+            record.output.seal = hashing::unsealed(SealStatus::SkippedNoOutput);
         }
         let verdict = status::evaluate(&StatusInput {
             outcome,
@@ -1308,16 +1280,6 @@ fn apply_hash(record: &mut RunRecord, hashing: &mut InputHashing) {
     }
 }
 
-fn skipped_seal() -> Seal {
-    Seal {
-        status: SealStatus::SkippedNoOutput,
-        manifest: None,
-        manifest_sha256: None,
-        file_count: None,
-        total_bytes: None,
-    }
-}
-
 /// The record of a setup that `initial_record` refused (a program error), so the run can still be
 /// finalized as `prepare_failed`: everything known, and nothing hashed.
 fn pending_record(setup: RunSetup) -> RunRecord {
@@ -1328,44 +1290,7 @@ fn pending_record(setup: RunSetup) -> RunRecord {
     input.hash.value = None;
     input.hash.started_at = None;
     input.hash.completed_at = None;
-    RunRecord {
-        schema_version: RunRecord::SCHEMA_VERSION,
-        run_id: setup.run_id,
-        label: setup.label,
-        status: RunStatus::Running,
-        status_reasons: Vec::new(),
-        warnings: Vec::new(),
-        created_at: setup.created_at,
-        started_at: None,
-        ended_at: None,
-        recovered_at: None,
-        duration_ms: None,
-        app: record::record_app(),
-        host: setup.host,
-        case_snapshot: setup.case_snapshot,
-        tool: setup.tool,
-        input,
-        options: setup.options,
-        modules: setup.modules,
-        command: setup.command,
-        process: None,
-        leapp_result: None,
-        output: crate::contracts::RunOutput {
-            report_dir: REPORT_DIR.to_owned(),
-            seal: Seal {
-                status: SealStatus::Pending,
-                manifest: None,
-                manifest_sha256: None,
-                file_count: None,
-                total_bytes: None,
-            },
-        },
-        logs: crate::contracts::RunLogs {
-            stdout: STDOUT_LOG.to_owned(),
-            stderr: STDERR_LOG.to_owned(),
-            screen_output: record::SCREEN_OUTPUT.to_owned(),
-        },
-    }
+    record::record_from(RunSetup { input, ..setup })
 }
 
 #[cfg(test)]
