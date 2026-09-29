@@ -952,3 +952,139 @@ mod tests {
         assert!(!status.success());
     }
 }
+
+/// Z0a2 characterization (SIMPLIFY.md §3, candidate E2): the whole `Seal` that
+/// `SealOutcome::seal` gives on each branch, and the exact seal warnings. Expected hashes are
+/// NIST vectors or `sha2` over the manifest bytes, never `to_hex`.
+/// Frozen: later bundles do not edit this module (SIMPLIFY.md §2).
+#[cfg(test)]
+mod z0 {
+    use std::fs;
+    use std::sync::atomic::AtomicBool;
+
+    use sha2::{Digest, Sha256};
+
+    use super::{SealOutcome, seal_tree};
+    use crate::contracts::{Reason, Seal, SealStatus};
+
+    const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    const EMPTY: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    fn nulls(status: SealStatus) -> Seal {
+        Seal {
+            status,
+            manifest: None,
+            manifest_sha256: None,
+            file_count: None,
+            total_bytes: None,
+        }
+    }
+
+    #[test]
+    fn z0_seal_records_by_branch() {
+        // Sealed: the manifest's name as given, its hash, the file count and bytes.
+        let tmp = tempfile::tempdir().unwrap();
+        let run = tmp.path().join("run");
+        fs::create_dir_all(run.join("report").join("b")).unwrap();
+        fs::write(run.join("report").join("a.txt"), b"abc").unwrap();
+        fs::write(run.join("report").join("b").join("c.txt"), b"").unwrap();
+        let never = AtomicBool::new(false);
+        let outcome = seal_tree(
+            &run.join("report"),
+            &run.join("report.sha256"),
+            &never,
+            |_, _| {},
+        )
+        .unwrap();
+        let manifest = fs::read(run.join("report.sha256")).unwrap();
+        assert_eq!(
+            String::from_utf8(manifest.clone()).unwrap(),
+            format!("{ABC}  report/a.txt\n{EMPTY}  report/b/c.txt\n")
+        );
+        let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest));
+        assert_eq!(
+            outcome.seal("report.sha256"),
+            Seal {
+                status: SealStatus::Sealed,
+                manifest: Some("report.sha256".to_owned()),
+                manifest_sha256: Some(manifest_sha256.clone()),
+                file_count: Some(2),
+                total_bytes: Some(3),
+            }
+        );
+        assert_eq!(
+            outcome.seal("backup.sha256"),
+            Seal {
+                status: SealStatus::Sealed,
+                manifest: Some("backup.sha256".to_owned()),
+                manifest_sha256: Some(manifest_sha256.clone()),
+                file_count: Some(2),
+                total_bytes: Some(3),
+            }
+        );
+        // Cancelled, even with a manifest hash and counts: every other field is null.
+        let cancelled = SealOutcome {
+            cancelled: true,
+            manifest_sha256: Some(manifest_sha256),
+            file_count: 2,
+            total_bytes: 3,
+            symlinks: 1,
+            unencodable_names: 1,
+        };
+        assert_eq!(
+            cancelled.seal("report.sha256"),
+            nulls(SealStatus::Cancelled)
+        );
+        // Not cancelled but without a manifest hash: also `cancelled` with nulls.
+        let no_manifest = SealOutcome {
+            cancelled: false,
+            manifest_sha256: None,
+            file_count: 2,
+            total_bytes: 3,
+            symlinks: 0,
+            unencodable_names: 0,
+        };
+        assert_eq!(
+            no_manifest.seal("report.sha256"),
+            nulls(SealStatus::Cancelled)
+        );
+    }
+
+    #[test]
+    fn z0_seal_warnings_are_exact() {
+        let outcome = SealOutcome {
+            cancelled: false,
+            manifest_sha256: Some(ABC.to_owned()),
+            file_count: 2,
+            total_bytes: 3,
+            symlinks: 3,
+            unencodable_names: 2,
+        };
+        let unencodable = Reason {
+            code: "unencodable_filename".to_owned(),
+            message:
+                "2 file name(s) are not valid Unicode and were written lossily in the manifest"
+                    .to_owned(),
+        };
+        for code in ["symlinks_in_report", "symlinks_in_backup"] {
+            assert_eq!(
+                outcome.warnings(code),
+                [
+                    Reason {
+                        code: code.to_owned(),
+                        message: "3 symbolic link(s) were neither followed nor listed in the \
+                                  manifest"
+                            .to_owned(),
+                    },
+                    unencodable.clone(),
+                ]
+            );
+        }
+        let clean = SealOutcome {
+            symlinks: 0,
+            unencodable_names: 0,
+            ..outcome
+        };
+        assert_eq!(clean.warnings("symlinks_in_report"), []);
+    }
+}

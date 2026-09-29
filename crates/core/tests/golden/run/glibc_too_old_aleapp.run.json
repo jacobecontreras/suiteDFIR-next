@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "run_id": "<RUN_ID>",
+  "label": "Golden run",
+  "status": "failed",
+  "status_reasons": [
+    {
+      "code": "spawn_failed",
+      "message": "LEAPP could not be started: the pinned Linux aLEAPP build needs glibc 2.43 or newer; this system's glibc is too old ([PYI-<PID>:ERROR] Failed to load Python shared library '<LAB>/cache/tmp/<RUN_ID>/_MEIfake<PID>/libpython3.14.so.1.0': /lib/x86_64-linux-gnu/libm.so.6: version `GLIBC_2.43' not found (required by <LAB>/cache/tmp/<RUN_ID>/_MEIfake<PID>/libmvec.so.1))"
+    }
+  ],
+  "warnings": [],
+  "created_at": "<TIMESTAMP>",
+  "started_at": "<TIMESTAMP>",
+  "ended_at": "<TIMESTAMP>",
+  "recovered_at": null,
+  "duration_ms": "<DURATION_MS>",
+  "app": {
+    "name": "suiteDFIR",
+    "version": "<APP_VERSION>"
+  },
+  "host": {
+    "os": "testos",
+    "os_version": "1.0",
+    "arch": "testarch",
+    "hostname": "LAB-TEST-01"
+  },
+  "case_snapshot": {
+    "case_id": "<CASE_ID>",
+    "name": "Operation Nightjar",
+    "case_number": "2026-0142",
+    "examiner": "J. Doe",
+    "agency": "County Forensics Lab"
+  },
+  "tool": {
+    "id": "aleapp",
+    "version": "dev-override",
+    "platform": "<PLATFORM>",
+    "asset_name": null,
+    "asset_sha256": null,
+    "entry_sha256": "<FAKE_LEAPP_SHA256>",
+    "entry_verified_against": "none",
+    "install_source": "dev_override"
+  },
+  "input": {
+    "path": "<LAB>/ev/fs",
+    "kind": "directory",
+    "type": "fs",
+    "type_detected": "fs",
+    "size_bytes": null,
+    "itunes_encrypted": null,
+    "acquisition_id": null,
+    "hash": {
+      "algorithm": "sha256",
+      "status": "not_applicable",
+      "value": null,
+      "started_at": null,
+      "completed_at": null
+    }
+  },
+  "options": {
+    "timezone": null,
+    "timezone_supported": false,
+    "password_supplied": false,
+    "keychain_path": null,
+    "keychain_sha256": null
+  },
+  "modules": {
+    "mode": "all",
+    "profile_name": null,
+    "requested": [],
+    "resolved": [
+      "accountsDe",
+      "callLogs",
+      "chromeHistory",
+      "installedApps",
+      "smsMms",
+      "wifiProfiles"
+    ],
+    "unknown": [],
+    "always_run": [
+      "usagestats_version"
+    ],
+    "available_count": 6
+  },
+  "command": {
+    "argv": [
+      "<FAKE_LEAPP>",
+      "-t",
+      "fs",
+      "-i",
+      "<LAB>/ev/fs",
+      "-o",
+      "<LAB>/cases/Operation Nightjar/runs/<RUN_ID>",
+      "--custom_output_folder",
+      "report",
+      "-d",
+      "<LAB>/cases/Operation Nightjar/runs/<RUN_ID>/case.lcasedata"
+    ],
+    "cwd": "<LAB>/cases/Operation Nightjar/runs/<RUN_ID>"
+  },
+  "process": {
+    "exit_code": 255,
+    "signal": null,
+    "exited_at": "<TIMESTAMP>",
+    "cancel_requested": false,
+    "escalated_to_kill": false
+  },
+  "leapp_result": null,
+  "output": {
+    "report_dir": "report",
+    "seal": {
+      "status": "skipped_no_output",
+      "manifest": null,
+      "manifest_sha256": null,
+      "file_count": null,
+      "total_bytes": null
+    }
+  },
+  "logs": {
+    "stdout": "leapp.stdout.log",
+    "stderr": "leapp.stderr.log",
+    "screen_output": "report/_HTML/_Script_Logs/Screen_Output.html"
+  }
+}
